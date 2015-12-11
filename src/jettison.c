@@ -140,12 +140,15 @@ int jettison_clone_func(void *data)
 	gid_t rgid;
 	setsid();
 
-	if (g_pty_route) {
-		/*struct termios tms;*/
-		if (switch_terminal(g_pty_slavepath, 0)) {
-			printf("could not switch to pty\n");
-			return -1;
-		}
+	if (g_pty_route == 0) {
+		/* no routing, close inherited tty */
+		close(STDIN_FILENO);
+		close(STDOUT_FILENO);
+		close(STDERR_FILENO);
+	}
+	else if (switch_terminal(g_pty_slavepath, 0)) {
+		printf("could not switch to pty(\"%s\")\n", g_pty_slavepath);
+		return -1;
 	}
 
 	/* enter pod environment */
@@ -267,6 +270,7 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	if (podflags & (1 << OPTION_NEWNET))
 		cloneflags |= CLONE_NEWNET;
 
+
 	/* setup some extra parameters and create new thread */
 	g_progpath = progpath;
 	g_podflags = podflags;
@@ -277,7 +281,7 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 			cloneflags | SIGCHLD, data);
 	free(newstack);
 	if (p == -1) {
-		printf("clone failure.\n");
+		printf("clone: %s\n", strerror(errno));
 		return -1;
 	}
 	return p;
@@ -322,10 +326,14 @@ int process_arguments(int argc, char *argv[])
 	int i;
 	int argidx = 3;
 	char *err;
+
 	/* must have executable path, and pod config file present */
 	if (argc < 3)
 		goto err_usage;
 
+	g_stacksize = 0;
+	g_nokill = 0;
+	g_pty_route = 1;
 
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
@@ -392,6 +400,10 @@ int process_arguments(int argc, char *argv[])
 				g_nokill = 1;
 				argidx  += 1;
 			}
+			else if (strncmp(argv[i], "--notty", len) == 0) {
+				g_pty_route = 0;
+				argidx  += 1;
+			}
 			break;
 		}
 
@@ -427,9 +439,10 @@ err_usage:
 	printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
 	printf("\n");
 	printf("additional options:\n");
-	printf("--procname  <process name>\n");
-	printf("--stacksize <kilobytes>\n");
-	printf("--nokill\n");
+	printf("--procname  <process name> set pid1 name\n");
+	printf("--stacksize <kilobytes> set maximum stack size\n");
+	printf("--nokill    seccomp returns error instead of killing process\n");
+	printf("--notty     do not route terminal io, and close stdio\n");
 	printf("\n");
 	return -1;
 }
@@ -453,6 +466,9 @@ static int handle_sigwinch()
 {
 	struct winsize w;
 	/*char ctchar[128];*/
+
+	if (g_pty_route == 0)
+		return 0;
 
 	memset(&w, 0, sizeof(w));
 	/* TODO -- squash the curses resize bug :( */
@@ -741,8 +757,6 @@ int main(int argc, char *argv[])
 	uid_t ruid = getuid();
 	gid_t rgid = getgid();
 
-	g_stacksize = 0;
-	g_nokill = 0;
 	if (process_arguments(argc, argv)) {
 		return -1;
 	}
@@ -756,51 +770,50 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-
-	/* running jettison will hook up a pseudo terminal, */
-	/* cloned thread will open slave path */
-	g_pty_route = 1;
-	if (pty_create(&g_ptym,	O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
-		printf("could not create pty\n");
-		jettison_abort();
-		return -1;
-	}
-
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
 	/* reset our tty to original termios at program exit */
-	routeio_sigsetup();
 	if (atexit(exit_func)) {
 		printf("couldn't register exit function\n");
 		jettison_abort();
 		return -1;
 	}
 
-	/* set terminal to raw mode */
-	tcgetattr(STDIN_FILENO, &tms);
-	cfmakeraw(&tms);
-	/* disable controls chars */
-	tms.c_cc[VDISCARD]  = _POSIX_VDISABLE;
-	tms.c_cc[VEOF]	    = _POSIX_VDISABLE;
-	tms.c_cc[VEOL]	    = _POSIX_VDISABLE;
-	tms.c_cc[VEOL2]	    = _POSIX_VDISABLE;
-	tms.c_cc[VERASE]    = _POSIX_VDISABLE;
-	tms.c_cc[VINTR]	    = _POSIX_VDISABLE;
-	tms.c_cc[VKILL]	    = _POSIX_VDISABLE;
-	tms.c_cc[VLNEXT]    = _POSIX_VDISABLE;
-	tms.c_cc[VMIN]	    = 1;
-	tms.c_cc[VQUIT]	    = _POSIX_VDISABLE;
-	tms.c_cc[VREPRINT]  = _POSIX_VDISABLE;
-	tms.c_cc[VSTART]    = _POSIX_VDISABLE;
-	tms.c_cc[VSTOP]	    = _POSIX_VDISABLE;
-	tms.c_cc[VSUSP]	    = _POSIX_VDISABLE;
-	tms.c_cc[VSWTC]	    = _POSIX_VDISABLE;
-	tms.c_cc[VTIME]	    = 0;
-	tms.c_cc[VWERASE]   = _POSIX_VDISABLE;
-	/* set it! */
-	tcsetattr(STDIN_FILENO, TCSANOW, &tms);
-	tcflush(STDIN_FILENO, TCIOFLUSH);
+	/* running jettison will hook up a pseudo terminal */
+	/* cloned thread will open slave path */
+	if (g_pty_route) {
+		routeio_sigsetup();
+		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
+			printf("could not create pty\n");
+			jettison_abort();
+			return -1;
+		}
 
+		/* set terminal to raw mode */
+		tcgetattr(STDIN_FILENO, &tms);
+		cfmakeraw(&tms);
+		/* disable controls chars */
+		tms.c_cc[VDISCARD]  = _POSIX_VDISABLE;
+		tms.c_cc[VEOF]	    = _POSIX_VDISABLE;
+		tms.c_cc[VEOL]	    = _POSIX_VDISABLE;
+		tms.c_cc[VEOL2]	    = _POSIX_VDISABLE;
+		tms.c_cc[VERASE]    = _POSIX_VDISABLE;
+		tms.c_cc[VINTR]	    = _POSIX_VDISABLE;
+		tms.c_cc[VKILL]	    = _POSIX_VDISABLE;
+		tms.c_cc[VLNEXT]    = _POSIX_VDISABLE;
+		tms.c_cc[VMIN]	    = 1;
+		tms.c_cc[VQUIT]	    = _POSIX_VDISABLE;
+		tms.c_cc[VREPRINT]  = _POSIX_VDISABLE;
+		tms.c_cc[VSTART]    = _POSIX_VDISABLE;
+		tms.c_cc[VSTOP]	    = _POSIX_VDISABLE;
+		tms.c_cc[VSUSP]	    = _POSIX_VDISABLE;
+		tms.c_cc[VSWTC]	    = _POSIX_VDISABLE;
+		tms.c_cc[VTIME]	    = 0;
+		tms.c_cc[VWERASE]   = _POSIX_VDISABLE;
+		/* set it! */
+		tcsetattr(STDIN_FILENO, TCSANOW, &tms);
+		tcflush(STDIN_FILENO, TCIOFLUSH);
+	}
 
 	printf("jettison argv: %s\n", argv[0]);
 	g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
@@ -812,9 +825,6 @@ int main(int argc, char *argv[])
 	}
 	handle_sigwinch(); /* set terminal size, stty was reporting 0,0 */
 	printf("new pid: %d\n", g_newpid);
-	/* this thread will hang out and handle pod io
-	 * TODO --- option to not always do this
-	 */
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	if (make_uncapable(g_fcaps)) {
 		printf("make_uncapable failed\n");
@@ -833,11 +843,12 @@ int main(int argc, char *argv[])
 	}
 	clear_caps();
 
-	/* route all i/o between stdio and new pty */
-	printf("route_tty returned: %d\n",
-		route_tty(STDIN_FILENO, g_ptym)
-	);
-
+	if (g_pty_route) {
+		/* route all i/o between stdio and new pty */
+		printf("route_tty returned: %d\n",
+			route_tty(STDIN_FILENO, g_ptym)
+		);
+	}
 	exit_func();
 	return 0;
 }
