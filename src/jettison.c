@@ -63,8 +63,8 @@ int  g_nokill;
 
 int g_newpid;
 int g_pty_route;
-int g_pty_file; /* TODO */
 int g_ptym;
+
 
 char g_newroot[MAX_SYSTEMPATH];
 char g_pty_slavepath[MAX_SYSTEMPATH];
@@ -409,7 +409,7 @@ int process_arguments(int argc, char *argv[])
 
 	}
 
-	/* no more addititional options,  setup new argv */
+	/* no more additional options,  setup new argv */
 	i = argidx;
 	argidx = 1;
 	while(i < argc)
@@ -655,11 +655,13 @@ int route_tty(int ours, int theirs)
 	highfd = (theirs > ours)  ? theirs : ours;
 	++highfd;
 
-	/* there is some weird issue causing the initial read to be
+	/* there was some weird issue causing the initial read to be
 	 * an IO error, unless we sleep and let other thread open pty?
-	 * not 100% sure what is causing it...
+	 * not 100% sure what was causing it(was on kernel 3.10, now im on 4.1)
+	 * i will need to do some more testing to be sure. leaving this here
+	 * in case the bug re-appears.
 	 */
-	usleep(350000);
+	/*usleep(350000); -- seems to have been fixed? */
 	wpos = 0;
 	wbytes = 0;
 	memset(rbuf, 0, sizeof(rbuf));
