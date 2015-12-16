@@ -17,7 +17,7 @@ JETTISON_SRCS :=					\
 		./src/jettison.c			\
 		./src/pod.c				\
 		./src/misc.c				\
-		./src/seccomp_helper.c			\
+		./src/util/seccomp_helper.c			\
 		./src/eslib/eslib_file.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
@@ -27,12 +27,12 @@ JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 ########################################
 TEST_SECCOMP_SRCS := 					\
 		./src/tests/seccomp_test.c		\
-		./src/seccomp_helper.c
+		./src/util/seccomp_helper.c
 TEST_SECCOMP_OBJS := $(TEST_SECCOMP_SRCS:.c=.o)
 ########################################
 TEST_SECCOMP_LAUNCH_SRCS := 				\
 		./src/tests/seccomp_test_launcher.c	\
-		./src/seccomp_helper.c
+		./src/util/seccomp_helper.c
 TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
 
 
@@ -71,21 +71,21 @@ $(JETTISON):		$(JETTISON_OBJS)
 		  	$(CC) $(LDFLAGS) $(JETTISON_OBJS) -o $@
 			@echo ""
 			@echo "x----------------------------x"
-			@echo "|      jettison         OK   |"
+			@echo "| jettison                OK |"
 			@echo "x----------------------------x"
 
 $(TEST_SECCOMP):	$(TEST_SECCOMP_OBJS)
 		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_OBJS) -o $@
 			@echo ""
 			@echo "x----------------------------x"
-			@echo "|        seccomp_test  OK    |"
+			@echo "| seccomp_test            OK |"
 			@echo "x----------------------------x"
 
 $(TEST_SECCOMP_LAUNCH):	$(TEST_SECCOMP_LAUNCH_OBJS)
 		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_LAUNCH_OBJS) -o $@
 			@echo ""
 			@echo "x----------------------------x"
-			@echo "|     seccomp_test_launcher  |"
+			@echo "| seccomp_test_launcher   OK |"
 			@echo "x----------------------------x"
 
 $(UTIL_SECCOMP_ENUM):
@@ -93,7 +93,7 @@ $(UTIL_SECCOMP_ENUM):
 			$(CC) $(CFLAGS) ./src/util/seccomp_enumerator.c -o $@
 			@echo ""
 			@echo "x----------------------------x"
-		 	@echo "|   seccomp_enumerator  OK   |"
+		 	@echo "| seccomp_enumerator      OK |"
 			@echo "x----------------------------x"
 			@echo ""
 

@@ -18,7 +18,7 @@
 #include <malloc.h>
 #include <memory.h>
 #include <errno.h>
-#include "misc.h"
+#include "../misc.h"
 
 
 #ifndef SECCOMP_MODE_FILTER_DEFERRED
