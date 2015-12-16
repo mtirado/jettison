@@ -7,8 +7,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/prctl.h>
-#include "../misc.h"
-
+#include "../util/seccomp_helper.h"
 int syscalls[] = 
 {
 	__NR_read,

@@ -4,12 +4,6 @@
 #ifndef MISC_H__
 #define MISC_H__
 
-#define MAX_SYSCALL_DEFLEN 64
-#define MAX_SYSCALLS 246 /* for kernels without SECCOMP_MODE_FILTER_DEFERRED patch we
-			  * add execve and setreuid + 32 to every whitelist, which is
-			  * 3 extra instructions subtracted from limit
-			  */
-
 
 /* chop consecutive matching characters starting at the end of string
  * returns 0 on first non matching character, -1 on error.
@@ -36,27 +30,6 @@ void logcrit(const char *fmt, ...);
 void logemerg(const char *fmt, ...);
 
 
-
-/********  seccomp helper.c *******/
-int clear_caps();
-int make_uncapable(char fcaps[64]);
-
-unsigned int num_syscalls(int *syscalls, unsigned int count);
-
-/*
- * builds a seccomp whitelist filter program for arch specified.
- * syscalls should be an array that holds (count) syscall numbers
- * berkley packet filter program.
- *
- * arch:  ex: AUDIT_ARCH_I386, etc.
- */
-int filter_syscalls(int arch, int *syscalls, unsigned int count, int nokill);
-
-/* defstring should be the syscalls #define name,
- * ex: __NR_fork
- * returns the value of the define, or -1 on error
- */
-int syscall_helper(char *defstring);
 
 
 

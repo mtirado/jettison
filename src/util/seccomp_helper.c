@@ -18,8 +18,8 @@
 #include <malloc.h>
 #include <memory.h>
 #include <errno.h>
-#include "../misc.h"
 
+#include "seccomp_helper.h"
 
 #ifndef SECCOMP_MODE_FILTER_DEFERRED
 #define SECCOMP_MODE_FILTER_DEFERRED (-1)
@@ -419,6 +419,22 @@ int syscall_helper(char *defstring)
 	return -1;
 }
 
+char *syscall_getname(long syscall_nr)
+{
+	long count;
+	int i;
+
+	count = sizeof(sc_table) / sizeof(struct sc_translate);
+	if (syscall_nr < 0 || syscall_nr >= count)
+		return NULL;
+
+	for (i = 0; i < count; ++i)
+	{
+		if (sc_table[i].nr == syscall_nr)
+			return sc_table[i].defname;
+	}
+	return NULL;
+}
 
 unsigned int num_syscalls(int *syscalls, unsigned int count)
 {
@@ -449,7 +465,6 @@ unsigned int num_syscalls(int *syscalls, unsigned int count)
 #define SECBPF_RET(i, k)	SECBPF_INSTR(i, (BPF_RET|BPF_K), 0, 0, k)
 #define SECDAT_ARCH		offsetof(struct seccomp_data, arch)
 #define SECDAT_NR		offsetof(struct seccomp_data, nr)
-
 
 struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		unsigned int count, unsigned int *instr_count, int ughlyhack, int nokill)

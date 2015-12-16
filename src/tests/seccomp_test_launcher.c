@@ -10,7 +10,7 @@
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include "../misc.h"
+#include "../util/seccomp_helper.h"
 
 char g_cwd[4096];
 char g_prog_path[4096];

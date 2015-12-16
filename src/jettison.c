@@ -32,6 +32,7 @@
 #include <termios.h>
 #include "pod.h"
 #include "misc.h"
+#include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
 #define MAX_ARGV_LEN 1024 * 16 /* 16KB */

@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include "pod.h"
 #include "misc.h"
+#include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
 /* force these paths to be mounted as rdonly, we must prevent LD_PRELOAD
