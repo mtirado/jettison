@@ -2,6 +2,7 @@
 #include <string.h>
 #include <linux/unistd.h>
 #include <linux/audit.h>
+#include <linux/seccomp.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -53,7 +54,7 @@ int main()
 
 	printf("applying syscall filter that blocks lseek\n");
 	if (filter_syscalls(AUDIT_ARCH_I386, syscalls, /* nokill=1 XXX verify correct */
-			       	sizeof(syscalls) / sizeof(int), 1)) {
+			       	sizeof(syscalls) / sizeof(int), SECCOMP_RET_ERRNO)) {
 		printf("unable to apply syscall filter\n");
 		return -1;
 	}

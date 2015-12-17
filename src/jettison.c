@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <linux/audit.h>
+#include <linux/seccomp.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -41,8 +42,9 @@
 #define MAX_PROCNAME 17
 #define MAX_OPTLEN 32
 /* highest stack value system allows */
-#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
-
+#ifndef MAX_SYSTEMSTACK
+	#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
+#endif
 
 /* pod.c globals */
 extern char g_fcaps[64];
@@ -61,9 +63,11 @@ void *g_filterdata;
 char *g_progpath;
 char g_procname[MAX_PROCNAME];
 int  g_nokill;
+int  g_tracecalls;
+long g_retaction;
 
 int g_newpid;
-int g_pty_route;
+int g_pty_relay;
 int g_ptym;
 
 
@@ -141,7 +145,7 @@ int jettison_clone_func(void *data)
 	gid_t rgid;
 	setsid();
 
-	if (g_pty_route == 0) {
+	if (g_pty_relay == 0) {
 		/* no routing, close inherited tty */
 		close(STDIN_FILENO);
 		close(STDOUT_FILENO);
@@ -184,6 +188,7 @@ int jettison_clone_func(void *data)
 		printf("what the hay is the realuid?: %d\n", ruid);
 		printf("---------------------------------------------\n\n");
 		printf("nokill = %d\n", g_nokill);
+		printf("trace  = %d\n", g_tracecalls);
 		if (mkdir("/podhome", 0750)) {
 			chmod("/podhome", 0750);
 			if (chown("/podhome", ruid, rgid)) {
@@ -215,7 +220,7 @@ int jettison_clone_func(void *data)
 			printf("calling exec without seccomp filter\n");
 		else if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
 					 num_syscalls(g_syscalls, MAX_SYSCALLS),
-					 g_nokill)) {
+					 g_retaction)) {
 			printf("unable to apply seccomp filter\n");
 			return -1;
 		}
@@ -333,8 +338,10 @@ int process_arguments(int argc, char *argv[])
 		goto err_usage;
 
 	g_stacksize = 0;
+	g_retaction = SECCOMP_RET_KILL;
+	g_pty_relay = 1;
+	g_tracecalls = 0;
 	g_nokill = 0;
-	g_pty_route = 1;
 
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
@@ -402,7 +409,11 @@ int process_arguments(int argc, char *argv[])
 				argidx  += 1;
 			}
 			else if (strncmp(argv[i], "--notty", len) == 0) {
-				g_pty_route = 0;
+				g_pty_relay = 0;
+				argidx  += 1;
+			}
+			else if (strncmp(argv[i], "--tracecalls", len) == 0) {
+				g_tracecalls = 1;
 				argidx  += 1;
 			}
 			break;
@@ -419,6 +430,13 @@ int process_arguments(int argc, char *argv[])
 		++argidx;
 		++i;
 	}
+
+	if (g_tracecalls)
+		g_retaction = SECCOMP_RET_TRACE;
+	else if (g_nokill)
+		g_retaction = SECCOMP_RET_ERRNO;
+	else
+		g_retaction = SECCOMP_RET_KILL;
 
 	/* terminate arguments */
 	argv[argidx] = NULL;
@@ -440,10 +458,11 @@ err_usage:
 	printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
 	printf("\n");
 	printf("additional options:\n");
-	printf("--procname  <process name> set pid1 name\n");
-	printf("--stacksize <kilobytes> set maximum stack size\n");
-	printf("--nokill    seccomp returns error instead of killing process\n");
-	printf("--notty     do not route terminal io, and close stdio\n");
+	printf("--procname   <process name> set pid1 name\n");
+	printf("--stacksize  <kilobytes> set maximum stack size\n");
+	printf("--nokill     seccomp fail returns error instead of killing process\n");
+	printf("--tracecalls seccomp fail returns trace action (for debugging only)\n");
+	printf("--notty      do not relay terminal io, and close stdio\n");
 	printf("\n");
 	return -1;
 }
@@ -468,14 +487,10 @@ static int handle_sigwinch()
 	struct winsize w;
 	/*char ctchar[128];*/
 
-	if (g_pty_route == 0)
+	if (g_pty_relay == 0)
 		return 0;
 
 	memset(&w, 0, sizeof(w));
-	/* TODO -- squash the curses resize bug :( */
-	/*memset(&ctchar, 0, sizeof(ctchar));*/
-	/*char ctchar[] = "\0337\033[6n\0338";*/
-	/*char ctchar[] = "\0337\033[r\033[999;999H\0338\033[6n";*/
 	/* get our main tty size */
 	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
 		return -1;
@@ -484,21 +499,10 @@ static int handle_sigwinch()
 	if (ioctl(g_ptym, TIOCSWINSZ, &w) == -1)
 		return -1;
 
-	/*
-	printf("w.row  = %d\n", w.ws_row);
-	printf("w.col  = %d\n", w.ws_col);
-	printf("w.xpix = %d\n", w.ws_xpixel);
-	printf("w.ypix = %d\n", w.ws_ypixel);
-	snprintf(ctchar, sizeof(ctchar), "\x1b[8;%d;%d", w.ws_row, w.ws_col);
-	write(STDIN_FILENO, ctchar, strnlen(ctchar, sizeof(ctchar)));
-	snprintf(ctchar, sizeof(ctchar), "t");
-	write(STDIN_FILENO, ctchar, strnlen(ctchar, sizeof(ctchar)));
-	*/
-
 	return 0;
 }
 
-static void routeio_sighand(int signum)
+static void relayio_sighand(int signum)
 {
 	if (signum == SIGWINCH) {
 		if (handle_sigwinch())
@@ -511,34 +515,34 @@ static void routeio_sighand(int signum)
 }
 
 /* catch everything short of a sigkill */
-static void routeio_sigsetup()
+static void relayio_sigsetup()
 {
-	signal(SIGTERM,   routeio_sighand);
-	signal(SIGINT,    routeio_sighand);
-	signal(SIGHUP,    routeio_sighand);
-	signal(SIGQUIT,   routeio_sighand);
-	signal(SIGILL,    routeio_sighand);
-	signal(SIGABRT,   routeio_sighand);
-	signal(SIGFPE,    routeio_sighand);
-	signal(SIGSEGV,   routeio_sighand);
-	signal(SIGPIPE,   routeio_sighand);
-	signal(SIGALRM,   routeio_sighand);
-	signal(SIGUSR1,   routeio_sighand);
-	signal(SIGUSR2,   routeio_sighand);
-	signal(SIGBUS,    routeio_sighand);
-	signal(SIGPOLL,   routeio_sighand);
-	signal(SIGIO,     routeio_sighand);
-	signal(SIGPROF,   routeio_sighand);
-	signal(SIGSYS,    routeio_sighand);
-	signal(SIGVTALRM, routeio_sighand);
-	signal(SIGXCPU,   routeio_sighand);
-	signal(SIGXFSZ,   routeio_sighand);
-	signal(SIGIOT,    routeio_sighand);
-	signal(SIGSTKFLT, routeio_sighand);
-	signal(SIGUNUSED, routeio_sighand);
-	signal(SIGTRAP,   routeio_sighand);
+	signal(SIGTERM,   relayio_sighand);
+	signal(SIGINT,    relayio_sighand);
+	signal(SIGHUP,    relayio_sighand);
+	signal(SIGQUIT,   relayio_sighand);
+	signal(SIGILL,    relayio_sighand);
+	signal(SIGABRT,   relayio_sighand);
+	signal(SIGFPE,    relayio_sighand);
+	signal(SIGSEGV,   relayio_sighand);
+	signal(SIGPIPE,   relayio_sighand);
+	signal(SIGALRM,   relayio_sighand);
+	signal(SIGUSR1,   relayio_sighand);
+	signal(SIGUSR2,   relayio_sighand);
+	signal(SIGBUS,    relayio_sighand);
+	signal(SIGPOLL,   relayio_sighand);
+	signal(SIGIO,     relayio_sighand);
+	signal(SIGPROF,   relayio_sighand);
+	signal(SIGSYS,    relayio_sighand);
+	signal(SIGVTALRM, relayio_sighand);
+	signal(SIGXCPU,   relayio_sighand);
+	signal(SIGXFSZ,   relayio_sighand);
+	signal(SIGIOT,    relayio_sighand);
+	signal(SIGSTKFLT, relayio_sighand);
+	signal(SIGUNUSED, relayio_sighand);
+	signal(SIGTRAP,   relayio_sighand);
 
-	signal(SIGWINCH, routeio_sighand);
+	signal(SIGWINCH, relayio_sighand);
 }
 
 
@@ -612,21 +616,16 @@ static int fillbuf(int fd, char *buf, unsigned int size)
 
 
 /*
- * route input from ours to theirs,
- * route output from theirs to ours
+ * relay input from ours to theirs,
+ * relay output from theirs to ours
  * loop until child proc exits, or error
  *
  * in loop, we check if there are bytes in buffer waiting to be written.
  * check write set, and write until buffer has been completely emptied.
  * if the buffer is empty, we check read set to read and refill.
  *
- *
- * XXX -- bugs, some control characters don't work?, home / end in vim?
- *	terminal doesnt seem to be sized right initially ?  open vim, then resize xterm
- *	also that control code that creeps in on xterm resize in bash...
- *	this is kind of buggy...  ugh.
  */
-int route_tty(int ours, int theirs)
+int relay_tty(int ours, int theirs)
 {
 	char rbuf[IOBUFLEN]; /* buffer from them */
 	char wbuf[IOBUFLEN]; /* buffer to them */
@@ -644,7 +643,7 @@ int route_tty(int ours, int theirs)
 		return -1;
 
 	if (!isatty(ours) || !isatty(theirs)) {
-		printf("route_io not a tty\n");
+		printf("relay_io not a tty\n");
 		return -1;
 	}
 
@@ -700,7 +699,7 @@ int route_tty(int ours, int theirs)
 						continue;
 					}
 					else if (wpos > wbytes) {
-						printf("route io write error\n");
+						printf("relay io write error\n");
 						return -1;
 					}
 				}
@@ -782,10 +781,9 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	/* running jettison will hook up a pseudo terminal */
-	/* cloned thread will open slave path */
-	if (g_pty_route) {
-		routeio_sigsetup();
+	/* running jettison will hook up a pseudo terminal unless --notty is specified */
+	if (g_pty_relay) {
+		relayio_sigsetup();
 		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
 			printf("could not create pty\n");
 			jettison_abort();
@@ -826,7 +824,7 @@ int main(int argc, char *argv[])
 		printf("jettison failure\n");
 		return -1;
 	}
-	handle_sigwinch(); /* set terminal size, stty was reporting 0,0 */
+	handle_sigwinch(); /* set terminal size */
 	printf("new pid: %d\n", g_newpid);
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	if (make_uncapable(g_fcaps)) {
@@ -846,11 +844,10 @@ int main(int argc, char *argv[])
 	}
 	clear_caps();
 
-	if (g_pty_route) {
-		/* route all i/o between stdio and new pty */
-		printf("route_tty returned: %d\n",
-			route_tty(STDIN_FILENO, g_ptym)
-		);
+	if (g_pty_relay) {
+		int ret = relay_tty(STDIN_FILENO, g_ptym);
+		/* relay all i/o between stdio and new pty */
+		printf("relay_tty returned: %d\n", ret);
 	}
 	exit_func();
 	return 0;

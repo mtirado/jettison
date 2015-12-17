@@ -388,8 +388,9 @@ struct sc_translate sc_table[] = {
 { "__NR_process_vm_writev", __NR_process_vm_writev },
 { "__NR_kcmp", __NR_kcmp },
 { "__NR_finit_module", __NR_finit_module },
+/* 3.10 */
 
-/*
+/* 4.1 */
 { "__NR_sched_setattr", __NR_sched_setattr },
 { "__NR_sched_getattr", __NR_sched_getattr },
 { "__NR_renameat2", __NR_renameat2 },
@@ -398,7 +399,7 @@ struct sc_translate sc_table[] = {
 { "__NR_memfd_create", __NR_memfd_create },
 { "__NR_bpf", __NR_bpf },
 { "__NR_execveat", __NR_execveat },
-*/
+
 };
 
 int syscall_helper(char *defstring)
@@ -425,7 +426,7 @@ char *syscall_getname(long syscall_nr)
 	int i;
 
 	count = sizeof(sc_table) / sizeof(struct sc_translate);
-	if (syscall_nr < 0 || syscall_nr >= count)
+	if (syscall_nr < 0)
 		return NULL;
 
 	for (i = 0; i < count; ++i)
@@ -467,7 +468,8 @@ unsigned int num_syscalls(int *syscalls, unsigned int count)
 #define SECDAT_NR		offsetof(struct seccomp_data, nr)
 
 struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
-		unsigned int count, unsigned int *instr_count, int ughlyhack, int nokill)
+		unsigned int count, unsigned int *instr_count,
+		int ughlyhack, long retaction)
 {
 	unsigned int i;
 	unsigned int proglen = 5 + count;
@@ -535,13 +537,26 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		++i;
 	}
 
-	/* bad, kill by default.
-	 * use nokill for debugging / finding syscalls to add to whitelist */
-	if (nokill) {
-		SECBPF_RET(instructions[i],SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
-	}
-	else {
+	/* set return action */
+	switch (retaction)
+	{
+	case SECCOMP_RET_TRACE:
+		printf("\n\n-------------------\nSET TRACE!\n\n\n");
+		SECBPF_RET(instructions[i],SECCOMP_RET_TRACE);
+		break;
+	case SECCOMP_RET_KILL:
+		printf("\n\n-------------------\nSET KILL!\n\n\n");
 		SECBPF_RET(instructions[i],SECCOMP_RET_KILL);
+		break;
+	case SECCOMP_RET_ERRNO:
+		printf("\n\n-------------------\nSET ERRNO!\n\n\n");
+		SECBPF_RET(instructions[i],
+				SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
+		break;
+	default:
+		printf("invalid return action\n");
+		free(instructions);
+		return NULL;
 	}
 	++i;
 
@@ -557,13 +572,13 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
  * TODO setreuid can be optional if user has no interest in running
  * programs with file capabilities.
  * */
-int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, int nokill)
+int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, long retaction)
 {
 	struct sock_filter *filter;
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
-	filter = build_seccomp_whitelist(arch, syscalls, count, &instr_count, 1, nokill);
+	filter = build_seccomp_whitelist(arch, syscalls, count, &instr_count, 1, retaction);
 	if (filter == NULL)
 		return -1;
 
@@ -583,7 +598,7 @@ int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, int no
 }
 
 
-int filter_syscalls(int arch, int *syscalls, unsigned int count, int nokill)
+int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
 {
 	/*struct sock_filter *filter;
 	struct sock_fprog prog;
@@ -600,7 +615,7 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count, int nokill)
 	prog.filter = filter;
 	*/
 	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */	
-	return filter_syscalls_fallback(arch, syscalls, count, nokill);
+	return filter_syscalls_fallback(arch, syscalls, count, retaction);
 
 	/*free(filter);
 	return 0;*/

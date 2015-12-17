@@ -3,6 +3,7 @@
 #include <string.h>
 #include <linux/unistd.h>
 #include <linux/audit.h>
+#include <linux/seccomp.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -157,7 +158,7 @@ int main(int argc, char *argv[])
 	
 	printf("applying seccomp filter\n");
 	if (filter_syscalls(AUDIT_ARCH_I386, syscalls, /*XXX nokill=0 verify correct */
-			       	sizeof(syscalls) / sizeof(int), 0)) {
+			       	sizeof(syscalls) / sizeof(int), SECCOMP_RET_KILL)) {
 		printf("unable to apply syscall filter");
 		return -1;
 	}

@@ -21,7 +21,7 @@ unsigned int num_syscalls(int *syscalls, unsigned int count);
  *
  * arch:  ex: AUDIT_ARCH_I386, etc.
  */
-int filter_syscalls(int arch, int *syscalls, unsigned int count, int nokill);
+int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction);
 
 /* defstring should be the syscalls #define name,
  * ex: __NR_fork
