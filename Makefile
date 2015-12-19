@@ -1,6 +1,6 @@
 # some global defines
-DEFINES := 								\
-			-DMAX_SYSTEMPATH=1023 				\
+DEFINES := 						\
+			-DMAX_SYSTEMPATH=2048 		\
 			-DDEFAULT_STACKSIZE=4194304
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
@@ -17,7 +17,7 @@ JETTISON_SRCS :=					\
 		./src/jettison.c			\
 		./src/pod.c				\
 		./src/misc.c				\
-		./src/util/seccomp_helper.c			\
+		./src/util/seccomp_helper.c		\
 		./src/eslib/eslib_file.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
@@ -50,6 +50,7 @@ TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
 
 #extra stuff
 UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
+#UTIL_SECCOMP_TRACE  	:= seccomp_trace
 
 %.o: 		%.c
 			$(CC) -c $(DEFLANG) $(CFLAGS) $(DBG) -o $@ $<
@@ -58,6 +59,7 @@ UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
 all:				\
 	$(JETTISON)		\
 	$(UTIL_SECCOMP_ENUM)
+#	$(UTIL_SECCOMP_TRACE)
 
 tests:				\
 	$(TEST_SECCOMP)		\
@@ -97,6 +99,16 @@ $(UTIL_SECCOMP_ENUM):
 			@echo "x----------------------------x"
 			@echo ""
 
+#$(UTIL_SECCOMP_TRACE):
+#			@echo ""
+#			$(CC) $(CFLAGS) ./src/util/seccomp_helper.c	\
+#					./src/util/tracecalls.c	-o $@
+#			@echo ""
+#			@echo "x----------------------------x"
+#			@echo "| seccomp_trace           OK |"
+#			@echo "x----------------------------x"
+#			@echo ""
+
 ########################################
 #	CLEAN UP THE MESS
 ########################################
@@ -109,6 +121,7 @@ clean:
 	@-rm -fv ./$(TEST_SECCOMP)
 	@-rm -fv ./$(TEST_SECCOMP_LAUNCH)
 	@-rm -fv ./$(UTIL_SECCOMP_ENUM)
+#	@-rm -fv ./$(UTIL_SECCOMP_TRACE)
 	@echo cleaned.
 
 

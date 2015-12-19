@@ -8,7 +8,6 @@
 			  * 3 extra instructions subtracted from limit
 			  */
 
-/********  seccomp helper.c *******/
 int clear_caps();
 int make_uncapable(char fcaps[64]);
 
@@ -29,9 +28,13 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
  */
 int syscall_helper(char *defstring);
 
-/*
- * returns pointer to a string name of that system call
+/* returns pointer to a string name of that system call
  * NULL if not recognized.
  */
 char *syscall_getname(long syscall_nr);
+
+/* print every time process or ancestors make systemcall not permitted on whitelist */
+int seccomp_run_trace(pid_t p);
+
+
 #endif

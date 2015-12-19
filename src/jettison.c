@@ -64,6 +64,7 @@ char *g_progpath;
 char g_procname[MAX_PROCNAME];
 int  g_nokill;
 int  g_tracecalls;
+int  g_trace;
 long g_retaction;
 
 int g_newpid;
@@ -157,8 +158,9 @@ int jettison_clone_func(void *data)
 	}
 
 	/* enter pod environment */
-	if (jettison_initiate(g_podflags) < 0)
-		exit(-1);
+	if (jettison_initiate(g_podflags) < 0) {
+		return -1;
+	}
 
 	/* either call func, or exec */
 	if (g_entry) {
@@ -231,6 +233,12 @@ int jettison_clone_func(void *data)
 		if (setreuid(ruid, ruid)) {
 			printf("error setting uid(%d): %s\n", ruid, strerror(errno));
 			return -1;
+		}
+
+		if (g_trace) {
+			/* TODO launch trace program instead of progpath, since we are
+			 * setuid, ptrace will fail until we make an execve call.
+			 */
 		}
 		if (execve(g_progpath, (char **)data, benv) < 0) {
 			printf("error: %s\n", strerror(errno));
@@ -383,7 +391,8 @@ int process_arguments(int argc, char *argv[])
 				if (argc < i+1 || argv[i+1] == '\0')
 					goto missing_opt;
 				errno = 0;
-				g_stacksize = strtol(argv[++i], &err, 10);
+				++i;
+				g_stacksize = strtol(argv[i], &err, 10);
 				if (*err || errno)
 					goto bad_opt;
 				g_stacksize *= 1024; /* kilobytes to bytes */
@@ -394,7 +403,8 @@ int process_arguments(int argc, char *argv[])
 			else if (strncmp(argv[i], "--procname", len) == 0) {
 				if (argc < i+1 || argv[i+1] == '\0')
 					goto missing_opt;
-				len = strnlen(argv[++i], MAX_PROCNAME);
+				++i;
+				len = strnlen(argv[i], MAX_PROCNAME);
 				if (len >= MAX_PROCNAME) {
 					printf("max procname: %d\n", MAX_PROCNAME-1);
 					goto bad_opt;
@@ -416,6 +426,14 @@ int process_arguments(int argc, char *argv[])
 				g_tracecalls = 1;
 				argidx  += 1;
 			}
+			else if (strncmp(argv[i], "--trace", len) == 0) {
+				g_trace = 1;
+				argidx  += 1;
+			}
+			else {
+				/* program arguments begin here, break loop */
+				i = argc;
+			}
 			break;
 		}
 
@@ -431,9 +449,11 @@ int process_arguments(int argc, char *argv[])
 		++i;
 	}
 
+	/* --tracecalls needs to launch in trace mode */
 	if (g_tracecalls)
-		g_retaction = SECCOMP_RET_TRACE;
-	else if (g_nokill)
+		g_trace = 1;
+
+	if (g_nokill || g_tracecalls)
 		g_retaction = SECCOMP_RET_ERRNO;
 	else
 		g_retaction = SECCOMP_RET_KILL;
@@ -461,7 +481,8 @@ err_usage:
 	printf("--procname   <process name> set pid1 name\n");
 	printf("--stacksize  <kilobytes> set maximum stack size\n");
 	printf("--nokill     seccomp fail returns error instead of killing process\n");
-	printf("--tracecalls seccomp fail returns trace action (for debugging only)\n");
+	printf("--tracecalls print denied systemcalls\n");
+	printf("--trace      launch process in stopped state, for tracer to attach\n");
 	printf("--notty      do not relay terminal io, and close stdio\n");
 	printf("\n");
 	return -1;
@@ -485,7 +506,6 @@ void exit_func()
 static int handle_sigwinch()
 {
 	struct winsize w;
-	/*char ctchar[128];*/
 
 	if (g_pty_relay == 0)
 		return 0;

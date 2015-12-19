@@ -41,7 +41,7 @@ struct sc_translate
  * version: 4.2
  */
 struct sc_translate sc_table[] = {
-/*{ "__NR_restart_syscall", __NR_restart_syscall },*/
+{ "__NR_restart_syscall", __NR_restart_syscall },
 { "__NR_exit", __NR_exit },
 { "__NR_fork", __NR_fork },
 { "__NR_read", __NR_read },
@@ -819,12 +819,6 @@ int make_uncapable(char fcaps[64])
 	return 0;
 
 }
-
-
-
-
-
-
 
 
 
