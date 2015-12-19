@@ -1,0 +1,28 @@
+# simple development environment i used to push this to github
+
+file rx	/lib
+file rx /bin
+
+# /usr
+file r	/usr
+file rx	/usr/lib
+file rx /usr/bin
+file rx /usr/libexec/git-core
+file rx /usr/libexec/gcc
+
+# /dev
+file rwd /dev/null
+file rd  /dev/random
+file rd  /dev/urandom
+# git uses this for password entry
+file rwd /dev/tty
+
+# /etc
+file r	/etc/passwd
+file r	/etc/resolv.conf
+
+# $HOME
+home r  /.bashrc
+home r  /.vimrc
+
+chroot /home/user/pods/github
