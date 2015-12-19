@@ -7,7 +7,12 @@ on linux, please let me know so i can update this notice.
 
 see configs directory for example pod configuration files.
 
+this has only been tested on x86 using AUDIT_ARCH_I386. i have not explored
+other arch's at all yet, so you may have to change this in jettison.c
+
 building + installation:
+> git submodule update --init --recursive
+
 > make
 
 > su root
@@ -16,9 +21,25 @@ building + installation:
 
 > chmod u+s /usr/local/bin/jettison (setuid bit)
 
+
+##usage
+
+two arguments must be included. first is the program path which must be
+an absolute path,  second is the pod configuration file.
+
+usage:
 > jettison /bin/bash config.pod --nokill
 
-#config options
+there are additional options we can pass:
+> --procname   set process name (argv[0])
+> --stacksize  set program stack max
+> --nokill     make seccomp return error ENOSYS instead of killing process
+> --notty      disconnect standard io
+> --tracecalls (not finished)
+> --trace      (not finished)
+
+
+#pod configuration
 
 ##chroot
 set the pods new root directory.
