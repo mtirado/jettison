@@ -1,0 +1,205 @@
+# mozilla web browser whitelist
+# you will have to use --nokill until you identify every systemcall needed.
+
+###############################
+# mount shared system files
+###############################
+file rx	 /lib
+file rx	 /bin
+file r	 /usr
+file rx  /usr/lib
+file rx  /usr/bin
+
+file rwd /dev/null
+file rd	 /dev/random
+file rd	 /dev/urandom
+file wd  /dev/snd
+
+#file r	/etc/passwd
+file r	/etc/pango
+file r	/etc/fonts
+file r	/etc/resolv.conf
+file r	/etc/machine-id
+
+
+#######################
+# home directory files
+#######################
+home r  /.Xauthority
+#home r  /.bashrc
+
+
+##############################################################
+# seccomp systemcall whitelist, put frequent calls near top!
+# theres some extra stuff in here for running bash to monitor
+# remove all seccomp_allow's to disable seccomp filtering
+##############################################################
+seccomp_allow __NR_clock_gettime
+seccomp_allow __NR_futex
+
+seccomp_allow __NR_socketcall
+# socketcall replaces these on new x86 :(
+#seccomp_allow __NR_recv
+#seccomp_allow __NR_bind
+#seccomp_allow __NR_sendto
+#seccomp_allow __NR_getpeername
+#seccomp_allow __NR_recvfrom
+#seccomp_allow __NR_setsockopt
+#seccomp_allow __NR_send
+#seccomp_allow __NR_getsockname
+#seccomp_allow __NR_connect
+#seccomp_allow __NR_socket
+
+seccomp_allow __NR_poll
+seccomp_allow __NR_gettimeofday
+seccomp_allow __NR_read
+seccomp_allow __NR_write
+seccomp_allow __NR_writev
+seccomp_allow __NR_madvise
+seccomp_allow __NR_pwrite64
+seccomp_allow __NR_ioctl
+seccomp_allow __NR_fcntl64
+seccomp_allow __NR__llseek
+seccomp_allow __NR_stat64
+seccomp_allow __NR_open
+seccomp_allow __NR_close
+seccomp_allow __NR_lseek
+seccomp_allow __NR_gettid
+seccomp_allow __NR_mmap2
+seccomp_allow __NR_fstat64
+seccomp_allow __NR_fstatat64
+seccomp_allow __NR_munmap
+seccomp_allow __NR_getuid32
+seccomp_allow __NR_quotactl
+seccomp_allow __NR_statfs64
+seccomp_allow __NR_lstat64
+seccomp_allow __NR_access
+seccomp_allow __NR_time
+seccomp_allow __NR_getpid
+seccomp_allow __NR_unlink
+seccomp_allow __NR_unlinkat
+seccomp_allow __NR_readlink
+seccomp_allow __NR_getrusage
+seccomp_allow __NR_openat
+seccomp_allow __NR_rename
+seccomp_allow __NR_ftruncate64
+seccomp_allow __NR_fsync
+
+seccomp_allow __NR_mremap
+seccomp_allow __NR_nanosleep
+seccomp_allow __NR_rt_sigaction
+seccomp_allow __NR_brk
+seccomp_allow __NR__newselect
+seccomp_allow __NR_select
+seccomp_allow __NR_mprotect
+seccomp_allow __NR_fstatfs64
+seccomp_allow __NR_pipe
+seccomp_allow __NR_pipe2
+seccomp_allow __NR_clone
+seccomp_allow __NR_getdents
+seccomp_allow __NR_rt_sigprocmask
+seccomp_allow __NR_set_robust_list
+seccomp_allow __NR_dup2
+seccomp_allow __NR_waitpid
+seccomp_allow __NR_flock
+seccomp_allow __NR_fadvise64_64
+
+seccomp_allow __NR_ipc
+# ipc replaces these on new x86
+#seccomp_allow __NR_shmdt
+#seccomp_allow __NR_shmat
+#seccomp_allow __NR_shmget
+#seccomp_allow __NR_shmctl
+
+seccomp_allow __NR_recvmmsg
+seccomp_allow __NR_execve
+seccomp_allow __NR_chdir
+seccomp_allow __NR_getcwd
+seccomp_allow __NR_set_thread_area
+seccomp_allow __NR_statfs
+seccomp_allow __NR_getrlimit
+seccomp_allow __NR_getgid32
+seccomp_allow __NR_geteuid32
+seccomp_allow __NR_getegid32
+seccomp_allow __NR_getresuid32
+seccomp_allow __NR_getresgid32
+seccomp_allow __NR_setuid32
+seccomp_allow __NR_set_tid_address
+seccomp_allow __NR_kill
+seccomp_allow __NR_rt_sigreturn
+seccomp_allow __NR_clock_getres
+seccomp_allow __NR_tgkill
+seccomp_allow __NR_eventfd2
+seccomp_allow __NR_epoll_create
+
+seccomp_allow __NR_rmdir
+seccomp_allow __NR_sched_getaffinity
+seccomp_allow __NR_umask
+seccomp_allow __NR_getpriority
+seccomp_allow __NR_sysinfo
+seccomp_allow __NR_symlink
+seccomp_allow __NR_sigaltstack
+seccomp_allow __NR_fadvise64
+seccomp_allow __NR_readahead
+seccomp_allow __NR_setpriority
+seccomp_allow __NR_epoll_ctl
+seccomp_allow __NR_epoll_wait
+seccomp_allow __NR_ftruncate
+seccomp_allow __NR_fallocate
+
+seccomp_allow __NR_dup
+seccomp_allow __NR_mmap
+seccomp_allow __NR_getppid
+seccomp_allow __NR_getpgrp
+seccomp_allow __NR_ugetrlimit
+seccomp_allow __NR_setpgid
+seccomp_allow __NR_mkdir
+seccomp_allow __NR_getdents64
+seccomp_allow __NR_chmod
+seccomp_allow __NR_exit
+seccomp_allow __NR_exit_group
+seccomp_allow __NR_link
+seccomp_allow __NR_sigreturn
+seccomp_allow __NR_getxattr
+seccomp_allow __NR_capget
+
+seccomp_allow __NR_uname
+seccomp_allow __NR_ioprio_get
+seccomp_allow __NR_sched_yield
+seccomp_allow __NR_seccomp
+seccomp_allow __NR_unshare
+
+
+
+# and below you can see reasons to want to use --nokill
+# some things are nice to reject, but not kill process
+
+# block this and use --nokill to prevent double seccomp filters
+# these can have significant performance penalties.
+#seccomp_allow __NR_prctl
+
+seccomp_allow __NR_restart_syscall
+
+# wow, really?
+seccomp_allow __NR_mknod
+
+# for ptracing from within pod -- debug only,
+# the docs mention a way to bypass
+# seccomp if ptrace is allowed
+# see discussion on lkml regarding systemcall entry and trace
+#seccomp_allow __NR_ptrace
+#seccomp_allow __NR_wait4
+
+##############################################
+# any files below chroot point are accessible
+##############################################
+chroot /home/user/pods/web/mozilla
+
+
+
+
+
+
+
+
+
