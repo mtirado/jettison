@@ -11,16 +11,17 @@ this has only been tested on x86 using AUDIT_ARCH_I386. i have not explored
 other arch's at all yet, so you may have to change this in jettison.c
 
 building + installation:
-> git submodule update --init --recursive
+```
+git submodule update --init --recursive
 
-> make
+make
 
-> su root
+su root
 
-> cp jettison /usr/local/bin/jettison
+cp jettison /usr/local/bin/jettison
 
-> chmod u+s /usr/local/bin/jettison (setuid bit)
-
+chmod u+s /usr/local/bin/jettison (setuid bit)
+```
 
 ##usage
 
@@ -63,16 +64,16 @@ $HOME path, to <podroot>/podhome
 use --nokill option until you have documented exactly which calls the
 program makes.  this can be done with strace.
 
->strace -o outfile -f -s 0 && grep 'ENOSYS' outfile
+`strace -o outfile -f -s 0 && grep 'ENOSYS' outfile`
 
 when you have a working list, you should optimize it. sort by most
 frequently made call. strace can generate the list by doing the following
 
->strace -o outfile -f -c -S calls
+`strace -o outfile -f -c -S calls`
 
 you can use seccomp_enumerator to convert outfile to pod options.
 
->./seccomp_enumerator outfile whitelist
+`./seccomp_enumerator outfile whitelist`
 
 as programs are developed, new systemcalls may be added, so i'm currently
 working on a pain-free way to print denied systemcalls using a --tracecalls
