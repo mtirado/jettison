@@ -166,7 +166,6 @@ seccomp_allow __NR_capget
 seccomp_allow __NR_uname
 seccomp_allow __NR_ioprio_get
 seccomp_allow __NR_sched_yield
-seccomp_allow __NR_seccomp
 seccomp_allow __NR_unshare
 
 
@@ -177,11 +176,12 @@ seccomp_allow __NR_unshare
 # block this and use --nokill to prevent double seccomp filters
 # these can have significant performance penalties.
 #seccomp_allow __NR_prctl
+#seccomp_allow __NR_seccomp
 
 seccomp_allow __NR_restart_syscall
 
 # wow, really?
-seccomp_allow __NR_mknod
+#seccomp_allow __NR_mknod
 
 # for ptracing from within pod -- debug only,
 # the docs mention a way to bypass
