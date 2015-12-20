@@ -29,7 +29,7 @@ two arguments must be included. first is the program path which must be
 an absolute path,  second is the pod configuration file.
 
 usage:
-> jettison /bin/bash config.pod --nokill
+`jettison /bin/bash config.pod --nokill`
 
 there are additional options we can pass:
 
