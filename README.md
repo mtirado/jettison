@@ -32,11 +32,16 @@ usage:
 
 there are additional options we can pass:
 > --procname   set process name (argv[0])
+
 > --stacksize  set program stack max
+
+> --tracecalls (WIP)
+
+> --trace      (WIP)
+
 > --nokill     make seccomp return error ENOSYS instead of killing process
+
 > --notty      disconnect standard io
-> --tracecalls (not finished)
-> --trace      (not finished)
 
 
 #pod configuration
