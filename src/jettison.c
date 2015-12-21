@@ -187,10 +187,16 @@ static int downgrade_relay()
 	return 0;
 }
 
-/* change $HOME to /podhome */
-static int change_home()
+/* we need to adjust some paths in environment, i have a feeling this
+ * is going to need to be a config option...
+ * or maybe Xorg is the only culprit?
+ * it may be a better idea to just filter environment for /home/username
+ * and replace it with /podhome if we encounter more problems
+ */
+static int change_environ()
 {
 	char newhome[] = "/podhome";
+	char newxauth[] = "/podhome/.Xauthority";
 	char **env = environ;
 	char *str;
 	unsigned int len;
@@ -210,12 +216,20 @@ static int change_home()
 				return -1;
 			snprintf(str, len, "HOME=%s", newhome);
 			*env = str;
-			return 0;
+		}
+		else if (strncmp(*env, "XAUTHORITY=", 11) == 0) {
+			len = strnlen(newxauth, MAX_SYSTEMPATH) + 12;
+			if (len >= MAX_SYSTEMPATH)
+				return -1;
+			str = malloc(len);
+			if (str == NULL)
+				return -1;
+			snprintf(str, len, "XAUTHORITY=%s", newxauth);
+			*env = str;
 		}
 		++env;
 	}
-	printf("no home environment variable found\n");
-	return -1;
+	return 0;
 }
 
 /* called from within new thread */
@@ -281,12 +295,20 @@ int jettison_clone_func(void *data)
 		return -1;
 	}
 
+	change_environ();
 	/* either call func, or exec */
 	if (g_entry) {
 		return -1; /* TODO g_entry(data);*/
 	}
 	else {
-		change_home();
+		/*char *benv[6] = {
+			"PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/bin",
+			"HOME=/podhome",
+			"SHELL=/bin/bash",
+			"TERM=linux",
+			"DISPLAY=:0.0",
+			NULL
+		};*/
 
 		ruid = getuid();
 		rgid = getgid();
