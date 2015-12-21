@@ -103,6 +103,7 @@ int jettison_abort()
 static int downgrade_relay()
 {
 	char nullspace[MAX_SYSTEMPATH];
+	unsigned int i;
 	unsigned long remountflags =	  MS_REMOUNT
 					| MS_NOSUID
 					| MS_NOEXEC
@@ -155,12 +156,30 @@ static int downgrade_relay()
 		return -1;
 	}
 
+	/* apply seccomp filter */
+	for (i = 0; i < sizeof(g_syscalls) / sizeof(*g_syscalls); ++i)
+	{
+		g_syscalls[i] = -1;
+	}
+	i = 0;
+	/*g_syscalls[i++] = syscall_helper("__NR_select");*/
+	g_syscalls[i++] = syscall_helper("__NR__newselect");
+	g_syscalls[i++] = syscall_helper("__NR_write");
+	g_syscalls[i++] = syscall_helper("__NR_read");
+	g_syscalls[i++] = syscall_helper("__NR_capset");
+	g_syscalls[i++] = syscall_helper("__NR_gettid");
+	if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
+				 num_syscalls(g_syscalls, MAX_SYSCALLS),
+				 SECCOMP_RET_ERRNO)) {
+		printf("unable to apply seccomp filter\n");
+		return -1;
+	}
+
 	if (clear_caps()) {
 		printf("\rclear_caps failed\r\n");
 		return -1;
 	}
 
-	/* TODO -- apply seccomp filter here */
 
 	return 0;
 }
