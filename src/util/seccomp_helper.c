@@ -485,13 +485,11 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		return NULL;
 	}
 
-	/*
-	 * UUGGHHHHLY f'n hack to allow users without a seccomp patch to run jettison
-	 */
+	/* process shouldn't be able to gain privileges at least */
 	if (ughlyhack == 1) {
-		proglen += 3;
-		good += 3;
-		bad += 3; /* BAD!! */
+		proglen += 1;
+		good += 1;
+		bad += 1;
 	}
 
 	printf("build_whitelist count: %d\n", count);
@@ -500,9 +498,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	if (instructions == NULL)
 		return NULL;
 
-	/*
-	 *  create seccomp bpf filter
-	 */
+	/* create seccomp bpf filter */
 	memset(instructions, 0, proglen * sizeof(struct sock_filter));
 
 	/* validate arch */
@@ -525,14 +521,8 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		SECBPF_JE(instructions[i], syscalls[i-3], good - i, 0);
 	}
 
-	/* there really was no other way, :[
-	 * add execve and setreuid to whitelist.
-	 */
+	/* there really was no other way, add execve whitelist. */
 	if (ughlyhack == 1) {
-		SECBPF_JE(instructions[i], __NR_setreuid32, good - i, 0);
-		++i;
-		SECBPF_JE(instructions[i], __NR_setreuid, good - i, 0);
-		++i;
 		SECBPF_JE(instructions[i], __NR_execve, good - i, 0);
 		++i;
 	}
@@ -568,10 +558,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 }
 
 
-/* no deferred hackery in kernel, we have to whitelist setreuid and execve  :( 
- * TODO setreuid can be optional if user has no interest in running
- * programs with file capabilities.
- * */
+/* no deferred hackery in kernel, we have to whitelist execve  :( */
 int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, long retaction)
 {
 	struct sock_filter *filter;
@@ -614,7 +601,7 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
 	prog.len = instr_count;
 	prog.filter = filter;
 	*/
-	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */	
+	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */
 	return filter_syscalls_fallback(arch, syscalls, count, retaction);
 
 	/*free(filter);
@@ -625,118 +612,74 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
 /*
  * drop all caps from thread, unless pod requested them.
  * set capability bounding set to prevent thread from gaining privileges
- * such as MKNOiD, SET_FCAP, SET_PCAP, etc...
+ * such as MKNOD, SET_FCAP, SET_PCAP, etc...
  *
  */
 extern int capset(cap_user_header_t header, cap_user_data_t data);
 extern int capget(cap_user_header_t header, const cap_user_data_t data);
 
-static int capbset_drop(unsigned long cap, char fcaps[64])
+static int cap_blisted(unsigned long cap)
 {
 
 	if (cap >= 64) {
 		printf("cap out of bounds\n");
-		return -1;
+		return 1;
 	}
 
 	/* is pod requesting we allow file cap? */
-	if (fcaps[cap]) {
-		/*
-		 * FILE CAP BLACKLIST
-		 * some caps should never be allowed (MKNOD, SYS_MODULE!!)
-		 * SYS_ADMIN would allow remounting files to change mount flags,
-		 * and possibly exploit privileged programs (LD_PRELOAD style)
-		 * you can comment out what you need, i just took the extra
-		 * paranoid approach of blocking everything that may cause system
-		 * wide security issues in the case of a successful exploit scenario.
-		 * if your file cap'd programs have been reviewd and are sufficiently
-		 * secure, then you should not worry as much as i have with this list.
-		 */
-		switch(cap)
-		{
-		/* XXX if you decide on allowing suid programs, make sure
-		 * that we can block MKNOD with bounding set (i'm pretty sure
-		 * setuid programs use bounding set but not 100% ) */
+	/*
+	 * FILE CAP BLACKLIST
+	 * some caps should never be allowed (MKNOD, SYS_MODULE!!)
+	 * SYS_ADMIN would allow remounting files to change mount flags,
+	 * and possibly exploit privileged programs (LD_PRELOAD style)
+	 */
+	switch(cap)
+	{
 		case CAP_MKNOD:
 			printf("CAP_MKNOD is prohibited\n");
-			break;
 		case CAP_SETPCAP:
 			printf("CAP_SETPCAP is prohibited\n");
-			break;
 		case CAP_SETFCAP:
 			printf("CAP_SETFCAP is prohibited\n");
-			break;
 		case CAP_DAC_OVERRIDE:
 			printf("CAP_DAC_OVERRIDE is prohibited\n");
-			break;
 		case CAP_SYS_ADMIN: /* don't allow remounts... */
 			printf("CAP_SYS_ADMIN is prohibited\n");
-			break;
 		/*case CAP_DAC_READ_SEARCH:
-			printf("CAP_DAC_READ_SEARCH is prohibited\n");
-			break;*/
+			printf("CAP_DAC_READ_SEARCH is prohibited\n");*/
 		case CAP_MAC_OVERRIDE:
 			printf("CAP_MAC_OVERRIDE is prohibited\n");
-			break;
 		case CAP_MAC_ADMIN:
 			printf("CAP_MAC_ADMIN is prohibited\n");
-			break;
 		case CAP_CHOWN:
 			printf("CAP_CHOWN is prohibited\n");
-			break;
 		case CAP_BLOCK_SUSPEND:
 			printf("CAP_BLOCK_SUSPEND is prohibited\n");
-			break;
 		case CAP_SETUID:
 			printf("CAP_SETUID is prohibited\n");
-			break;
 		case CAP_SETGID:
 			printf("CAP_SETGID is prohibited\n");
-			break;
 		case CAP_FSETID:
 			printf("CAP_SETFUID is prohibited\n");
-			break;
 		case CAP_KILL:
 			printf("CAP_KILL is prohibited\n");
-			break;
 		case CAP_SYS_MODULE:
 			printf("CAP_SYS_MODULE is prohibited\n");
-			break;
 		case CAP_SYS_TIME:
 			printf("CAP_SYS_TIME is prohibited\n");
-			break;
 		case CAP_SYSLOG:
 			printf("CAP_SYSLOG is prohibited\n");
-			break;
 		case CAP_SYS_PTRACE:
 			printf("CAP_SYS_PTRACE is prohibited\n");
-			break;
 		case CAP_SYS_CHROOT:  /* */
 			printf("CAP_SYS_CHROOT is prohibited\n");
-			break;
 		case CAP_IPC_OWNER:
 			printf("CAP_IPC_OWNER is prohibited\n");
-			break;
-		default:
-			goto allowed;
-		}
+			return 1;
+	default:
+		return 0;
 	}
 
-
-	if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0)) {
-		if (cap > CAP_LAST_CAP)
-		       return 0; /* header didn't know about this cap */
-		if (errno == EINVAL) {
-			/* if caps are disabled, this will spam */
-			printf("cap not found: %lu\n", cap);
-			return 0;
-		}
-		printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
-		return -1;
-	}
-
-allowed:
-	return 0;
 }
 
 
@@ -750,6 +693,7 @@ int clear_caps()
 
 	hdr.pid = syscall(__NR_gettid);
 	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+
 	if (capset(&hdr, data)) {
 		printf("capset: %s\n", strerror(errno));
 		printf("cap version: %p\n", (void *)hdr.version);
@@ -759,24 +703,87 @@ int clear_caps()
 	return 0;
 }
 
+int print_caps()
+{
+	struct __user_cap_header_struct hdr;
+	struct __user_cap_data_struct   data[2];
+
+	hdr.pid = syscall(__NR_gettid);
+	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+	if (capget(&hdr, data)) {
+		printf("capget: %s\r\n", strerror(errno));
+		return -1;
+	}
+	printf("\reffective: %08x", data[0].effective);
+	printf("%08x\r\n", data[1].effective);
+	printf("permitted: %08x", data[0].permitted);
+	printf("%08x\r\n", data[1].permitted);
+	printf("inheritable: %08x", data[0].inheritable);
+	printf("%08x\r\n", data[1].inheritable);
+	return 0;
+}
+
 /*
- * lock down the potential privileges that could be gained via filesystem
- * i don't think suid binaries are a good idea, so we use SECBIT_NOROOT
+ * lock down the potential privileges that could be gained via filesystem,
+ * and remove all capabilities this program does not require.
  *
- * a given fcap will be either 0 or 1
+ * an fcap should be either 0 or 1
  *
  * returns 0,  -1 on error.
  */
-int make_uncapable(char fcaps[64])
+#include <stdlib.h>
+int downgrade_caps(char fcaps[64])
 {
+	struct __user_cap_header_struct hdr;
+	struct __user_cap_data_struct   data[2];
 	int i;
 	int c;
 
-	/* remove from bounding set unless found in fcaps */
+
+	memset(&hdr, 0, sizeof(hdr));
+	memset(data, 0, sizeof(data));
+	hdr.pid = syscall(__NR_gettid);
+	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+	c = 0;
 	for(i = 0; i < 64; ++i)
 	{
-		if (capbset_drop(i, fcaps))
+		/* these are dropped later when exec is called */
+		if (i == CAP_SYS_CHROOT || i == CAP_SYS_ADMIN) {
+			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
+		}
+		/* allow requested file caps if not blacklisted */
+		if (fcaps[i] && !cap_blisted(i)) {
+			if (i > CAP_LAST_CAP)
+			       return -1;
+			/*for (i = 0; i < 64; ++i)
+			{
+				if (fcaps[i]) XXX is this even needed?
+					data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
+					data[CAP_TO_INDEX(i)].inherited |= CAP_TO_MASK(i);
+			}*/
+			printf("VERIFYME: cap permitted: %d\n", i);
+			++c;
+		} /* remove from bounding set */
+		else if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+			if (i > CAP_LAST_CAP)
+				break;
+			else if (errno == EINVAL) {
+				printf("cap not found: %d\n", i);
+				return -1;
+			}
+			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
 			return -1;
+		}
+	}
+
+	/* if not requesting any file caps, set no new privs process flag */
+	if (c == 0) {
+		printf("no file caps, setting NO_NEW_PRIVS\r\n");
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			printf("no new privs failed\n");
+			return -1;
+		}
 	}
 
 	/* don't grant privileges, except for file capabilities */
@@ -784,40 +791,30 @@ int make_uncapable(char fcaps[64])
 			SECBIT_KEEP_CAPS_LOCKED		|
 			SECBIT_NO_SETUID_FIXUP		|
 			SECBIT_NO_SETUID_FIXUP_LOCKED	|
-			/** XXX if we decide to allow setuid binaries, remove these.
-			 * but it complicates things a bit when file caps can solve
-			 * the problem.  anything that needs uid 0 should be running
-			 * as a service in some minimal namespace, i think.
-			 * unfortunately this will lead to a lot of patches for common
-			 * setuid programs,  ping, and whatnot.
-			 */
 			SECBIT_NOROOT			|
 			SECBIT_NOROOT_LOCKED)) {
-
 		printf("prctl(): %s\n", strerror(errno));
 		return -1;
 	}
 
-	/* remove all process caps
-	 * */
-	/* caps are dropped when we call exec */
-	/* TODO direct forked daemons are on their own to remove caps */
-
-	/* if not requesting any file caps, set no new privs process flag */
-	c = 0;
-	for (i = 0; i < 64; ++i)
-	{
-		if (fcaps[i])
-			++c;
-	}
-	if (c == 0) {
-		printf("no file caps, setting NO_NEW_PRIVS\n");
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
-			printf("no new privs failed\n");
+	/* finally, set caps and new uid */
+	if (capset(&hdr, data)) {
+		printf("capset: %s\r\n", strerror(errno));
+		printf("cap version: %p\r\n", (void *)hdr.version);
+		printf("pid: %d\r\n", hdr.pid);
+		return -1;
 	}
 
+	/* switch back to real user credentials */
+	if (setregid(getgid(), getgid())) {
+		printf("error setting gid(%d): %s\n", getgid(), strerror(errno));
+		return -1;
+	}
+        if (setreuid(getuid(), getuid())) {
+		printf("error setting uid(%d): %s\n", getuid(), strerror(errno));
+		return -1;
+	}
 	return 0;
-
 }
 
 

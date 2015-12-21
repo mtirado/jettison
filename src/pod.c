@@ -251,6 +251,11 @@ int do_chroot_setup(char *params, size_t size)
 		return -1;
 
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
+	/* -16 to leave room for chrooting relay process into chroot_path/.nullspace */
+	if (strnlen(params, MAX_SYSTEMPATH-16) >= MAX_SYSTEMPATH-16) {
+		printf("chroot path too long\n");
+		return -1;
+	}
 	strncpy(g_chroot_path, params, size);
 	if (chop_trailing(g_chroot_path, MAX_SYSTEMPATH, '/'))
 		return -1;

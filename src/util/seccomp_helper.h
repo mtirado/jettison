@@ -2,14 +2,15 @@
 #define SECCOMP_HELPER_H__
 
 #define MAX_SYSCALL_DEFLEN 64
-#define MAX_SYSCALLS 246 /* maximum number of seccomp'd syscalls we can allow.
-			  * for kernels without SECCOMP_MODE_FILTER_DEFERRED patch we
-			  * add execve and setreuid + 32 to every whitelist, which is
-			  * 3 extra instructions subtracted from limit
+#define MAX_SYSCALLS 248 /* maximum number of seccomp'd syscalls we can allow.
+			  * for kernels without SECCOMP_MODE_FILTER_DEFERRED
+			  * patch we must add execve to every whitelist
 			  */
 
 int clear_caps();
-int make_uncapable(char fcaps[64]);
+int print_caps();
+int downgrade_caps(char fcaps[64]);
+
 
 unsigned int num_syscalls(int *syscalls, unsigned int count);
 

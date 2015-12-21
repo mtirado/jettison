@@ -80,9 +80,6 @@ char g_pty_slavepath[MAX_SYSTEMPATH];
 /* must be called first to obtain podflags and chroot path. */
 int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 {
-	g_podflags = 0;
-	g_ptym = -1;
-	g_newpid = -1;
 	return pod_prepare(cfg_path, g_newroot, outflags);
 }
 
@@ -100,13 +97,78 @@ int jettison_abort()
 	return pod_free();
 }
 
+/* uses chroot_path/.nullspace as chroot directory */
+int downgrade_relay()
+{
+	char nullspace[MAX_SYSTEMPATH];
+	unsigned long remountflags =	  MS_REMOUNT
+					| MS_NOSUID
+					| MS_NOEXEC
+					| MS_NODEV
+					| MS_RDONLY;
+
+	memset(nullspace, 0, sizeof(nullspace));
+	snprintf(nullspace, sizeof(nullspace), "%s/.nullspace", g_newroot);
+
+	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
+		printf("relay unshare: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mkdir(nullspace, 0700)) {
+		if (errno != EEXIST) {
+			printf("mkdir: %s\n", nullspace);
+			return -1;
+		}
+	}
+	if (mount(nullspace, nullspace, "bind",
+				MS_BIND, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(nullspace, nullspace, "bind",
+				MS_BIND|remountflags, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, nullspace, NULL, MS_SLAVE|MS_REC, NULL)) {
+		printf("could not make slave: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chdir(nullspace) < 0) {
+		printf("chdir(\"%s\") failed: %s\n", nullspace, strerror(errno));
+		return -1;
+	}
+	/* remount subtree to / */
+	if (mount(nullspace, "/", NULL, MS_MOVE, NULL) < 0) {
+		printf("mount / MS_MOVE failed: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chroot(nullspace) < 0) {
+		printf("chroot failed: %s\n", strerror(errno));
+		return -1;
+	}
+	/*chroot doesnt change CWD, so we must.*/
+	if (chdir("/") < 0) {
+		printf("chdir(\"/\") failed: %s\n", strerror(errno));
+		return -1;
+	}
+
+	if (clear_caps()) {
+		printf("\rclear_caps failed\r\n");
+		return -1;
+	}
+
+	/* TODO -- apply seccomp filter here */
+
+	return 0;
+}
 
 /* called from within new thread */
 int jettison_initiate(unsigned int podflags)
 {
 	int retval;
 	int noproc = (podflags & (1 << OPTION_NOPROC));
-	struct stat st;	
+	struct stat st;
 
 
 	/* filter callback, for closing fd's and whatnot */
@@ -145,6 +207,8 @@ int jettison_clone_func(void *data)
 	uid_t ruid;
 	gid_t rgid;
 	setsid();
+
+	close(g_ptym);
 
 	if (g_pty_relay == 0) {
 		/* no routing, close inherited tty */
@@ -199,22 +263,6 @@ int jettison_clone_func(void *data)
 			}
 		}
 		chdir("/podhome");
-		/* TODO  for cloned entry g_entry services above, we canot use file caps,
-		 * so we must drop caps the normal way instead of dropping everything
-		 * on a setreuid call, plus we may want to run daemon as uid 0
-		 * the drop code is in make_uncapable when you get around to this.
-		 */
-		if(make_uncapable(g_fcaps)) {
-			printf("blocking privileges failed\n");
-			return -1;
-		}
-
-
-		if (setregid(rgid, rgid)) {
-			printf("error setting gid(%d): %s\n", rgid, strerror(errno));
-			return -1;
-		}
-
 
 		/* TODO -- add a makefile defines for ARCH options <<<  XXX !!
 		 * */
@@ -227,19 +275,12 @@ int jettison_clone_func(void *data)
 			return -1;
 		}
 
-		/* last 2 syscalls granted by seccomp deferred hack.
-		 * are always granted if patch not found :(
-		 */
-		if (setreuid(ruid, ruid)) {
-			printf("error setting uid(%d): %s\n", ruid, strerror(errno));
-			return -1;
-		}
-
 		if (g_trace) {
 			/* TODO launch trace program instead of progpath, since we are
 			 * setuid, ptrace will fail until we make an execve call.
 			 */
 		}
+
 		if (execve(g_progpath, (char **)data, benv) < 0) {
 			printf("error: %s\n", strerror(errno));
 		}
@@ -499,7 +540,7 @@ void exit_func()
 {
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
-	printf("exit_func confirmed\n");
+	usleep(200000); /* was noticing some error output getting lost */
 }
 
 /* terminal resize message */
@@ -653,17 +694,21 @@ int relay_tty(int ours, int theirs)
 	unsigned int wbytes; /* number of bytes in read buffer */
 	int r;
 	int highfd;
-	/*int result;*/
 	fd_set rds, wrs;
 	struct timeval tmr;
 	struct timeval instant;
-
 
 	if (ours == -1 || theirs  == -1)
 		return -1;
 
 	if (!isatty(ours) || !isatty(theirs)) {
 		printf("relay_io not a tty\n");
+		return -1;
+	}
+
+	/* isolate this process + seccomp filter */
+	if(downgrade_relay()) {
+		printf("failed to downgrade relay\n");
 		return -1;
 	}
 
@@ -675,13 +720,6 @@ int relay_tty(int ours, int theirs)
 	highfd = (theirs > ours)  ? theirs : ours;
 	++highfd;
 
-	/* there was some weird issue causing the initial read to be
-	 * an IO error, unless we sleep and let other thread open pty?
-	 * not 100% sure what was causing it(was on kernel 3.10, now im on 4.1)
-	 * i will need to do some more testing to be sure. leaving this here
-	 * in case the bug re-appears.
-	 */
-	/*usleep(350000); -- seems to have been fixed? */
 	wpos = 0;
 	wbytes = 0;
 	memset(rbuf, 0, sizeof(rbuf));
@@ -761,9 +799,6 @@ int relay_tty(int ours, int theirs)
 				}
 			}
 		}
-
-		/*if (waitpid(g_newpid, &result, WNOHANG))
-			return 0;*/
 	}
 
 fatal:
@@ -776,8 +811,13 @@ int main(int argc, char *argv[])
 {
 	unsigned int podflags = 0;
 	struct termios tms;
-	uid_t ruid = getuid();
-	gid_t rgid = getgid();
+
+	/* drop every privilege we don't need */
+	memset(g_fcaps, 0, sizeof(g_fcaps));
+	if (downgrade_caps(g_fcaps)) {
+		printf("failed to downgrade caps\n");
+		return -1;
+	}
 
 	if (process_arguments(argc, argv)) {
 		return -1;
@@ -785,16 +825,14 @@ int main(int argc, char *argv[])
 	if (g_stacksize == 0)
 		g_stacksize = DEFAULT_STACKSIZE;
 
-	printf("calling jettison %d \n", g_stacksize);
+	g_podflags = 0;
+	g_ptym = -1;
+	g_newpid = -1;
 
-        if (jettison_readconfig(g_podconfig_path, &podflags)) {
-		printf("could not configure pod\n");
-		return -1;
-	}
 
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
-	/* reset our tty to original termios at program exit */
+	/* resets tty to original termios at program exit */
 	if (atexit(exit_func)) {
 		printf("couldn't register exit function\n");
 		jettison_abort();
@@ -836,7 +874,13 @@ int main(int argc, char *argv[])
 		tcflush(STDIN_FILENO, TCIOFLUSH);
 	}
 
-	printf("jettison argv: %s\n", argv[0]);
+
+        if (jettison_readconfig(g_podconfig_path, &podflags)) {
+		printf("could not configure pod\n");
+		return -1;
+	}
+
+	/*printf("jettison argv: %s\n", argv[0]);*/
 	g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
 			podflags, NULL, NULL);
 	if (g_newpid == -1) {
@@ -845,24 +889,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	handle_sigwinch(); /* set terminal size */
-	printf("new pid: %d\n", g_newpid);
-	memset(g_fcaps, 0, sizeof(g_fcaps));
-	if (make_uncapable(g_fcaps)) {
-		printf("make_uncapable failed\n");
-		kill(g_newpid, SIGKILL);
-		return -1;
-	}
-	if (setregid(rgid, rgid)) {
-		printf("error setting gid(%d): %s\n", rgid, strerror(errno));
-		kill(g_newpid, SIGKILL);
-		return -1;
-	}
-        if (setreuid(ruid, ruid)) {
-		printf("error setting uid(%d): %s\n", ruid, strerror(errno));
-		kill(g_newpid, SIGKILL);
-		return -1;
-	}
-	clear_caps();
+	/*printf("new pid: %d\n", g_newpid);*/
 
 	if (g_pty_relay) {
 		int ret = relay_tty(STDIN_FILENO, g_ptym);
