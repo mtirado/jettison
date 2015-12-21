@@ -637,42 +637,61 @@ static int cap_blisted(unsigned long cap)
 	{
 		case CAP_MKNOD:
 			printf("CAP_MKNOD is prohibited\n");
+			return 1;
 		case CAP_SETPCAP:
 			printf("CAP_SETPCAP is prohibited\n");
+			return 1;
 		case CAP_SETFCAP:
 			printf("CAP_SETFCAP is prohibited\n");
+			return 1;
 		case CAP_DAC_OVERRIDE:
 			printf("CAP_DAC_OVERRIDE is prohibited\n");
+			return 1;
 		case CAP_SYS_ADMIN: /* don't allow remounts... */
 			printf("CAP_SYS_ADMIN is prohibited\n");
+			return 1;
 		/*case CAP_DAC_READ_SEARCH:
-			printf("CAP_DAC_READ_SEARCH is prohibited\n");*/
+			printf("CAP_DAC_READ_SEARCH is prohibited\n");
+			return 1;*/
 		case CAP_MAC_OVERRIDE:
 			printf("CAP_MAC_OVERRIDE is prohibited\n");
+			return 1;
 		case CAP_MAC_ADMIN:
 			printf("CAP_MAC_ADMIN is prohibited\n");
+			return 1;
 		case CAP_CHOWN:
 			printf("CAP_CHOWN is prohibited\n");
+			return 1;
 		case CAP_BLOCK_SUSPEND:
 			printf("CAP_BLOCK_SUSPEND is prohibited\n");
+			return 1;
 		case CAP_SETUID:
 			printf("CAP_SETUID is prohibited\n");
+			return 1;
 		case CAP_SETGID:
 			printf("CAP_SETGID is prohibited\n");
+			return 1;
 		case CAP_FSETID:
 			printf("CAP_SETFUID is prohibited\n");
+			return 1;
 		case CAP_KILL:
 			printf("CAP_KILL is prohibited\n");
+			return 1;
 		case CAP_SYS_MODULE:
 			printf("CAP_SYS_MODULE is prohibited\n");
+			return 1;
 		case CAP_SYS_TIME:
 			printf("CAP_SYS_TIME is prohibited\n");
+			return 1;
 		case CAP_SYSLOG:
 			printf("CAP_SYSLOG is prohibited\n");
+			return 1;
 		case CAP_SYS_PTRACE:
 			printf("CAP_SYS_PTRACE is prohibited\n");
+			return 1;
 		case CAP_SYS_CHROOT:  /* */
 			printf("CAP_SYS_CHROOT is prohibited\n");
+			return 1;
 		case CAP_IPC_OWNER:
 			printf("CAP_IPC_OWNER is prohibited\n");
 			return 1;
@@ -805,15 +824,6 @@ int downgrade_caps(char fcaps[64])
 		return -1;
 	}
 
-	/* switch back to real user credentials */
-	if (setregid(getgid(), getgid())) {
-		printf("error setting gid(%d): %s\n", getgid(), strerror(errno));
-		return -1;
-	}
-        if (setreuid(getuid(), getuid())) {
-		printf("error setting uid(%d): %s\n", getuid(), strerror(errno));
-		return -1;
-	}
 	return 0;
 }
 

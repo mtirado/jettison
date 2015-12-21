@@ -818,6 +818,15 @@ int main(int argc, char *argv[])
 		printf("failed to downgrade caps\n");
 		return -1;
 	}
+	/* switch back to real user credentials */
+	if (setregid(getgid(), getgid())) {
+		printf("error setting gid(%d): %s\n", getgid(), strerror(errno));
+		return -1;
+	}
+        if (setreuid(getuid(), getuid())) {
+		printf("error setting uid(%d): %s\n", getuid(), strerror(errno));
+		return -1;
+	}
 
 	if (process_arguments(argc, argv)) {
 		return -1;
