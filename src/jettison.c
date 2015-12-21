@@ -46,6 +46,8 @@
 	#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
 #endif
 
+extern char **environ;
+
 /* pod.c globals */
 extern char g_fcaps[64];
 extern int  g_syscalls[MAX_SYSCALLS];
@@ -98,7 +100,7 @@ int jettison_abort()
 }
 
 /* uses chroot_path/.nullspace as chroot directory */
-int downgrade_relay()
+static int downgrade_relay()
 {
 	char nullspace[MAX_SYSTEMPATH];
 	unsigned long remountflags =	  MS_REMOUNT
@@ -161,6 +163,37 @@ int downgrade_relay()
 	/* TODO -- apply seccomp filter here */
 
 	return 0;
+}
+
+/* change $HOME to /podhome */
+static int change_home()
+{
+	char newhome[] = "/podhome";
+	char **env = environ;
+	char *str;
+	unsigned int len;
+
+	if (env == NULL) {
+		printf("no environ??\n");
+		return -1;
+	}
+	while(*env)
+	{
+		if (strncmp(*env, "HOME=", 5) == 0) {
+			len = strnlen(newhome, MAX_SYSTEMPATH) + 6;
+			if (len >= MAX_SYSTEMPATH)
+				return -1;
+			str = malloc(len);
+			if (str == NULL)
+				return -1;
+			snprintf(str, len, "HOME=%s", newhome);
+			*env = str;
+			return 0;
+		}
+		++env;
+	}
+	printf("no home environment variable found\n");
+	return -1;
 }
 
 /* called from within new thread */
@@ -228,25 +261,10 @@ int jettison_clone_func(void *data)
 
 	/* either call func, or exec */
 	if (g_entry) {
-		/* TODO for services, drop caps and change uid!!
-		 * we need another option allow_pcap so services can use both.
-		 * */
-		return g_entry(data);
+		return -1; /* TODO g_entry(data);*/
 	}
 	else {
-		char *benv[6] = {
-			"PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/bin",
-			"HOME=/podhome",
-			"SHELL=/bin/bash",
-			"TERM=linux",
-			"DISPLAY=:0.0",
-			/* TODO, read these from current env for program launcher
-			 * or even better, add configuration option for env var
-			 * 		^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-			 */
-			NULL
-		};
-
+		change_home();
 
 		ruid = getuid();
 		rgid = getgid();
@@ -281,7 +299,7 @@ int jettison_clone_func(void *data)
 			 */
 		}
 
-		if (execve(g_progpath, (char **)data, benv) < 0) {
+		if (execve(g_progpath, (char **)data, environ) < 0) {
 			printf("error: %s\n", strerror(errno));
 		}
 		return -1;

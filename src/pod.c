@@ -315,7 +315,6 @@ char *gethome()
 	}
 	while(*env)
 	{
-		/* TODO ---  stop doing this, read passwd instead!! */
 		if (strncmp(*env, "HOME=", 5) == 0) {
 			r = &(*env)[5];
 			len = strnlen(r, MAX_SYSTEMPATH);
