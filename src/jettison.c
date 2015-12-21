@@ -168,6 +168,9 @@ static int downgrade_relay()
 	g_syscalls[i++] = syscall_helper("__NR_read");
 	g_syscalls[i++] = syscall_helper("__NR_capset");
 	g_syscalls[i++] = syscall_helper("__NR_gettid");
+	g_syscalls[i++] = syscall_helper("__NR_exit");
+	g_syscalls[i++] = syscall_helper("__NR_exit_group");
+	g_syscalls[i++] = syscall_helper("__NR_ioctl");
 	if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
 				 num_syscalls(g_syscalls, MAX_SYSCALLS),
 				 SECCOMP_RET_ERRNO)) {
