@@ -171,6 +171,7 @@ static int downgrade_relay()
 	g_syscalls[i++] = syscall_helper("__NR_exit");
 	g_syscalls[i++] = syscall_helper("__NR_exit_group");
 	g_syscalls[i++] = syscall_helper("__NR_ioctl");
+	g_syscalls[i++] = syscall_helper("__NR_sigreturn");
 	if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
 				 num_syscalls(g_syscalls, MAX_SYSCALLS),
 				 SECCOMP_RET_ERRNO)) {
