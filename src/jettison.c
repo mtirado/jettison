@@ -46,6 +46,10 @@
 	#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
 #endif
 
+#ifndef TRACEE_PATH
+	#define TRACEE_PATH="/usr/local/bin/jettison_tracee"
+#endif
+
 extern char **environ;
 
 /* pod.c globals */
@@ -67,6 +71,7 @@ char g_procname[MAX_PROCNAME];
 int  g_nokill;
 int  g_tracecalls;
 int  g_trace;
+int  g_argstart;
 long g_retaction;
 
 int g_newpid;
@@ -339,13 +344,13 @@ int jettison_clone_func(void *data)
 		}
 
 		if (g_trace) {
-			/* TODO launch trace program instead of progpath, since we are
-			 * setuid, ptrace will fail until we make an execve call.
-			 */
+			if (execve(TRACEE_PATH, (char **)data, environ) < 0)
+				printf("tracee exec error: %s\n", strerror(errno));
+			return -1;
 		}
 
 		if (execve(g_progpath, (char **)data, environ) < 0) {
-			printf("error: %s\n", strerror(errno));
+			printf("execerror: %s\n", strerror(errno));
 		}
 		return -1;
 	}
@@ -453,8 +458,9 @@ int process_arguments(int argc, char *argv[])
 	g_retaction = SECCOMP_RET_KILL;
 	g_pty_relay = 1;
 	g_tracecalls = 0;
+	g_trace = 0;
 	g_nokill = 0;
-
+	g_argstart = 0;
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 
@@ -526,12 +532,12 @@ int process_arguments(int argc, char *argv[])
 				g_pty_relay = 0;
 				argidx  += 1;
 			}
-			else if (strncmp(argv[i], "--tracecalls", len) == 0) {
-				g_tracecalls = 1;
-				argidx  += 1;
-			}
 			else if (strncmp(argv[i], "--trace", len) == 0) {
 				g_trace = 1;
+				argidx  += 1;
+			}
+			else if (strncmp(argv[i], "--tracecalls", len) == 0) {
+				g_tracecalls = 1;
 				argidx  += 1;
 			}
 			else {
@@ -542,10 +548,17 @@ int process_arguments(int argc, char *argv[])
 		}
 
 	}
+	g_argstart = argidx;
+	/* --tracecalls needs to launch through tracee  */
+	if (g_tracecalls)
+		g_trace = 1;
 
 	/* no more additional options,  setup new argv */
 	i = argidx;
-	argidx = 1;
+	if (g_trace) /* will pass program path as argv[1] to tracee exec program */
+		argidx = 2;
+	else
+		argidx = 1;
 	while(i < argc)
 	{
 		argv[argidx] = argv[i];
@@ -553,9 +566,6 @@ int process_arguments(int argc, char *argv[])
 		++i;
 	}
 
-	/* --tracecalls needs to launch in trace mode */
-	if (g_tracecalls)
-		g_trace = 1;
 
 	if (g_nokill || g_tracecalls)
 		g_retaction = SECCOMP_RET_ERRNO;

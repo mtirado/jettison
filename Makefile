@@ -1,7 +1,8 @@
 # some global defines
-DEFINES := 						\
-			-DMAX_SYSTEMPATH=2048 		\
-			-DDEFAULT_STACKSIZE=4194304
+DEFINES := 				\
+	-DMAX_SYSTEMPATH=2048 		\
+	-DDEFAULT_STACKSIZE=4194304	\
+	-DTRACEE_PATH=\"/usr/bin/jettison_tracee\"
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 #-rdynamic: backtrace names
@@ -45,12 +46,11 @@ TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
 #	PROGRAM FILENAMES
 ########################################
 JETTISON		:= jettison
+UTIL_TRACEE  		:= jettison_tracee
+UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
+#tests
 TEST_SECCOMP		:= seccomp_test
 TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
-
-#extra stuff
-UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
-#UTIL_SECCOMP_TRACE  	:= seccomp_trace
 
 %.o: 		%.c
 			$(CC) -c $(DEFLANG) $(CFLAGS) $(DBG) -o $@ $<
@@ -58,8 +58,8 @@ UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
 
 all:				\
 	$(JETTISON)		\
-	$(UTIL_SECCOMP_ENUM)
-#	$(UTIL_SECCOMP_TRACE)
+	$(UTIL_SECCOMP_ENUM)	\
+	$(UTIL_TRACEE)
 
 tests:				\
 	$(TEST_SECCOMP)		\
@@ -72,42 +72,41 @@ tests:				\
 $(JETTISON):		$(JETTISON_OBJS)
 		  	$(CC) $(LDFLAGS) $(JETTISON_OBJS) -o $@
 			@echo ""
-			@echo "x----------------------------x"
-			@echo "| jettison                OK |"
-			@echo "x----------------------------x"
+			@echo "x------------------x"
+			@echo "| jettison      OK |"
+			@echo "x------------------x"
 
 $(TEST_SECCOMP):	$(TEST_SECCOMP_OBJS)
 		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_OBJS) -o $@
 			@echo ""
-			@echo "x----------------------------x"
-			@echo "| seccomp_test            OK |"
-			@echo "x----------------------------x"
+			@echo "x-------------------------x"
+			@echo "| test: seccomp_test   OK |"
+			@echo "x-------------------------x"
 
 $(TEST_SECCOMP_LAUNCH):	$(TEST_SECCOMP_LAUNCH_OBJS)
 		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_LAUNCH_OBJS) -o $@
 			@echo ""
-			@echo "x----------------------------x"
-			@echo "| seccomp_test_launcher   OK |"
-			@echo "x----------------------------x"
+			@echo "x----------------------------------x"
+			@echo "| test:  seccomp_test_launcher  OK |"
+			@echo "x----------------------------------x"
 
 $(UTIL_SECCOMP_ENUM):
 			@echo ""
 			$(CC) $(CFLAGS) ./src/util/seccomp_enumerator.c -o $@
 			@echo ""
-			@echo "x----------------------------x"
-		 	@echo "| seccomp_enumerator      OK |"
-			@echo "x----------------------------x"
+			@echo "x-------------------------------x"
+			@echo "| util: seccomp_enumerator   OK |"
+			@echo "x-------------------------------x"
 			@echo ""
 
-#$(UTIL_SECCOMP_TRACE):
-#			@echo ""
-#			$(CC) $(CFLAGS) ./src/util/seccomp_helper.c	\
-#					./src/util/tracecalls.c	-o $@
-#			@echo ""
-#			@echo "x----------------------------x"
-#			@echo "| seccomp_trace           OK |"
-#			@echo "x----------------------------x"
-#			@echo ""
+$(UTIL_TRACEE):
+			@echo ""
+			$(CC) $(CFLAGS) ./src/util/tracee.c -o $@
+			@echo ""
+			@echo "x--------------------x"
+			@echo "| util: tracee    OK |"
+			@echo "x--------------------x"
+			@echo ""
 
 ########################################
 #	CLEAN UP THE MESS
@@ -121,7 +120,7 @@ clean:
 	@-rm -fv ./$(TEST_SECCOMP)
 	@-rm -fv ./$(TEST_SECCOMP_LAUNCH)
 	@-rm -fv ./$(UTIL_SECCOMP_ENUM)
-#	@-rm -fv ./$(UTIL_SECCOMP_TRACE)
+	@-rm -fv ./$(UTIL_TRACEE)
 	@echo cleaned.
 
 

@@ -118,7 +118,7 @@ int switch_terminal(char *path, int hangup)
 	int err;
 	int fd_tty = open(path, O_CLOEXEC|O_RDWR|O_NONBLOCK);
 	if (fd_tty == -1) {
-		printf("open(): %s\n", strerror(errno));
+		printf("open(%s): %s\n", path, strerror(errno));
 		return -1;
 	}
 	if (!isatty(fd_tty)) {
