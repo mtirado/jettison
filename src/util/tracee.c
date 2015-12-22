@@ -5,7 +5,7 @@
  * usage example:
  *
  *	send SIGCONT 1 second after strace is executed
- *	$(sleep 1 && kill -s 18 <pid>) & strace -p <pid>
+ *	$(sleep 1 && kill -s 18 <pid>) & strace -f -p <pid>
  *
  * with jettison the pid you should trace is last process down in T state,
  * then send it a SIGCONT to resume and call exec.
