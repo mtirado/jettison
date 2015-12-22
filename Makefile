@@ -2,7 +2,7 @@
 DEFINES := 				\
 	-DMAX_SYSTEMPATH=2048 		\
 	-DDEFAULT_STACKSIZE=4194304	\
-	-DTRACEE_PATH=\"/usr/bin/jettison_tracee\"
+	-DTRACEE_PATH=\"/usr/local/bin/jettison_tracee\"
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 #-rdynamic: backtrace names
