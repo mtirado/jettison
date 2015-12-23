@@ -740,7 +740,6 @@ static int fillbuf(int fd, char *buf, unsigned int size)
 		else if (r < 0 && errno == EINTR)
 			continue;
 		else {
-			printf("fillbuf read: %s\n", strerror(errno));
 			return -1;
 		}
 	}
@@ -759,6 +758,7 @@ static int fillbuf(int fd, char *buf, unsigned int size)
  * if the buffer is empty, we check read set to read and refill.
  *
  */
+#define RETRIES 1
 int relay_tty(int ours, int theirs)
 {
 	char rbuf[IOBUFLEN]; /* buffer from them */
@@ -770,7 +770,7 @@ int relay_tty(int ours, int theirs)
 	fd_set rds, wrs;
 	struct timeval tmr;
 	struct timeval instant;
-
+	int  = RETRIES; /* first read fails sometimes */
 	if (ours == -1 || theirs  == -1)
 		return -1;
 
@@ -797,6 +797,7 @@ int relay_tty(int ours, int theirs)
 	wbytes = 0;
 	memset(rbuf, 0, sizeof(rbuf));
 	memset(wbuf, 0, sizeof(wbuf));
+retry:
 	while(1)
 	{
 		tmr.tv_usec = 0;
@@ -864,8 +865,10 @@ int relay_tty(int ours, int theirs)
 			/* read output from their side and print it */
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
-				if (r == -1)
+				if (r == -1) {
+					--retries;
 					goto fatal;
+				}
 				else if (r > 0) {
 					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1)
 						goto fatal;
@@ -875,7 +878,10 @@ int relay_tty(int ours, int theirs)
 	}
 
 fatal:
-	printf("strerror: %s\n", strerror(errno));
+	if (retries >= 0) {
+		usleep(100000);
+		goto retry;
+	}
 	return -1;
 }
 
