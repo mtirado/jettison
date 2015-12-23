@@ -770,7 +770,7 @@ int relay_tty(int ours, int theirs)
 	fd_set rds, wrs;
 	struct timeval tmr;
 	struct timeval instant;
-	int  = RETRIES; /* first read fails sometimes */
+	int retries = RETRIES; /* first read fails sometimes */
 	if (ours == -1 || theirs  == -1)
 		return -1;
 
