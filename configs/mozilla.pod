@@ -190,16 +190,5 @@ seccomp_allow __NR_restart_syscall
 #seccomp_allow __NR_ptrace
 #seccomp_allow __NR_wait4
 
-##############################################
-# any files below chroot point are accessible
-##############################################
-chroot /home/user/pods/web/mozilla
-
-
-
-
-
-
-
 
 
