@@ -32,20 +32,18 @@ enum
 
 	/*OPTION_CAP_PSET*/
 	OPTION_CAP_BSET,
-	/* the final option. */
-	OPTION_CHROOT,
 	KWCOUNT
 };
 
 
 /* reads configuration for flags and chroot path
- * filename - pod configuration file
+ * filepath - pod configuration file
  * outpath  - path to new chroot,
  * outflags - option flags
  *
  * outpath must be <= MAX_SYSTEMPATH for a safe memcpy
  */
-int pod_prepare(char *filename, char *outpath, unsigned int *outflags);
+int pod_prepare(char *filepath, char *outpath, unsigned int *outflags);
 
 /*
  * if any failure occurs after pod_prepare or on pod_enter

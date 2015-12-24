@@ -2,6 +2,7 @@
 DEFINES := 				\
 	-DMAX_SYSTEMPATH=2048 		\
 	-DDEFAULT_STACKSIZE=4194304	\
+	-DPOD_PATH=\"/opt/pods\"	\
 	-DTRACEE_PATH=\"/usr/local/bin/jettison_tracee\"
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)

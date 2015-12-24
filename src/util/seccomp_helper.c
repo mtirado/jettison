@@ -767,7 +767,8 @@ int downgrade_caps(char fcaps[64])
 	for(i = 0; i < 64; ++i)
 	{
 		/* these are dropped later when exec is called */
-		if (i == CAP_SYS_CHROOT || i == CAP_SYS_ADMIN) {
+		if (i == CAP_SYS_CHROOT || i == CAP_SYS_ADMIN
+				|| i == CAP_CHOWN || i == CAP_SETGID) {
 			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
 			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
 		}

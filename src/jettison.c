@@ -78,9 +78,13 @@ int g_newpid;
 int g_pty_relay;
 int g_ptym;
 
+uid_t g_ruid;
+gid_t g_rgid;
+
 
 char g_newroot[MAX_SYSTEMPATH];
 char g_pty_slavepath[MAX_SYSTEMPATH];
+char g_nullspace[MAX_SYSTEMPATH];
 
 
 
@@ -104,10 +108,29 @@ int jettison_abort()
 	return pod_free();
 }
 
-/* uses chroot_path/.nullspace as chroot directory */
+static int create_nullspace()
+{
+	memset(g_nullspace, 0, sizeof(g_nullspace));
+	snprintf(g_nullspace, sizeof(g_nullspace), "%s/.nullspace", POD_PATH);
+	if (eslib_file_exists(POD_PATH) != 1) {
+		printf("directory missing: %s\n", POD_PATH);
+		return -1;
+	}
+	if (eslib_file_path_check(g_nullspace))
+		return -1;
+
+	/* directory may have not been created yet */
+	if (eslib_file_mkdirpath(g_nullspace, 0755, 0) != 0) {
+		printf("could not create: %s\n", g_nullspace);
+		return -1;
+	}
+	chmod(g_nullspace, 0755);
+	return 0;
+}
+
+/* uses /opt/pods/.nullspace as chroot directory */
 static int downgrade_relay()
 {
-	char nullspace[MAX_SYSTEMPATH];
 	unsigned int i;
 	unsigned long remountflags =	  MS_REMOUNT
 					| MS_NOSUID
@@ -115,43 +138,34 @@ static int downgrade_relay()
 					| MS_NODEV
 					| MS_RDONLY;
 
-	memset(nullspace, 0, sizeof(nullspace));
-	snprintf(nullspace, sizeof(nullspace), "%s/.nullspace", g_newroot);
-
 	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
 		printf("relay unshare: %s\n", strerror(errno));
 		return -1;
 	}
-	if (mkdir(nullspace, 0700)) {
-		if (errno != EEXIST) {
-			printf("mkdir: %s\n", nullspace);
-			return -1;
-		}
-	}
-	if (mount(nullspace, nullspace, "bind",
+	if (mount(g_nullspace, g_nullspace, "bind",
 				MS_BIND, NULL)) {
 		printf("could not bind mount: %s\n", strerror(errno));
 		return -1;
 	}
-	if (mount(nullspace, nullspace, "bind",
+	if (mount(g_nullspace, g_nullspace, "bind",
 				MS_BIND|remountflags, NULL)) {
 		printf("could not bind mount: %s\n", strerror(errno));
 		return -1;
 	}
-	if (mount(NULL, nullspace, NULL, MS_SLAVE|MS_REC, NULL)) {
+	if (mount(NULL, g_nullspace, NULL, MS_SLAVE|MS_REC, NULL)) {
 		printf("could not make slave: %s\n", strerror(errno));
 		return -1;
 	}
-	if (chdir(nullspace) < 0) {
-		printf("chdir(\"%s\") failed: %s\n", nullspace, strerror(errno));
+	if (chdir(g_nullspace) < 0) {
+		printf("chdir(\"%s\") failed: %s\n", g_nullspace, strerror(errno));
 		return -1;
 	}
 	/* remount subtree to / */
-	if (mount(nullspace, "/", NULL, MS_MOVE, NULL) < 0) {
+	if (mount(g_nullspace, "/", NULL, MS_MOVE, NULL) < 0) {
 		printf("mount / MS_MOVE failed: %s\n", strerror(errno));
 		return -1;
 	}
-	if (chroot(nullspace) < 0) {
+	if (chroot(g_nullspace) < 0) {
 		printf("chroot failed: %s\n", strerror(errno));
 		return -1;
 	}
@@ -252,7 +266,6 @@ int jettison_initiate(unsigned int podflags)
 		return -1;
 	}
 
-
 	/* enter pod environment */
 	if ((retval = pod_enter()) < 0) {
 		printf("pod_enter failure: %d\n", retval);
@@ -279,12 +292,14 @@ int jettison_initiate(unsigned int podflags)
 /* new thread function */
 int jettison_clone_func(void *data)
 {
-	uid_t ruid;
-	gid_t rgid;
-	setsid();
 
+	setsid();
 	close(g_ptym);
 
+	if (setuid(g_ruid)) {
+		printf("setuid fail\n");
+		return -1;
+	}
 	if (g_pty_relay == 0) {
 		/* no routing, close inherited tty */
 		close(STDIN_FILENO);
@@ -292,7 +307,12 @@ int jettison_clone_func(void *data)
 		close(STDERR_FILENO);
 	}
 	else if (switch_terminal(g_pty_slavepath, 0)) {
-		printf("could not switch to pty(\"%s\")\n", g_pty_slavepath);
+		return -1;
+	}
+
+	/* all files except podhome are root owned */
+	if (setuid(0)) {
+		printf("clone uid error\n");
 		return -1;
 	}
 
@@ -316,19 +336,30 @@ int jettison_clone_func(void *data)
 			NULL
 		};*/
 
-		ruid = getuid();
-		rgid = getgid();
 		printf("\n---------------------------------------------\n");
-		printf("what the hay is the realuid?: %d\n", ruid);
+		printf("what the hay is the realuid?: %d\n", g_ruid);
 		printf("---------------------------------------------\n\n");
 		printf("nokill = %d\n", g_nokill);
 		printf("trace  = %d\n", g_tracecalls);
-		if (mkdir("/podhome", 0750)) {
-			chmod("/podhome", 0750);
-			if (chown("/podhome", ruid, rgid)) {
-				printf("home directory error\n");
-				return -1;
-			}
+		if (chown("/podhome", g_ruid, g_rgid)) {
+			printf("chown /podhome failed\n");
+			return -1;
+		}
+
+		/* switch back to real user credentials */
+		if (setregid(g_rgid, g_rgid)) {
+			printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
+			return -1;
+		}
+	        if (setreuid(g_ruid, g_ruid)) {
+			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
+			return -1;
+		}
+
+		/* make sure other users can't see into pod home */
+		if (chmod("/podhome", 0750)) {
+			printf("home directory error\n");
+			return -1;
 		}
 		chdir("/podhome");
 
@@ -890,20 +921,22 @@ int main(int argc, char *argv[])
 {
 	unsigned int podflags = 0;
 	struct termios tms;
+	g_ruid = getuid();
+	g_rgid = getgid();
+
+	/* we need gid 0 to create files in root group */
+	if (setgid(0)) {
+		printf("error setting gid(%d): %s\n", 0, strerror(errno));
+		return -1;
+	}
 
 	/* drop every privilege we don't need */
 	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(g_newroot, 0, sizeof(g_nullspace));
+	memset(g_nullspace, 0, sizeof(g_nullspace));
+
 	if (downgrade_caps(g_fcaps)) {
 		printf("failed to downgrade caps\n");
-		return -1;
-	}
-	/* switch back to real user credentials */
-	if (setregid(getgid(), getgid())) {
-		printf("error setting gid(%d): %s\n", getgid(), strerror(errno));
-		return -1;
-	}
-        if (setreuid(getuid(), getuid())) {
-		printf("error setting uid(%d): %s\n", getuid(), strerror(errno));
 		return -1;
 	}
 
@@ -917,7 +950,6 @@ int main(int argc, char *argv[])
 	g_ptym = -1;
 	g_newpid = -1;
 
-
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
 	/* resets tty to original termios at program exit */
@@ -930,12 +962,16 @@ int main(int argc, char *argv[])
 	/* running jettison will hook up a pseudo terminal unless --notty is specified */
 	if (g_pty_relay) {
 		relayio_sigsetup();
+		setuid(g_ruid);
 		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
 			printf("could not create pty\n");
 			jettison_abort();
 			return -1;
 		}
-
+		if (setuid(0)) {
+			printf("uid error\n");
+			return -1;
+		}
 		/* set terminal to raw mode */
 		tcgetattr(STDIN_FILENO, &tms);
 		cfmakeraw(&tms);
@@ -962,15 +998,30 @@ int main(int argc, char *argv[])
 		tcflush(STDIN_FILENO, TCIOFLUSH);
 	}
 
+	if (create_nullspace())
+		return -1;
 
         if (jettison_readconfig(g_podconfig_path, &podflags)) {
 		printf("could not configure pod\n");
 		return -1;
 	}
 
+
 	/*printf("jettison argv: %s\n", argv[0]);*/
 	g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
 			podflags, NULL, NULL);
+
+	/* switch back to real user credentials */
+	if (setregid(g_rgid, g_rgid)) {
+		printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
+		return -1;
+	}
+        if (setreuid(g_ruid, g_ruid)) {
+		printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
+		return -1;
+	}
+
+
 	if (g_newpid == -1) {
 		jettison_abort();
 		printf("jettison failure\n");

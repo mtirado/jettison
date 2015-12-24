@@ -67,7 +67,7 @@ unsigned int g_lineno;
 size_t g_filesize;
 char *g_filedata;
 int g_allow_dev;
-int g_find_root;
+int g_firstpass;
 unsigned int g_podflags;
 
 /* if/when v4 comes out change the hardcoded 64's everywhere */
@@ -103,9 +103,6 @@ static char keywords[KWCOUNT][KWLEN] =
 	/* TODO make configuration file read string instead of number, like seccomp does */
 	{ "cap_bset"	},  /* allow file capability in bounding set */
 
-	/* do not place any options below chroot!  */
-	{ "chroot"      },
-
 };
 
 
@@ -126,20 +123,24 @@ int pod_free()
 /*
  * load config file into memory,
  * call first pass of pod_load_config:
- * reads  chroot path, and pod flags
+ * copies out chroot path, and pod flags
  * */
-int pod_prepare(char *filename, char *outpath, unsigned int *outflags)
+int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 {
 	int r;
 	unsigned int i;
 	FILE *file;
+	char *filename;
+	char *pwline;
+	char *pwuser;
+	int slashidx;
 
 	if (outpath == NULL || outflags == NULL)
 		return -1;
 
 	g_allow_dev = 0;
 	g_podflags = 0;
-	g_find_root = 1; /*first pass, find the new root*/
+	g_firstpass = 1;
 	g_filedata = NULL;
 	g_mountpoints = NULL;
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
@@ -152,11 +153,55 @@ int pod_prepare(char *filename, char *outpath, unsigned int *outflags)
 		g_syscalls[i] = -1;
 	}
 
-	file = fopen(filename, "r");
+	file = fopen(filepath, "r");
 	if (file == NULL) {
-		printf("could not read pod configuration file: %s\n", filename);
-		return -2;
+		printf("could not read pod configuration file: %s\n", filepath);
+		return -1;
 	}
+
+	/* create chroot path, get filename */
+	slashidx = 0;
+	for (i = 0; i < MAX_SYSTEMPATH; ++i)
+	{
+		if (filepath[i] == '/')
+			slashidx = i;
+		else if (filepath[i] == '\0')
+			break;
+	}
+	if (i >= MAX_SYSTEMPATH) {
+		printf("pod file path too long\n");
+		fclose(file);
+		return -1;
+	}
+
+	printf("PASSWD QUICK TEST\n");
+
+	pwline = passwd_fetchline(getuid());
+	if (pwline == NULL) {
+		printf("passwd file error\n");
+		return -1;
+	}
+	pwuser = passwd_getfield(pwline, PASSWD_USER);
+	if (pwuser == NULL) {
+		printf("could not find your username in passwd file\n");
+		return -1;
+	}
+
+
+	filename = &filepath[slashidx];
+	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
+	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
+		printf("chroot path too long: %s\n", g_chroot_path);
+		fclose(file);
+		return -1;
+	}
+	if (eslib_file_path_check(g_chroot_path)) {
+		printf("bad chroot path\n");
+		fclose(file);
+		return -1;
+	}
+	printf("filename: %s\n", filename);
+	printf("chroot path: %s\n", g_chroot_path);
 
 	fseek(file, 0, SEEK_END);
 	g_filesize = ftell(file);
@@ -177,14 +222,16 @@ int pod_prepare(char *filename, char *outpath, unsigned int *outflags)
 	fclose(file);
 	g_filedata[g_filesize] = '\0';
 
-	/* first pass, copy out flags + chroot path */
+	/* first pass, copy out flags and path */
 	r = pod_load_config(g_filedata, g_filesize);
-	if (r < 0) {
+	if (r) {
 		printf("pod_load_config error: %d on line %d\n", r, g_lineno);
-		printf("podconfig: %s\n", filename);
+		printf("podconfig: %s\n", filepath);
 		pod_free();
 		return -1;
 	}
+	g_firstpass = 0;
+
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
 	outpath[MAX_SYSTEMPATH-1] = '\0';
@@ -212,8 +259,9 @@ int pod_enter()
 		memset(pathbuff, 0, sizeof(pathbuff));
 		strncpy(pathbuff, g_chroot_path, sizeof(pathbuff)-7);
 		strncat(pathbuff, "/proc", 5);
-		if (mkdir(pathbuff, 0755) == 0)
-			chown(pathbuff, getuid(), getgid()); /* metafile user owned */
+		/*if (mkdir(pathbuff, 0755) == 0)
+			chown(pathbuff, getuid(), getgid());*/ /* metafile user owned */
+		mkdir(pathbuff, 0755);
 		if (mount(0, pathbuff, "proc", flags, 0) < 0) {
 			printf("couldn't mount proc(%s): %s\n",pathbuff,strerror(errno));
 			goto err_free;
@@ -237,71 +285,52 @@ err_free:
 
 
 
-int do_chroot_setup(char *params, size_t size)
+int do_chroot_setup()
 {
+	char podhome[MAX_SYSTEMPATH];
 	int r;
-	uid_t fuid;
-	uid_t ruid = getuid();
+	int l = strnlen(POD_PATH, MAX_SYSTEMPATH);
 
-	if (params == NULL || size == 0) {
-		printf("null parameter\n");
+	if (l >= MAX_SYSTEMPATH / 2 || l <= 1)
 		return -1;
-	}
-	if (size >= MAX_SYSTEMPATH)
+	if (strncmp(g_chroot_path, POD_PATH, l) != 0)
 		return -1;
 
-	memset(g_chroot_path, 0, sizeof(g_chroot_path));
-	/* -16 to leave room for chrooting relay process into chroot_path/.nullspace */
-	if (strnlen(params, MAX_SYSTEMPATH-16) >= MAX_SYSTEMPATH-16) {
-		printf("chroot path too long\n");
-		return -1;
-	}
-	strncpy(g_chroot_path, params, size);
-	if (chop_trailing(g_chroot_path, MAX_SYSTEMPATH, '/'))
-		return -1;
 	r = eslib_file_exists(g_chroot_path);
 	if (r == -1)
 		return -1;
 	if (r == 0) { /* did not exist */
-		char ppath[MAX_SYSTEMPATH];
-		memset(ppath, 0, sizeof(ppath));
-		/* make sure we have permission in parent dir */
-		if (eslib_file_getparent(g_chroot_path, ppath))
-			return -1;
-		fuid = eslib_file_getuid(ppath);
-		if (fuid == (uid_t)-1)
-			return -1;
-		if (fuid != ruid && ruid != 0) { /* but allow real root to do this */
-			printf("you don't own parent directory of: %s\n", ppath);
+		if (eslib_file_mkdirpath(g_chroot_path, 0755, 0)) {
+			printf("couldn't mkdir(%s); %s\n",
+					g_chroot_path, strerror(errno));
 			return -1;
 		}
-		/* create pod chroot directory */
-		mkdir(g_chroot_path, 0750);
-		chown(g_chroot_path, getuid(), getgid());
 	}
 	else {  /* path exists */
 		r = eslib_file_isdir(g_chroot_path);
 		if (r == 0) {
-			printf("chroot path is not a directory\n");
+			printf("chroot path(%s) is not a directory\n", g_chroot_path);
 			return -1;
 		}
 		else if (r == -1)
 			return -1;
-		/* check file ownership */
-		fuid = eslib_file_getuid(g_chroot_path);
-		if (fuid == (uid_t)-1)
-			return -1;
-		if (fuid != ruid && ruid != 0) {
-			printf("you don't own chroot path\n");
-			return -1;
-		}
 	}
-	return 1;
+	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
+	/* podhome chown'd to user right before execve */
+	mkdir(podhome, 0750);
+	if (chown(podhome, 0, 0)) {
+		printf("chown %s failed\n", podhome);
+		return -1;
+	}
+	return 0;
 }
 
 
+/*
+ * get $HOME string from environment, could make this optional to read
+ * from /etc/passwd instead of letting user set it from environment.
+ */
 extern char **environ;
-/* get $HOME string from environment */
 char *gethome()
 {
 	char **env = environ;
@@ -370,6 +399,8 @@ static int do_bind(char *src, char *dest, unsigned long remountflags)
 	if (isdir == -1)
 		return -1;
 
+	printf("do_bind(%s, %s)\n", src, dest);
+
 	/* needs a file / directory to bind over */
 	r = eslib_file_exists(dest);
 	if (r == -1)
@@ -386,20 +417,13 @@ static int do_bind(char *src, char *dest, unsigned long remountflags)
 	}
 	else { /* did not exist */
 		if (isdir == 1) {
-			/* in order to 
-			 */
-			if (eslib_file_mkdirpath(dest, 0755, 1)  == -1) {
+			if (eslib_file_mkdirpath(dest, 0755, 0)  == -1) {
 				logerror("pod_prepare bind, mkdir failed: %s", dest);
 				return -1;
 			}
 		}
-		else if (eslib_file_mkfile(dest, 0755, 1) == -1) {
+		else if (eslib_file_mkfile(dest, 0755, 0) == -1) {
 			logerror("pod_prepare  bind, mkfile failed: %s", dest);
-			return -1;
-		}
-		/* make metafile user owned */
-		if (chown(dest, getuid(), getgid())) {
-			printf("chown: %s\n", strerror(errno));
 			return -1;
 		}
 	}
@@ -638,34 +662,22 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char path[MAX_SYSTEMPATH];
 	char syscall_buf[MAX_SYSCALL_DEFLEN];
 	int  syscall_nr;
-	int r = 0;
 	char *err;
 	unsigned int read_uint;
 	char numbuf[32]; /* for strtol and whatnot */
 	/*int is_pcap = 0;*/
 
-	unsigned long remountflags =	  MS_REMOUNT
-					| MS_NOSUID
-					| MS_NOEXEC
-					| MS_NODEV
-					| MS_RDONLY;
 	if (option >= KWCOUNT)
 		return -1;
 
-	/* first pass only cares about finding chroot path, and getting flags*/
-	if (g_find_root == 1) {
-		if (option == OPTION_CHROOT) {
-			return do_chroot_setup(params, size);
-		}
-		else if (option < OPTION_PODFLAG_CUTOFF) {
+	/* first pass only cares about getting config flags */
+	if (g_firstpass == 1) {
+		if (option < OPTION_PODFLAG_CUTOFF) {
 			/* set flag if below cutoff */
 			g_podflags |= (1 << option);
 		}
 		return 0;
 	}
-
-	if (eslib_file_path_check(g_chroot_path))
-		return -1;
 
 	memset(src,  0, sizeof(src));
 	memset(dest, 0, sizeof(dest));
@@ -806,56 +818,6 @@ do_bind:
 
 		break;
 
-
-
-	case OPTION_CHROOT:
-
-		/* for security reasons, we need to process some paths first */
-		if (pod_process_mountpoints()) {
-			printf("mountpoint processing failed\n");
-			return -1;
-		}
-
-		if (mount(g_chroot_path, g_chroot_path, "bind",
-					MS_BIND, NULL)) {
-			printf("could not bind mount: %s\n", strerror(errno));
-			return -1;
-		}
-		if (mount(g_chroot_path, g_chroot_path, "bind",
-					MS_BIND|remountflags, NULL)) {
-			printf("could not bind mount: %s\n", strerror(errno));
-			return -1;
-		}
-		if (mount(NULL, g_chroot_path, NULL, MS_SLAVE|MS_REC, NULL)) {
-			printf("could not make slave: %s\n", strerror(errno));
-			return -1;
-		}
-
-		/* this one may be redundant?
-		 * TODO test again, lost the chroot escape code :\ */
-		if (chdir(g_chroot_path) < 0) {
-			printf("chdir(\"/\") failed: %s\n", strerror(errno));
-			return -1;
-		}
-		/* remount subtree to / */
-		if (mount(g_chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
-			printf("mount / MS_MOVE failed: %s\n", strerror(errno));
-			return -1;
-		}
-		printf("chroot(%s)\n", g_chroot_path);
-		r = chroot(g_chroot_path);
-		if (r < 0) {
-			printf("chroot failed: %s\n", strerror(errno));
-			return -1;
-		}
-		/*chroot doesnt change CWD, so we must.*/
-		if (chdir("/") < 0) {
-			printf("chdir(\"/\") failed: %s\n", strerror(errno));
-			return -1;
-		}
-
-		break;
-
 	default:
 		break;
 	}
@@ -910,13 +872,6 @@ static int pod_load_config(char *data, size_t size)
 	char *scanstart;
 	int r;
 
-	/* second pass, make sure path is valid */
-	if (g_find_root == 0) {
-		if (eslib_file_path_check(g_chroot_path)) {
-			printf("invalid chroot path\n");
-			return -1;
-		}
-	}
 	scan = data;
 	state = STATE_NEWLINE;
 	g_lineno = 0;
@@ -946,7 +901,7 @@ static int pod_load_config(char *data, size_t size)
 					break;
 
 			if (scan >= eof)
-				return -3;
+				return -1;
 
 			state = STATE_NEWLINE;
 		break;
@@ -962,14 +917,14 @@ static int pod_load_config(char *data, size_t size)
 				kwlen = 1 + scan - keystart;
 				if (kwlen >= KWLEN) {
 					printf("keyword too long\n");
-					return -4;
+					return -1;
 				}
 
 				/* check for whatespace character */
 				c = *scan;
 				if (c == ' '  || c == '\t' || c == '\n' ) {
 					if (kwlen < 2) /* need at least 1 char + space */
-						return -5;
+						return -1;
 
 					/* skip whitespace to get start of parameters */
 					if (c != '\n') {
@@ -990,7 +945,7 @@ static int pod_load_config(char *data, size_t size)
 				}
 			}
 			if (scan >= eof)
-				return -6;
+				return -1;
 
 SCAN_PARAMS_READY:	/* got keyword with parameters, check keyword and
 			 * change to parameter scan state if valid.
@@ -1001,7 +956,7 @@ SCAN_PARAMS_READY:	/* got keyword with parameters, check keyword and
 			key = find_keyword(kwcmp, kwlen);
 			if (key == -1) {
 				printf("invalid keyword: [%s]\n", kwcmp);
-				return -14;
+				return -1;
 			}
 			else {
 				state = STATE_SCAN;
@@ -1016,11 +971,11 @@ SINGLE_KEYWORD:		/* no parameters */
 			key = find_keyword(kwcmp, kwlen);
 			if (key == -1) {
 				printf("could not find keyword: [%s]\n", kwcmp);
-				return -15;
+				return -1;
 			}
 			/* single keyword, no parameters */
-			if (pod_enact_option(key, NULL, 0) < 0)
-				return -16;
+			if (pod_enact_option(key, NULL, 0))
+				return -1;
 			key = -1;
 			state = STATE_NEWLINE;
 
@@ -1042,7 +997,7 @@ SINGLE_KEYWORD:		/* no parameters */
 
 					if (param_size >= MAX_PARAM) {
 						printf("params too big\n");
-						return -2;
+						return -1;
 					}
 
 					/* use buffer for params */
@@ -1050,18 +1005,9 @@ SINGLE_KEYWORD:		/* no parameters */
 					params[param_size] = '\0';
 
 					r = pod_enact_option(key, params, param_size);
-					if (r == 1) { /*chroot first pass*/
-						g_find_root = 0;
-					}
-					else if (r == -2) {
-						/* check option failed */
-						printf("check_option failed\n");
-						return -11;
-
-					}
-					else if (r != 0) { /* chroot on 2'nd pass */
-						printf("enact option error: %d\n", r);
-						return -12;
+					if (r) { /* chroot on 2'nd pass */
+						printf("enact option error\n");
+						return -1;
 					}
 
 					state = STATE_NEWLINE;
@@ -1070,7 +1016,7 @@ SINGLE_KEYWORD:		/* no parameters */
 			}
 			if (scan >= eof) {
 				printf("missing newline at end of file\n");
-				return -7;
+				return -1;
 			}
 
 			/* set invalid key */
@@ -1078,20 +1024,70 @@ SINGLE_KEYWORD:		/* no parameters */
 		break;
 
 		default: /* unknown state */
-			return -8;
+			return -1;
 		}
 	}
 
-	if (g_find_root != 0) {
-		printf("podconfig missing chroot path\n");
-		return -1;
+	if (g_firstpass) {
+		return do_chroot_setup();
 	}
+	else {  /* second pass finished, do the chroot */
+		unsigned long remountflags =	  MS_REMOUNT
+						| MS_NOSUID
+						| MS_NOEXEC
+						| MS_NODEV
+						| MS_RDONLY;
+		/* some security checks */
+		if (pod_process_mountpoints()) {
+			printf("mountpoint processing failed\n");
+			return -1;
+		}
 
+		if (mount(g_chroot_path, g_chroot_path, "bind",
+					MS_BIND, NULL)) {
+			printf("could not bind mount: %s\n", strerror(errno));
+			return -1;
+		}
+		if (mount(g_chroot_path, g_chroot_path, "bind",
+					MS_BIND|remountflags, NULL)) {
+			printf("could not bind mount: %s\n", strerror(errno));
+			return -1;
+		}
+		if (mount(NULL, g_chroot_path, NULL, MS_SLAVE|MS_REC, NULL)) {
+			printf("could not make slave: %s\n", strerror(errno));
+			return -1;
+		}
 
-	/* some sort of additional setup scripts thing here??
-	 * just don't run them as uid0  ;]
-	 */
+		/* this one may be redundant?
+		 * TODO test again, lost the chroot escape code :\ */
+		if (chdir(g_chroot_path) < 0) {
+			printf("chdir(\"/\") failed: %s\n", strerror(errno));
+			return -1;
+		}
+		/* remount subtree to / */
+		if (mount(g_chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
+			printf("mount / MS_MOVE failed: %s\n", strerror(errno));
+			return -1;
+		}
+		printf("chroot(%s)\n", g_chroot_path);
+		r = chroot(g_chroot_path);
+		if (r < 0) {
+			printf("chroot failed: %s\n", strerror(errno));
+			return -1;
+		}
+		/*chroot doesnt change CWD, so we must.*/
+		if (chdir("/") < 0) {
+			printf("chdir(\"/\") failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
 	return 0;
 }
+
+
+
+
+
+
 
 

@@ -5,7 +5,7 @@
 #define MISC_H__
 
 
-/* chop consecutive matching characters starting at the end of string
+/* chop matching character from the end of string
  * returns 0 on first non matching character, -1 on error.
  * size is the maximum size the string could be
  */
@@ -30,6 +30,23 @@ void logcrit(const char *fmt, ...);
 void logemerg(const char *fmt, ...);
 
 
+/* --------------  passwd help --------------- */
+enum {
+	/* passwd fields */
+	PASSWD_USER = 0,
+	PASSWD_PASS,
+	PASSWD_UID,
+	PASSWD_GID,
+	PASSWD_FULLNAME,
+	PASSWD_HOME,
+	PASSWD_SHELL,
+	PASSWD_FIELDS
+};
+
+/* return the first passwd entry that matches uid */
+char *passwd_fetchline(uid_t uid);
+/* get specific passwd field, destroys line by inserting null terminator */
+char *passwd_getfield(char *line, unsigned int field);
 
 
 

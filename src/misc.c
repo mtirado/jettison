@@ -221,3 +221,126 @@ void logemerg(const char *fmt, ...)
 }
 
 
+/*
+ *  return username of the given uid, or NULL on error.
+ *  this has an added bonus of returning the entire passwd line, the only
+ *  difference being a null terminator instead of : separating first field.
+ *  uses static global memory to store line, so it's overwritten each call.
+ */
+#define FMAXLINE 4095*4
+#define PASSWD_FILE "/etc/passwd"
+static char g_storeline[FMAXLINE+1];
+static char g_storefield[FMAXLINE+1];
+
+char *passwd_fetchline(uid_t uid)
+{
+	char rdline[FMAXLINE+1];
+	FILE *file;
+
+	file = fopen(PASSWD_FILE, "r");
+	if (file == NULL)
+		return NULL;
+
+	do
+	{
+		char uidstr[32];
+		char *err = NULL;
+		unsigned int count = 0;
+		unsigned int i = 0;
+		unsigned int z;
+		unsigned int len;
+		uid_t checkuid;
+
+		if (fgets(rdline, FMAXLINE, file) == NULL) {
+			printf("uid(%d) not found in %s?\n", uid, PASSWD_FILE);
+			goto err_return;
+		}
+		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
+			printf("line too long, increase FMAXLINE\n");
+			goto err_return;
+		}
+
+		/* skip to uid column */
+		while(i < FMAXLINE) {
+			if (rdline[i] == ':') {
+				++count;
+			}
+			if (count == 2)
+				break;
+			++i;
+		}
+		if (count != 2)
+			goto err_return;
+
+		z = i+1;
+		/*find uid stringlen*/
+		while(++i < FMAXLINE)
+		{
+			if (rdline[i] == ':')
+				break;
+		}
+		if (i >= FMAXLINE)
+			goto err_return;
+
+		len = i - z;
+		if (len == 0 || len >= sizeof(uidstr)) {
+			printf("uid string error\n");
+			goto err_return;
+		}
+
+		strncpy(uidstr, &rdline[z], len);
+		uidstr[len] = '\0';
+		errno = 0;
+		checkuid = strtol(uidstr, &err, 10);
+		if (errno || *err) {
+			printf("error converting string to long int\n");
+			goto err_return;
+		}
+		if (uid == checkuid) {
+			strncpy(g_storeline, rdline, FMAXLINE);
+			g_storeline[FMAXLINE] = '\0';
+			fclose(file);
+			return g_storeline;
+		}
+	}
+	while(1);
+
+
+err_return:
+	fclose(file);
+	return NULL;
+}
+
+
+char *passwd_getfield(char *line, unsigned int field)
+{
+	unsigned int i;
+	int prev = -1;
+	unsigned int count = 0;
+
+	if (!line || field >= PASSWD_FIELDS)
+		return NULL;
+
+	memset(g_storefield, 0, sizeof(g_storefield));
+	for (i = 0; i < FMAXLINE; ++i)
+	{
+		if (line[i] == ':' || line[i] == '\0') {
+			if (count == field) {
+				strncpy(g_storefield, &line[prev+1], i-(prev+1));
+				return g_storefield;
+			}
+			if (++count >= PASSWD_FIELDS) {
+				return NULL;
+			}
+			prev = i;
+		}
+	}
+	return NULL;
+}
+
+
+
+
+
+
+
