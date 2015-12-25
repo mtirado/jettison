@@ -1028,6 +1028,7 @@ SINGLE_KEYWORD:		/* no parameters */
 		}
 	}
 
+	/* done with options, finalize pass */
 	if (g_firstpass) {
 		return do_chroot_setup();
 	}
@@ -1080,6 +1081,9 @@ SINGLE_KEYWORD:		/* no parameters */
 			printf("chdir(\"/\") failed: %s\n", strerror(errno));
 			return -1;
 		}
+
+		mkdir("/tmp", 0750);
+
 	}
 	return 0;
 }
