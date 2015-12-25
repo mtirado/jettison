@@ -56,7 +56,10 @@ struct path_node
 };
 struct path_node *g_mountpoints;
 
+/* external variables from jettison.c */
 extern char g_pty_slavepath[MAX_SYSTEMPATH];
+extern gid_t g_rgid;
+extern uid_t g_ruid;
 
 /* right now the only heavy params are paths */
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
@@ -1083,6 +1086,7 @@ SINGLE_KEYWORD:		/* no parameters */
 		}
 
 		mkdir("/tmp", 0750);
+		chown("/tmp", g_ruid, g_rgid);
 
 	}
 	return 0;

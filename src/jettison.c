@@ -11,7 +11,6 @@
  * exec.
  *
  * TODO /tmp as tmpfs option
- * also should create /tmp if missing1!
  */
 
 #define _GNU_SOURCE
