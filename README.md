@@ -21,6 +21,8 @@ su root
 cp jettison /usr/local/bin/jettison
 
 chmod u+s /usr/local/bin/jettison (setuid bit)
+
+mkdir /opt/pods
 ```
 
 ##usage
