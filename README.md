@@ -39,9 +39,7 @@ there are additional options we can pass:
 
 `--stacksize <size>`    set program stack max
 
-`--tracecalls` (WIP)
-
-`--trace`      (WIP)
+`--trace`      (experimental right now)
 
 `--nokill`make seccomp return error ENOSYS instead of killing process
 
@@ -77,9 +75,9 @@ you can use seccomp_enumerator to convert outfile to pod options.
 
 `./seccomp_enumerator outfile whitelist`
 
-as programs are developed, new systemcalls may be added, so i'm currently
-working on a pain-free way to print denied systemcalls using a --tracecalls
-option, as well as better tracing support. this is very much a WIP.
+as programs are developed, new systemcalls may be added, there is currently
+no easy way to get a list of missing systemcalls without using strace, but
+hopefully this will change soon.
 
 ##bugs
 
