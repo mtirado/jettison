@@ -29,6 +29,9 @@ mkdir /opt/pods
 
 two arguments must be included. first is the program path which must be
 an absolute path,  second is the pod configuration file.
+the config file name is used as the chroot directory at /opt/pods/user/cfg.pod
+all files here are root owned, except for /podhome and /tmp
+
 
 usage:
 `jettison /bin/bash config.pod --nokill`
@@ -47,9 +50,6 @@ there are additional options we can pass:
 
 
 #pod configuration
-
-##chroot
-set the pods new root directory.
 
 ##file
 this option will make a private bind mount in pod's root.
