@@ -179,7 +179,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 
 	printf("PASSWD QUICK TEST\n");
 
-	pwline = passwd_fetchline(getuid());
+	pwline = passwd_fetchline(g_ruid);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
 		return -1;
@@ -262,8 +262,6 @@ int pod_enter()
 		memset(pathbuff, 0, sizeof(pathbuff));
 		strncpy(pathbuff, g_chroot_path, sizeof(pathbuff)-7);
 		strncat(pathbuff, "/proc", 5);
-		/*if (mkdir(pathbuff, 0755) == 0)
-			chown(pathbuff, getuid(), getgid());*/ /* metafile user owned */
 		mkdir(pathbuff, 0755);
 		if (mount(0, pathbuff, "proc", flags, 0) < 0) {
 			printf("couldn't mount proc(%s): %s\n",pathbuff,strerror(errno));
@@ -319,9 +317,8 @@ int do_chroot_setup()
 			return -1;
 	}
 	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
-	/* podhome chown'd to user right before execve */
 	mkdir(podhome, 0750);
-	if (chown(podhome, 0, 0)) {
+	if (chown(podhome, g_ruid, g_rgid)) {
 		printf("chown %s failed\n", podhome);
 		return -1;
 	}
@@ -553,7 +550,7 @@ int do_option_bind(char *params, size_t size, int home)
 		fuid = eslib_file_getuid(homepath);
 		if (fuid == (uid_t)-1)
 			return -1;
-		if (fuid != getuid()) {
+		if (fuid != g_ruid) {
 			printf("you don't own $HOME=%s\n", homepath);
 			return -1;
 		}
@@ -781,9 +778,15 @@ do_bind:
 		break;
 
 	case OPTION_HOME:
+		setuid(g_ruid);
 		if (do_option_bind(params, size, 1))
 			return -1;
 		break;
+		if (setuid(0)) {
+			printf("setuid: %s\n", strerror(errno));
+			return -1;
+		}
+
 
 
 	/*case OPTION_CAP_PSET:
