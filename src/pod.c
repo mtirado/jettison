@@ -177,8 +177,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
-	printf("PASSWD QUICK TEST\n");
-
 	pwline = passwd_fetchline(g_ruid);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
