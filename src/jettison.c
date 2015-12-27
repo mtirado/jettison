@@ -75,6 +75,7 @@ long g_retaction;
 
 int g_newpid;
 int g_pty_relay;
+int g_pty_notify[2];
 int g_ptym;
 
 uid_t g_ruid;
@@ -294,6 +295,7 @@ int jettison_clone_func(void *data)
 
 	setsid();
 	close(g_ptym);
+	close(g_pty_notify[0]);
 
 	if (setuid(g_ruid)) {
 		printf("setuid fail\n");
@@ -308,6 +310,9 @@ int jettison_clone_func(void *data)
 	else if (switch_terminal(g_pty_slavepath, 0)) {
 		return -1;
 	}
+	/* tell io relay that our new terminal is open */
+	write(g_pty_notify[1], "K", 1);
+	close(g_pty_notify[1]);
 
 	/* all files except podhome are root owned */
 	if (setuid(0)) {
@@ -788,7 +793,6 @@ static int fillbuf(int fd, char *buf, unsigned int size)
  * if the buffer is empty, we check read set to read and refill.
  *
  */
-#define RETRIES 1
 int relay_tty(int ours, int theirs)
 {
 	char rbuf[IOBUFLEN]; /* buffer from them */
@@ -800,7 +804,7 @@ int relay_tty(int ours, int theirs)
 	fd_set rds, wrs;
 	struct timeval tmr;
 	struct timeval instant;
-	int retries = RETRIES; /* first read fails sometimes */
+
 	if (ours == -1 || theirs  == -1)
 		return -1;
 
@@ -815,6 +819,17 @@ int relay_tty(int ours, int theirs)
 		return -1;
 	}
 
+	/* wait for other process to switch terminal */
+	while (read(g_pty_notify[0], rbuf, 1) == -1)
+	{
+		if (errno != EINTR) {
+			printf("terminal notify error: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	close(g_pty_notify[0]);
+	close(g_pty_notify[1]);
+
 	memset(&instant, 0, sizeof(instant));
 	memset(&tmr, 0, sizeof(tmr));
 	tmr.tv_sec = 3;
@@ -827,7 +842,7 @@ int relay_tty(int ours, int theirs)
 	wbytes = 0;
 	memset(rbuf, 0, sizeof(rbuf));
 	memset(wbuf, 0, sizeof(wbuf));
-retry:
+
 	while(1)
 	{
 		tmr.tv_usec = 0;
@@ -896,7 +911,6 @@ retry:
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
 				if (r == -1) {
-					--retries;
 					goto fatal;
 				}
 				else if (r > 0) {
@@ -908,10 +922,6 @@ retry:
 	}
 
 fatal:
-	if (retries >= 0) {
-		usleep(100000);
-		goto retry;
-	}
 	return -1;
 }
 
@@ -947,6 +957,8 @@ int main(int argc, char *argv[])
 
 	g_podflags = 0;
 	g_ptym = -1;
+	g_pty_notify[0] = -1;
+	g_pty_notify[1] = -1;
 	g_newpid = -1;
 
 	/* backup original termios */
@@ -960,6 +972,10 @@ int main(int argc, char *argv[])
 
 	/* running jettison will hook up a pseudo terminal unless --notty is specified */
 	if (g_pty_relay) {
+		if (pipe2(g_pty_notify, O_CLOEXEC)) {
+			printf("pipe2: %s\n", strerror(errno));
+			return -1;
+		}
 		relayio_sigsetup();
 		setuid(g_ruid);
 		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
@@ -995,6 +1011,7 @@ int main(int argc, char *argv[])
 		/* set it! */
 		tcsetattr(STDIN_FILENO, TCSANOW, &tms);
 		tcflush(STDIN_FILENO, TCIOFLUSH);
+
 	}
 
 	if (create_nullspace())
