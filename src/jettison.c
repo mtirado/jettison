@@ -49,6 +49,14 @@
 	#define TRACEE_PATH="/usr/local/bin/jettison_tracee"
 #endif
 
+#ifdef __x86_64__ /* TODO this is untested... */
+	#define SYSCALL_ARCH AUDIT_ARCH_X86_64
+#elif __i386__
+	#define SYSCALL_ARCH AUDIT_ARCH_I386
+#else
+	#error arch lacks systemcall define, add it and test!
+#endif
+
 extern char **environ;
 
 /* pod.c globals */
@@ -191,7 +199,7 @@ static int downgrade_relay()
 	g_syscalls[i++] = syscall_helper("__NR_exit_group");
 	g_syscalls[i++] = syscall_helper("__NR_ioctl");
 	g_syscalls[i++] = syscall_helper("__NR_sigreturn");
-	if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
+	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 				 num_syscalls(g_syscalls, MAX_SYSCALLS),
 				 SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
@@ -367,11 +375,9 @@ int jettison_clone_func(void *data)
 		}
 		chdir("/podhome");
 
-		/* TODO -- add a makefile defines for ARCH options <<<  XXX !!
-		 * */
 		if (g_syscall_idx == 0)
 			printf("calling exec without seccomp filter\n");
-		else if (filter_syscalls(AUDIT_ARCH_I386, g_syscalls,
+		else if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 					 num_syscalls(g_syscalls, MAX_SYSCALLS),
 					 g_retaction)) {
 			printf("unable to apply seccomp filter\n");
