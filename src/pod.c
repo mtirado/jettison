@@ -779,11 +779,11 @@ do_bind:
 		setuid(g_ruid);
 		if (do_option_bind(params, size, 1))
 			return -1;
-		break;
 		if (setuid(0)) {
 			printf("setuid: %s\n", strerror(errno));
 			return -1;
 		}
+		break;
 
 
 
