@@ -167,11 +167,11 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	for (i = 0; i < MAX_SYSTEMPATH; ++i)
 	{
 		if (filepath[i] == '/')
-			slashidx = i;
+			slashidx = i+1;
 		else if (filepath[i] == '\0')
 			break;
 	}
-	if (i >= MAX_SYSTEMPATH) {
+	if (i >= MAX_SYSTEMPATH-1) {
 		printf("pod file path too long\n");
 		fclose(file);
 		return -1;
