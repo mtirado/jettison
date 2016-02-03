@@ -79,6 +79,7 @@ char *g_progpath;
 char g_procname[MAX_PROCNAME];
 int  g_nokill;
 int  g_tracecalls;
+int  g_blocknew;
 int  g_trace;
 int  g_traceipc[2];
 int  g_argstart;
@@ -202,7 +203,7 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 				 count_syscalls(g_syscalls, MAX_SYSCALLS),
-				 0, SECCOMP_RET_ERRNO)) {
+				 0, 0, SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
 		return -1;
 	}
@@ -377,11 +378,11 @@ int jettison_clone_func(void *data)
 		}
 		chdir("/podhome");
 
-		if (g_syscall_idx == 0)
+		if (g_syscall_idx == 0 && !g_trace && !g_blocknew)
 			printf("calling exec without seccomp filter\n");
 		else if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 					 count_syscalls(g_syscalls, MAX_SYSCALLS),
-					 g_trace, g_retaction)) {
+					 g_trace, g_blocknew, g_retaction)) {
 			printf("unable to apply seccomp filter\n");
 			return -1;
 		}
@@ -501,6 +502,7 @@ int process_arguments(int argc, char *argv[])
 	g_retaction = SECCOMP_RET_KILL;
 	g_pty_relay = 1;
 	g_tracecalls = 0;
+	g_blocknew = 0;
 	g_trace = 0;
 	g_nokill = 0;
 	g_argstart = 0;
@@ -583,6 +585,10 @@ int process_arguments(int argc, char *argv[])
 				g_tracecalls = 1;
 				argidx  += 1;
 			}
+			else if (strncmp(argv[i], "--block-new-filters", len) == 0) {
+				g_blocknew = 1;
+				argidx  += 1;
+			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -592,9 +598,10 @@ int process_arguments(int argc, char *argv[])
 
 	}
 	g_argstart = argidx;
-	/* --tracecalls needs to launch through tracee  */
+	/* --tracecalls needs to launch through jettison_tracee  */
 	if (g_tracecalls) {
 		g_trace = 1;
+		g_blocknew = 1;
 	}
 
 	/* no more additional options,  setup new argv */
@@ -633,19 +640,26 @@ bad_opt:
 	return -1;
 
 err_usage:
-	printf("\n");
-	printf("usage:\n");
-	printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
-	printf("\n");
-	printf("additional options:\n");
-	printf("--procname   <process name> set pid1 name\n");
-	printf("--stacksize  <kilobytes> set maximum stack size\n");
-	printf("--nokill     seccomp fail returns error instead of killing process\n");
-	printf("--tracecalls print all known system calls made, creates a template\n");
-	printf("             configuration file in cwd with optimized whitelist\n");
-	printf("--trace      launch process in stopped state, for a tracer to attach\n");
-	/*printf("--notty      do not relay terminal io, and close stdio\n");*/
-	printf("\n");
+printf("\n");
+printf("usage:\n");
+printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
+printf("\n");
+printf("additional options:\n");
+printf("--procname   <process name> set pid1 name\n");
+printf("\n");
+printf("--stacksize  <kilobytes> set maximum stack size\n");
+printf("\n");
+printf("--nokill     seccomp fail returns error instead of killing process\n");
+printf("\n");
+printf("--tracecalls print all known system calls made, creates a template\n");
+printf("             configuration file in cwd with optimized whitelist\n");
+printf("\n");
+printf("--trace      launch process in stopped state, for a tracer to attach\n");
+printf("\n");
+printf("--block-new-filters    prevent additional filters from being installed\n");
+printf("\n");
+/*printf("--notty      do not relay terminal io, and close stdio\n");*/
+printf("\n");
 	return -1;
 }
 
