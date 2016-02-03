@@ -38,13 +38,15 @@ usage:
 
 there are additional options we can pass:
 
-`--procname <name>`    set process name (argv[0])
+`--procname <name>` set process name (argv[0])
 
-`--stacksize <size>`    set program stack max
+`--stacksize <size>` set program stack max
 
-`--trace`      (experimental right now)
+`--tracecalls` track every systemcall and generate whitelist
 
-`--nokill`make seccomp return error ENOSYS instead of killing process
+`--trace` launch in stopped state for an external tracer
+
+`--nokill` make seccomp return error ENOSYS instead of killing process
 
 `--notty` disconnect standard io
 
@@ -85,6 +87,7 @@ currently hardcoded for AUDIT_ARCH_I386, you will have to change
 this in jettison.c to use other architectures.
 
 ##other
+
 
 please send any feedback, suggestions, bugs, flames, etc
 to contact email listed in source files, or through github.
