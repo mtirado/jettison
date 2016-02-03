@@ -12,19 +12,18 @@
 #include <linux/seccomp.h>
 #include <linux/unistd.h>
 #include <sys/prctl.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <malloc.h>
 #include <memory.h>
 #include <errno.h>
 
+#include <sys/syscall.h>
 #include "seccomp_helper.h"
 
 #ifndef SECCOMP_MODE_FILTER_DEFERRED
-#define SECCOMP_MODE_FILTER_DEFERRED (-1)
+	#define SECCOMP_MODE_FILTER_DEFERRED (-1)
 #endif
-
 
 /* translate config file strings to syscall number */
 struct sc_translate
@@ -33,12 +32,11 @@ struct sc_translate
 	int  nr;
 };
 
-
 /* XXX
  * there may be system calls missing if you're on a newer kernel.
  * if on an older kernel, you may need to comment out some syscalls.
  *
- * version: 4.2
+ * version: 4.1
  */
 struct sc_translate sc_table[] = {
 { "__NR_restart_syscall", __NR_restart_syscall },
@@ -400,9 +398,47 @@ struct sc_translate sc_table[] = {
 { "__NR_bpf", __NR_bpf },
 { "__NR_execveat", __NR_execveat },
 
+/* 4.3 socket calls, huray!*/
+/*{ "__NR_socket", __NR_socket },
+{ "__NR_socketpair", __NR_socketpair },
+{ "__NR_bind", __NR_bind },
+{ "__NR_connect", __NR_connect },
+{ "__NR_listen", __NR_listen },
+{ "__NR_accept4", __NR_accept4 },
+{ "__NR_getsockopt", __NR_getsockopt },
+{ "__NR_setsockopt", __NR_setsockopt },
+{ "__NR_getsockname", __NR_getsockname },
+{ "__NR_getpeername", __NR_getpeername },
+{ "__NR_sendto", __NR_sendto },
+{ "__NR_sendmsg", __NR_sendmsg },
+{ "__NR_recvfrom", __NR_recvfrom },
+{ "__NR_recvmsg", __NR_recvmsg },
+{ "__NR_shutdown", __NR_shutdown },
+{ "__NR_userfaultfd", __NR_userfaultfd },
+{ "__NR_membarrier", __NR_membarrier },
+*/
 };
 
-int syscall_helper(char *defstring)
+
+unsigned int syscall_tablesize()
+{
+	return (sizeof(sc_table) / sizeof(struct sc_translate));
+}
+unsigned int syscall_gethighest()
+{
+	int high = 0;
+	unsigned int i;
+	unsigned int count = sizeof(sc_table) / sizeof(struct sc_translate);
+	for (i = 0; i < count; ++i)
+	{
+		if (sc_table[i].nr > high)
+			high = sc_table[i].nr;
+	}
+	return high;
+}
+
+
+int syscall_getnum(char *defstring)
 {
 	unsigned int i;
 	unsigned int count;
@@ -437,7 +473,8 @@ char *syscall_getname(long syscall_nr)
 	return NULL;
 }
 
-unsigned int num_syscalls(int *syscalls, unsigned int count)
+/* number of systemcalls in a given number array ( -1 is invalid )*/
+unsigned int count_syscalls(int *syscalls, unsigned int count)
 {
 	unsigned int i;
 	for (i = 0; i < count; ++i)
@@ -449,123 +486,172 @@ unsigned int num_syscalls(int *syscalls, unsigned int count)
 }
 
 /*
- * TODO?: this only supports 250 or so calls because filter only supports
- * 8 bit jump offsets.  to overcome this will require a bit of extra jump logic.
- * if you need more than 250 whitelisted, you probably want to use a blacklist,
- * otherwise any hopes for high performance may be lost.
+ * helper functions to de-uglify seccomp-bpf instructions
+ * note: i is incremented by this macro!
  */
-#define SECBPF_INSTR(_i, _c, _t, _f, _k)	\
-{						\
-	_i.code = _c;				\
-	_i.jt   = _t;				\
-	_i.jf   = _f;				\
-	_i.k    = _k;				\
+#define SECBPF_INSTR(p__, i__, c__, t__, f__, k__)	\
+{							\
+	p__[i__].code = c__;				\
+	p__[i__].jt   = t__;				\
+	p__[i__].jf   = f__;				\
+	p__[i__].k    = k__;				\
+	++i__;						\
 }
-#define SECBPF_LD_ABSW(i, k)	SECBPF_INSTR(i, (BPF_LD|BPF_W|BPF_ABS), 0, 0, k)
-#define SECBPF_JE(i, k, t, f)	SECBPF_INSTR(i, (BPF_JMP|BPF_JEQ|BPF_K), t, f, k)
-#define SECBPF_RET(i, k)	SECBPF_INSTR(i, (BPF_RET|BPF_K), 0, 0, k)
-#define SECDAT_ARCH		offsetof(struct seccomp_data, arch)
-#define SECDAT_NR		offsetof(struct seccomp_data, nr)
+#define SECBPF_LD_ABSW(p_,i_,k_)   SECBPF_INSTR(p_,i_,(BPF_LD|BPF_W|BPF_ABS),0,0,k_)
+#define SECBPF_JEQ(p_,i_,k_,t_,f_) SECBPF_INSTR(p_,i_,(BPF_JMP|BPF_JEQ|BPF_K),t_,f_,k_)
+#define SECBPF_RET(p_,i_,k_)       SECBPF_INSTR(p_,i_,(BPF_RET|BPF_K),0,0,k_)
+#define SECDAT_ARCH                offsetof(struct seccomp_data,arch)
+#define SECDAT_NR                  offsetof(struct seccomp_data,nr)
+
 
 struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		unsigned int count, unsigned int *instr_count,
-		int ughlyhack, long retaction)
+		int unpatched, int tracing, long retaction)
 {
-	unsigned int i;
-	unsigned int proglen = 5 + count;
-	/* jumping to [2] will execute [3], so these are 1 less than you'd think */
-	unsigned int bad  = proglen - 3; /* fail if not found */
-	unsigned int good = proglen - 2; /* jumps here if in list */
-	struct sock_filter *instructions = NULL;
+	unsigned int i,z;
+	unsigned int proglen;
+	struct sock_filter *prog = NULL;
 
-
-	if (count > MAX_SYSCALLS) {
-		printf("currently we only support %d syscalls in whitelist\n",
-			       	MAX_SYSCALLS);
+	/* instruction limit is currently 4096 */
+	if (count > 2000) {
+		printf("2000 syscalls maximum\n");
 		return NULL;
 	}
+	printf("build_whitelist syscall count: %d\n", count);
 
-	/* process shouldn't be able to gain privileges at least */
-	if (ughlyhack == 1) {
-		proglen += 1;
-		good += 1;
-		bad += 1;
-	}
-
-	printf("build_whitelist count: %d\n", count);
-
-	instructions = malloc(proglen * sizeof(struct sock_filter));
-	if (instructions == NULL)
+	proglen = 4 + (count * 2) + 1;
+	if (unpatched)
+		proglen += 2; /* add execve */
+	if (tracing)
+		proglen += 22;
+	prog = malloc(proglen * sizeof(struct sock_filter));
+	if (prog == NULL)
 		return NULL;
 
 	/* create seccomp bpf filter */
-	memset(instructions, 0, proglen * sizeof(struct sock_filter));
+	memset(prog, 0, proglen * sizeof(struct sock_filter));
+	i = 0;
 
 	/* validate arch */
-	SECBPF_LD_ABSW(instructions[0], SECDAT_ARCH);
-	/* jumps are relative, subtract the index(1) */
-	SECBPF_JE(instructions[1], arch, 0, bad - 1);
+	SECBPF_LD_ABSW(prog, i, SECDAT_ARCH);
+	SECBPF_JEQ(prog, i, arch, 1, 0);
+	SECBPF_RET(prog, i, SECCOMP_RET_KILL);
 
 	/* load syscall number */
-	SECBPF_LD_ABSW(instructions[2], SECDAT_NR);
+	SECBPF_LD_ABSW(prog, i, SECDAT_NR);
 
 	/* generate jumps for allowed syscalls*/
-	for (i = 3; i < count + 3; ++i)
+	for (z = 0; z < count; ++z)
 	{
-		if (syscalls[i-3] == -1) {
-			printf("invalid syscall\n");
-			free(instructions);
+		if (syscalls[z] == -1) {
+			printf("invalid syscall: z(%d)\n", z);
+			free(prog);
 			return NULL;
 		}
-		/* jumps to good if equal, make jump 'label' relative */
-		SECBPF_JE(instructions[i], syscalls[i-3], good - i, 0);
+		SECBPF_JEQ(prog, i, syscalls[z], 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	}
 
-	/* there really was no other way, add execve whitelist. */
-	if (ughlyhack == 1) {
-		SECBPF_JE(instructions[i], __NR_execve, good - i, 0);
-		++i;
+	/* I don't think there is any other way to prohibit execve while
+	 * still allowing for functioning file capabilities since the new
+	 * process would need to have NO_NEW_PRIVS set to install it's own
+	 * seccomp filter. though a workaround could be implemented for
+	 * programs that don't need file caps by piping seccomp filter to
+	 * a LD_PRELOADed environment that applies filter after execve.
+	 */
+	if (unpatched) {
+		/* process shouldn't be able to gain privileges at least */
+		SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	}
+
+	if (tracing) {
+		/* ptrace is messy, there are various things that need to
+		 * be done to facilitate thorough system call counting across
+		 * a pid namespace. we must fork and exec from pid 2 in new ns.
+		 * otherwise the attach fails.
+		 */
+		SECBPF_JEQ(prog, i, __NR_write, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_kill, 0, 1); /* issue sigstop */
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_clone, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_close, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_waitpid, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_exit, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+		SECBPF_JEQ(prog, i, __NR_exit_group, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+/*
+ * use finer grained syscalls if available for the ipc socket we need
+ * to translate PID between namespaces
+ */
+#ifdef __NR_socketpair
+		SECBPF_JEQ(prog, i, __NR_socketpair, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#else
+		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#endif
+#ifdef __NR_setsockopt
+		SECBPF_JEQ(prog, i, __NR_setsockopt, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#else
+		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#endif
+#ifdef __NR_send
+		SECBPF_JEQ(prog, i, __NR_send, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#else
+		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+#endif
 	}
 
 	/* set return action */
 	switch (retaction)
 	{
-	case SECCOMP_RET_TRACE:
-		printf("\n\n-------------------\nSET TRACE!\n\n\n");
-		SECBPF_RET(instructions[i],SECCOMP_RET_TRACE);
+	case SECCOMP_RET_TRAP:
+	/* if tracing we must forbid any new filters from being installed
+	 * otherwise an attacker could spoof the SECCOMP_RET_TRAP signal
+	 * and data used to describe the nature of the trap event.
+	 */	printf("\n\n-------------------\nSET TRAP!\n\n\n");
+		SECBPF_RET(prog,i,SECCOMP_RET_TRAP|(SECCRET_DENIED & SECCOMP_RET_DATA));
 		break;
 	case SECCOMP_RET_KILL:
 		printf("\n\n-------------------\nSET KILL!\n\n\n");
-		SECBPF_RET(instructions[i],SECCOMP_RET_KILL);
+		SECBPF_RET(prog,i,SECCOMP_RET_KILL);
 		break;
 	case SECCOMP_RET_ERRNO:
 		printf("\n\n-------------------\nSET ERRNO!\n\n\n");
-		SECBPF_RET(instructions[i],
-				SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
+		SECBPF_RET(prog,i,SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 		break;
 	default:
 		printf("invalid return action\n");
-		free(instructions);
+		free(prog);
 		return NULL;
 	}
-	++i;
-
-	/* good, allowed */
-	SECBPF_RET(instructions[i], SECCOMP_RET_ALLOW);
 
 	*instr_count = proglen;
-	return instructions;
+	return prog;
 }
 
 
-/* no deferred hackery in kernel, we have to whitelist execve  :( */
-int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, long retaction)
+/* no seccomp_deferred patch in kernel, we have to whitelist execve  :( */
+int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, int tracing, long retaction)
 {
 	struct sock_filter *filter;
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
-	filter = build_seccomp_whitelist(arch, syscalls, count, &instr_count, 1, retaction);
+	filter = build_seccomp_whitelist(arch, syscalls, count,
+					&instr_count, 1, tracing, retaction);
 	if (filter == NULL)
 		return -1;
 
@@ -578,14 +664,14 @@ int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count, long r
 		free(filter);
 		return -1;
 	}
-	printf("whitelisted %d system calls\n", instr_count);
 	printf("filter: %p\n", (void *)filter);
 	free(filter);
 	return 0;
 }
 
 
-int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
+int filter_syscalls(int arch, int *syscalls, unsigned int count,
+		    int tracing, long retaction)
 {
 	/*struct sock_filter *filter;
 	struct sock_fprog prog;
@@ -602,7 +688,7 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count, long retaction)
 	prog.filter = filter;
 	*/
 	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */
-	return filter_syscalls_fallback(arch, syscalls, count, retaction);
+	return filter_syscalls_fallback(arch, syscalls, count, tracing, retaction);
 
 	/*free(filter);
 	return 0;*/
@@ -620,7 +706,6 @@ extern int capget(cap_user_header_t header, const cap_user_data_t data);
 
 static int cap_blisted(unsigned long cap)
 {
-
 	if (cap >= 64) {
 		printf("cap out of bounds\n");
 		return 1;
@@ -689,7 +774,7 @@ static int cap_blisted(unsigned long cap)
 		case CAP_SYS_PTRACE:
 			printf("CAP_SYS_PTRACE is prohibited\n");
 			return 1;
-		case CAP_SYS_CHROOT:  /* */
+		case CAP_SYS_CHROOT:  /* be weary of ld_preload style abuse if enabled */
 			printf("CAP_SYS_CHROOT is prohibited\n");
 			return 1;
 		case CAP_IPC_OWNER:

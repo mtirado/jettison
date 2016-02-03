@@ -20,7 +20,9 @@ JETTISON_SRCS :=					\
 		./src/pod.c				\
 		./src/misc.c				\
 		./src/util/seccomp_helper.c		\
-		./src/eslib/eslib_file.c
+		./src/eslib/eslib_file.c		\
+		./src/eslib/eslib_sock.c		\
+		./src/util/tracecalls.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
 
@@ -102,7 +104,11 @@ $(UTIL_SECCOMP_ENUM):
 
 $(UTIL_TRACEE):
 			@echo ""
-			$(CC) $(CFLAGS) ./src/util/tracee.c -o $@
+			$(CC) $(CFLAGS) 				\
+					./src/util/tracee.c 		\
+					./src/eslib/eslib_sock.c 	\
+					./src/eslib/eslib_file.c	\
+					-o $@
 			@echo ""
 			@echo "x--------------------x"
 			@echo "| util: tracee    OK |"

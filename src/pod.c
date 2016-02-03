@@ -741,7 +741,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
 		strncpy(syscall_buf, params, size);
-		syscall_nr = syscall_helper(syscall_buf);
+		syscall_nr = syscall_getnum(syscall_buf);
 		if (syscall_nr == -1) {
 			printf("could not find syscall: %s\n", syscall_buf);
 			return -1;

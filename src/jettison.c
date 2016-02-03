@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <sys/select.h>
 #include <sys/mount.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <termios.h>
 #include "pod.h"
@@ -49,7 +50,7 @@
 	#define TRACEE_PATH="/usr/local/bin/jettison_tracee"
 #endif
 
-#ifdef __x86_64__ /* TODO this is untested... */
+#ifdef __x86_64__ /* TODO this is untested...i add other arch's */
 	#define SYSCALL_ARCH AUDIT_ARCH_X86_64
 #elif __i386__
 	#define SYSCALL_ARCH AUDIT_ARCH_I386
@@ -58,6 +59,7 @@
 #endif
 
 extern char **environ;
+extern int tracecalls(pid_t p, int ipc);
 
 /* pod.c globals */
 extern char g_fcaps[64];
@@ -78,6 +80,7 @@ char g_procname[MAX_PROCNAME];
 int  g_nokill;
 int  g_tracecalls;
 int  g_trace;
+int  g_traceipc[2];
 int  g_argstart;
 long g_retaction;
 
@@ -145,7 +148,6 @@ static int downgrade_relay()
 					| MS_NOEXEC
 					| MS_NODEV
 					| MS_RDONLY;
-
 	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
 		printf("relay unshare: %s\n", strerror(errno));
 		return -1;
@@ -182,26 +184,25 @@ static int downgrade_relay()
 		printf("chdir(\"/\") failed: %s\n", strerror(errno));
 		return -1;
 	}
-
 	/* apply seccomp filter */
-	for (i = 0; i < sizeof(g_syscalls) / sizeof(*g_syscalls); ++i)
+	for (i = 0; i < sizeof(g_syscalls) / sizeof(g_syscalls[0]); ++i)
 	{
 		g_syscalls[i] = -1;
 	}
 	i = 0;
-	/*g_syscalls[i++] = syscall_helper("__NR_select");*/
-	g_syscalls[i++] = syscall_helper("__NR__newselect");
-	g_syscalls[i++] = syscall_helper("__NR_write");
-	g_syscalls[i++] = syscall_helper("__NR_read");
-	g_syscalls[i++] = syscall_helper("__NR_capset");
-	g_syscalls[i++] = syscall_helper("__NR_gettid");
-	g_syscalls[i++] = syscall_helper("__NR_exit");
-	g_syscalls[i++] = syscall_helper("__NR_exit_group");
-	g_syscalls[i++] = syscall_helper("__NR_ioctl");
-	g_syscalls[i++] = syscall_helper("__NR_sigreturn");
+	/*g_syscalls[i] = syscall_getnum("__NR_select");*/
+	g_syscalls[i]   = syscall_getnum("__NR__newselect");
+	g_syscalls[++i] = syscall_getnum("__NR_write");
+	g_syscalls[++i] = syscall_getnum("__NR_read");
+	g_syscalls[++i] = syscall_getnum("__NR_capset");
+	g_syscalls[++i] = syscall_getnum("__NR_gettid");
+	g_syscalls[++i] = syscall_getnum("__NR_exit");
+	g_syscalls[++i] = syscall_getnum("__NR_exit_group");
+	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
+	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
-				 num_syscalls(g_syscalls, MAX_SYSCALLS),
-				 SECCOMP_RET_ERRNO)) {
+				 count_syscalls(g_syscalls, MAX_SYSCALLS),
+				 0, SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
 		return -1;
 	}
@@ -211,15 +212,14 @@ static int downgrade_relay()
 		return -1;
 	}
 
-
 	return 0;
 }
 
 /* we need to adjust some paths in environment, i have a feeling this
  * is going to need to be a config option...
  * or maybe Xorg is the only culprit?
- * it may be a better idea to just filter environment for /home/username
- * and replace it with /podhome if we encounter more problems
+ * it may be a better idea to just filter whole environment for /home/username
+ * and replace it with /podhome
  */
 static int change_environ()
 {
@@ -304,7 +304,7 @@ int jettison_clone_func(void *data)
 	setsid();
 	close(g_ptym);
 	close(g_pty_notify[0]);
-
+	close(g_traceipc[0]);
 	if (setuid(g_ruid)) {
 		printf("setuid fail\n");
 		return -1;
@@ -352,7 +352,7 @@ int jettison_clone_func(void *data)
 		printf("what the hay is the realuid?: %d\n", g_ruid);
 		printf("---------------------------------------------\n\n");
 		printf("nokill = %d\n", g_nokill);
-		printf("trace  = %d\n", g_tracecalls);
+		printf("tracecalls  = %d\n", g_tracecalls);
 		if (chown("/podhome", g_ruid, g_rgid)) {
 			printf("chown /podhome failed\n");
 			return -1;
@@ -360,11 +360,13 @@ int jettison_clone_func(void *data)
 
 		/* switch back to real user credentials */
 		if (setregid(g_rgid, g_rgid)) {
-			printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
+			printf("error setting gid(%d): %s\n",
+					g_rgid, strerror(errno));
 			return -1;
 		}
 	        if (setreuid(g_ruid, g_ruid)) {
-			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
+			printf("error setting uid(%d): %s\n",
+					g_ruid, strerror(errno));
 			return -1;
 		}
 
@@ -378,8 +380,8 @@ int jettison_clone_func(void *data)
 		if (g_syscall_idx == 0)
 			printf("calling exec without seccomp filter\n");
 		else if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
-					 num_syscalls(g_syscalls, MAX_SYSCALLS),
-					 g_retaction)) {
+					 count_syscalls(g_syscalls, MAX_SYSCALLS),
+					 g_trace, g_retaction)) {
 			printf("unable to apply seccomp filter\n");
 			return -1;
 		}
@@ -569,10 +571,10 @@ int process_arguments(int argc, char *argv[])
 				g_nokill = 1;
 				argidx  += 1;
 			}
-			else if (strncmp(argv[i], "--notty", len) == 0) {
+			/*else if (strncmp(argv[i], "--notty", len) == 0) {
 				g_pty_relay = 0;
 				argidx  += 1;
-			}
+			}*/
 			else if (strncmp(argv[i], "--trace", len) == 0) {
 				g_trace = 1;
 				argidx  += 1;
@@ -591,8 +593,9 @@ int process_arguments(int argc, char *argv[])
 	}
 	g_argstart = argidx;
 	/* --tracecalls needs to launch through tracee  */
-	if (g_tracecalls)
+	if (g_tracecalls) {
 		g_trace = 1;
+	}
 
 	/* no more additional options,  setup new argv */
 	i = argidx;
@@ -608,7 +611,9 @@ int process_arguments(int argc, char *argv[])
 	}
 
 
-	if (g_nokill || g_tracecalls)
+	if (g_tracecalls)
+		g_retaction = SECCOMP_RET_TRAP;
+	else if (g_nokill)
 		g_retaction = SECCOMP_RET_ERRNO;
 	else
 		g_retaction = SECCOMP_RET_KILL;
@@ -636,9 +641,10 @@ err_usage:
 	printf("--procname   <process name> set pid1 name\n");
 	printf("--stacksize  <kilobytes> set maximum stack size\n");
 	printf("--nokill     seccomp fail returns error instead of killing process\n");
-	printf("--tracecalls print denied systemcalls\n");
-	printf("--trace      launch process in stopped state, for tracer to attach\n");
-	printf("--notty      do not relay terminal io, and close stdio\n");
+	printf("--tracecalls print all known system calls made, creates a template\n");
+	printf("             configuration file in cwd with optimized whitelist\n");
+	printf("--trace      launch process in stopped state, for a tracer to attach\n");
+	/*printf("--notty      do not relay terminal io, and close stdio\n");*/
 	printf("\n");
 	return -1;
 }
@@ -931,6 +937,19 @@ fatal:
 	return -1;
 }
 
+int do_trace(pid_t tracee)
+{
+	/* make sure exec has enough time to finish being called before we
+	 * trace. otherwise it would fail because of setuid transitions
+	 */
+	if (tracecalls(tracee, g_traceipc[0])) {
+		printf("tracecalls error: %d\n", tracee);
+		_exit(-1);
+	}
+	printf("error\n");
+	_exit(-1);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -965,7 +984,9 @@ int main(int argc, char *argv[])
 	g_ptym = -1;
 	g_pty_notify[0] = -1;
 	g_pty_notify[1] = -1;
-	g_newpid = -1;
+	g_traceipc[0] = -1;
+	g_traceipc[1] = -1;
+	g_newpid = 0;
 
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
@@ -1028,8 +1049,68 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	if (g_tracecalls) {
+		pid_t tracerpid;
 
-	/*printf("jettison argv: %s\n", argv[0]);*/
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, g_traceipc)) {
+			printf("socketpair: %s\n", strerror(errno));
+			return -1;
+		}
+		snprintf(g_procname, MAX_PROCNAME, "trace%d", g_traceipc[1]);
+		argv[0] = g_procname;
+
+		tracerpid = fork();
+		if (tracerpid == -1)
+			return -1;
+		if (tracerpid == 0) {
+			struct ucred cred;
+			int r = -1;
+			int i = 0;
+
+			close(g_pty_notify[0]);
+			close(g_pty_notify[1]);
+			close(g_traceipc[1]);
+			memset(&cred, 0, sizeof(cred));
+			if (setregid(g_rgid, g_rgid)) {
+				printf("error setting gid(%d): %s\n",
+						g_rgid, strerror(errno));
+				return -1;
+			}
+		        if (setreuid(g_ruid, g_ruid)) {
+				printf("error setting uid(%d): %s\n",
+						g_ruid, strerror(errno));
+				return -1;
+			}
+			while (++i < 1000) /* 1+ second fail */
+			{
+				/* translate pid out of namespace */
+				r = eslib_sock_recv_cred(g_traceipc[0], &cred);
+				if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
+					usleep(1000);
+					continue;
+				}
+				else if (r == -1) {
+					printf("error receiving credentials\n");
+					return -1;
+				}
+				else {
+					break;
+				}
+			}
+
+			if (cred.pid <= 0) {
+				printf("bad pid\n");
+				return -1;
+			}
+			if (do_trace(cred.pid)) {
+				exit_func();
+				printf("do_trace error\n");
+				return -1;
+			}
+			return 0;
+		}
+	}
+
 	g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
 			podflags, NULL, NULL);
 
@@ -1043,21 +1124,20 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-
 	if (g_newpid == -1) {
 		jettison_abort();
 		printf("jettison failure\n");
 		return -1;
 	}
+	close(g_traceipc[0]);
+	close(g_traceipc[1]);
 	handle_sigwinch(); /* set terminal size */
-	/*printf("new pid: %d\n", g_newpid);*/
 
 	if (g_pty_relay) {
 		int ret = relay_tty(STDIN_FILENO, g_ptym);
 		/* relay all i/o between stdio and new pty */
 		printf("relay_tty returned: %d\n", ret);
 	}
-	exit_func();
 	return 0;
 }
 #endif
