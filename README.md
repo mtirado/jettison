@@ -18,7 +18,7 @@ make
 
 su root
 
-cp jettison /usr/local/bin/jettison
+cp ./{jettison,jettison_tracee} /usr/local/bin/
 
 chmod u+s /usr/local/bin/jettison (setuid bit)
 
