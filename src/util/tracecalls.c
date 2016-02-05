@@ -238,24 +238,38 @@ int tracecalls(pid_t p, int ipc)
     unknown[0] = 0;
     unknown[1] = 0;
     sc_init(info, numbers);
-
-    if (ptrace(PTRACE_SEIZE, p, NULL,
-    	      		      PTRACE_O_TRACECLONE
-		    	     |PTRACE_O_TRACEVFORK
-			     |PTRACE_O_TRACEFORK
-			     |PTRACE_O_EXITKILL
-			     |PTRACE_O_TRACESYSGOOD
-			     |PTRACE_O_TRACEEXEC)) {
-	    printf("ptrace_seize: %s\r\n", strerror(errno));
-	    _exit(-1);
+    status = 0;
+    while(1)
+    {
+	    ret = ptrace(PTRACE_SEIZE, p, NULL,
+				      PTRACE_O_TRACECLONE
+				     |PTRACE_O_TRACEVFORK
+				     |PTRACE_O_TRACEFORK
+				     |PTRACE_O_EXITKILL
+				     |PTRACE_O_TRACESYSGOOD
+				     |PTRACE_O_TRACEEXEC);
+	    if (ret == -1 && errno != EPERM) {
+		    printf("ptrace_seize: %s\r\n", strerror(errno));
+		    _exit(-1);
+	    }
+	    else if (ret == 0) {
+		    break;
+	    }
+	    /* ptrace will cause EPERM until exec is called, this is due to
+	     * setuid transition.  fail after 10 seconds.
+	     */
+	    if (++status > 100000) {
+		    printf("unable to attach to pid: %d\r\n", p);
+		    _exit(-1);
+	    }
+	    usleep(100);
     }
-
     /* tell jettison_tracee to begin execution */
     while (1)
     {
 	const char msg = 'K';
     	if (write(ipc, &msg, 1) == -1) {
-		if (errno != EINTR) {
+		if (errno != EINTR ) {
 			printf("tracecalls ipc write: %s\n", strerror(errno));
 			_exit(-1);
 		}
@@ -265,6 +279,7 @@ int tracecalls(pid_t p, int ipc)
 	}
     }
     close(ipc);
+printf("\n\n\n we are inside tracecalls----------------------\n");
     while (1)
     {
 	status = 0;
@@ -355,6 +370,9 @@ int tracecalls(pid_t p, int ipc)
 			printf("\r\nunknown syscall: %li\n", callnum);
 			sc_incr(unknown);
 		}
+	}
+	else if (status >> 8 == (SIGTRAP|(PTRACE_EVENT_SECCOMP<<8))) {
+		printf("\r\nSECCOMP_RET_TRACE: %d\r\n", curpid);
 	}
 	else if (status >> 8 == (SIGTRAP|(PTRACE_EVENT_EXEC<<8))) {
 		/*printf("EXEC STOP: %d\r\n", curpid);*/

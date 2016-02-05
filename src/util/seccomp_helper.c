@@ -508,13 +508,13 @@ unsigned int count_syscalls(int *syscalls, unsigned int count)
 
 struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		unsigned int count, unsigned int *instr_count,
-		int unpatched, int tracing, int blocknew, long retaction)
+		unsigned int options, long retaction)
 {
 	unsigned int i,z;
 	unsigned int proglen;
 	struct sock_filter *prog = NULL;
-
-	/* instruction limit is currently 4096 */
+	/* instruction limit is currently 4096 so we have 96
+	 * more instructions for optional functionality */
 	if (count > 2000) {
 		printf("2000 syscalls maximum\n");
 		return NULL;
@@ -522,16 +522,23 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	printf("build_whitelist syscall count: %d\n", count);
 
 	proglen = 4 + (count * 2) + 1;
-	if (unpatched && count > 0)
+	if ((options & SECCOPT_EXEC) && count > 0)
 		proglen += 2; /* add execve */
-	if (tracing) {
-		blocknew = 1;
+	if (options & SECCOPT_TRACING) {
+		/* when tracing we must block new filters to prevent
+		 * receiving spoofed SIGSYS data
+		 */
+		options |= SECCOPT_BLOCKNEW;
 		if (count > 0)
 			proglen += 22;
 	}
-	if (blocknew) {
+	if (options & SECCOPT_BLOCKNEW) {
 		proglen += 7;
 	}
+	if (!(options & SECCOPT_PTRACE)) {
+		proglen += 2;
+	}
+
 
 	prog = malloc(proglen * sizeof(struct sock_filter));
 	if (prog == NULL)
@@ -550,19 +557,27 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	/* load syscall number */
 	SECBPF_LD_ABSW(prog, i, SECDAT_NR);
 
+	 /* we must not allow ptrace if process can install filters
+	  * or if filter may contain SECCOMP_RET_TRACE see documentation.
+	  * to be safe, lets just outright banish ptrace inside sandbox
+	  * unless user requests this (ptrace debuggers/crash reporters)
+	  */
+	if (!(options & SECCOPT_PTRACE)) {
+		SECBPF_JEQ(prog, i, __NR_ptrace, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_TRAP);
+	}
 	/* has to be done at start of filter, which degrades performance.
-	 * we can eliminate this if we add a new prctl to block filters
-	 * and will save cpu time on high frequency system calls.
+	 * we can eliminate this with a new prctl to block filters
+	 * will save cpu time on high frequency system calls.
 	 */
-	if (blocknew) {
-#ifdef __NR_seccomp /* added in kernel 3.17 */
+	if (options & SECCOPT_BLOCKNEW) {
+#ifdef __NR_seccomp /* since kernel 3.17 */
 		SECBPF_JEQ(prog, i, __NR_seccomp, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 #else
 		SECBPF_JMP(prog, i, 1);
 		SECBPF_JMP(prog, i, 0);
 #endif
-		/* shift the jump by 1 if 0 count to whitelist all */
 		SECBPF_JEQ(prog, i, __NR_prctl, 0, 4);
 		SECBPF_LD_ABSW(prog, i, SECDAT_ARG0); /* load prctl arg0 */
 		SECBPF_JEQ(prog, i, PR_SET_SECCOMP, 0, 1);
@@ -570,7 +585,8 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		SECBPF_LD_ABSW(prog, i, SECDAT_NR); /* restore */
 	}
 
-	/* everything is whitelisted if count is 0 */
+
+	/* everything is whitelisted if count is 0, this is end of filter */
 	if (count == 0) {
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		*instr_count = proglen;
@@ -588,7 +604,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		SECBPF_JEQ(prog, i, syscalls[z], 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	}
-	
+
 	/* i don't know of any other way to prohibit execve while
 	 * still allowing for functioning file capabilities since the new
 	 * process would need to have NO_NEW_PRIVS set to install it's own
@@ -596,20 +612,21 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	 * programs that don't need file caps by piping seccomp filter to
 	 * a LD_PRELOADed environment that applies filter after execve.
 	 */
-	if (unpatched) {
-		/* process shouldn't be able to gain privileges at least */
+	if ((options & SECCOPT_EXEC)) {
+		/* process shouldn't be able to gain arbitrary privileges at least
+		 * TODO after deferred patch is hooked up againrwe can use ptrace
+		 * to verify arguments for execve*/
 		SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	}
 
-	if (tracing) {
+	if (options & SECCOPT_TRACING) {
 		/* ptrace is messy, there are various things that need to
 		 * be done to facilitate thorough system call counting across
 		 * a pid namespace. we must fork and exec from pid 2 in new ns.
 		 * otherwise the attach fails.
 		 */
 
-		/* when whitelist is empty, allow all */
 		SECBPF_JEQ(prog, i, __NR_write, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		SECBPF_JEQ(prog, i, __NR_kill, 0, 1); /* issue sigstop */
@@ -684,15 +701,15 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 
 /* no seccomp_deferred patch in kernel, we have to whitelist execve  :( */
 int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count,
-			     int tracing, int blocknew, long retaction)
+			     unsigned int options, long retaction)
 {
 	struct sock_filter *filter;
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
+	options |= SECCOPT_EXEC;
 	filter = build_seccomp_whitelist(arch, syscalls, count,
-					&instr_count, 1, tracing,
-					 blocknew, retaction);
+					&instr_count, options, retaction);
 	if (filter == NULL)
 		return -1;
 
@@ -712,7 +729,7 @@ int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count,
 
 
 int filter_syscalls(int arch, int *syscalls, unsigned int count,
-		    int tracing, int blocknew, long retaction)
+		    unsigned int options, long retaction)
 {
 	/*struct sock_filter *filter;
 	struct sock_fprog prog;
@@ -729,7 +746,7 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count,
 	prog.filter = filter;
 	*/
 	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */
-	return filter_syscalls_fallback(arch, syscalls, count, tracing, blocknew, retaction);
+	return filter_syscalls_fallback(arch, syscalls, count, options, retaction);
 
 	/*free(filter);
 	return 0;*/

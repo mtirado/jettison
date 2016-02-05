@@ -11,7 +11,10 @@
  */
 #define SECCRET_DENIED 0xF0FF
 
-
+#define SECCOPT_TRACING  0x1
+#define SECCOPT_BLOCKNEW 0x2
+#define SECCOPT_PTRACE   0x4
+#define SECCOPT_EXEC     0x8
 
 
 int clear_caps();
@@ -28,7 +31,7 @@ unsigned int count_syscalls(int *syscalls, unsigned int count);
  * arch:  ex: AUDIT_ARCH_I386, etc.
  */
 int filter_syscalls(int arch, int *syscalls, unsigned int count,
-		    int tracing, int blocknew, long retaction);
+		    unsigned int options, long retaction);
 
 /* defstring should be the syscalls #define name,
  * ex: "__NR_fork"

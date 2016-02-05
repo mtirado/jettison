@@ -2,7 +2,7 @@
  * contact: mtirado418@gmail.com
  *
  * jettison.c
- * wrapper for pod configuration file.
+ * wrapper for whitelist pod configuration file.
  *
  * read pod configuration file.
  * clone
@@ -10,7 +10,6 @@
  * drop privs
  * exec.
  *
- * TODO /tmp as tmpfs option
  */
 
 #define _GNU_SOURCE
@@ -50,7 +49,7 @@
 	#define TRACEE_PATH="/usr/local/bin/jettison_tracee"
 #endif
 
-#ifdef __x86_64__ /* TODO this is untested...i add other arch's */
+#ifdef __x86_64__ /* TODO this is untested... add other arch's */
 	#define SYSCALL_ARCH AUDIT_ARCH_X86_64
 #elif __i386__
 	#define SYSCALL_ARCH AUDIT_ARCH_I386
@@ -73,23 +72,35 @@ typedef int (*filter_func)(void *);
 /* input to clone func */
 unsigned int g_podflags;
 main_entry g_entry;
+/* TODO, for C api users to close fd's after clone
+ * or just make strong note that they should do this
+ * immediately in main_entry, also be aware there is
+ * a memory leak that should be handled, see pod_free().
+ * this has no effect on standalone jettison.
+ */
 filter_func g_filter;
 void *g_filterdata;
+
 char *g_progpath;
 char g_procname[MAX_PROCNAME];
-int  g_nokill;
-int  g_tracecalls;
-int  g_blocknew;
-int  g_trace;
-int  g_traceipc[2];
-int  g_argstart;
-long g_retaction;
+int  g_newpid;
 
-int g_newpid;
+/* seccomp */
+long g_retaction;
+int  g_nokill;
+int  g_blocknew;
+int  g_allow_ptrace;
+
+/* pod tty i/o */
 int g_pty_relay;
 int g_pty_notify[2];
 int g_ptym;
 
+/* for stopping/resuming tracee before exec */
+int g_traceipc[2];
+int g_tracecalls;
+
+/* users real uid/gid */
 uid_t g_ruid;
 gid_t g_rgid;
 
@@ -97,7 +108,9 @@ gid_t g_rgid;
 char g_newroot[MAX_SYSTEMPATH];
 char g_pty_slavepath[MAX_SYSTEMPATH];
 char g_nullspace[MAX_SYSTEMPATH];
-
+char g_executable_path[MAX_SYSTEMPATH];
+char g_podconfig_path[MAX_SYSTEMPATH];
+size_t g_stacksize;
 
 
 /* must be called first to obtain podflags and chroot path. */
@@ -111,13 +124,6 @@ int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 char *jettison_get_newroot()
 {
 	return g_newroot;
-}
-
-
-/* some heap memory needs to be free'd */
-int jettison_abort()
-{
-	return pod_free();
 }
 
 static int create_nullspace()
@@ -202,8 +208,8 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
-				 count_syscalls(g_syscalls, MAX_SYSCALLS),
-				 0, 0, SECCOMP_RET_ERRNO)) {
+				 count_syscalls(g_syscalls,MAX_SYSCALLS),
+				 0, SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
 		return -1;
 	}
@@ -349,11 +355,6 @@ int jettison_clone_func(void *data)
 			NULL
 		};*/
 
-		printf("\n---------------------------------------------\n");
-		printf("what the hay is the realuid?: %d\n", g_ruid);
-		printf("---------------------------------------------\n\n");
-		printf("nokill = %d\n", g_nokill);
-		printf("tracecalls  = %d\n", g_tracecalls);
 		if (chown("/podhome", g_ruid, g_rgid)) {
 			printf("chown /podhome failed\n");
 			return -1;
@@ -378,27 +379,39 @@ int jettison_clone_func(void *data)
 		}
 		chdir("/podhome");
 
-		if (g_syscall_idx == 0 && !g_trace && !g_blocknew)
-			printf("calling exec without seccomp filter\n");
-		else if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
+		/* install seccomp filter. block ptrace if no options specified */
+		if (g_syscall_idx == 0 && !g_blocknew && g_allow_ptrace) {
+			printf("**calling exec without seccomp filter**\n");
+		}
+		else {
+			unsigned int opts = 0;
+			if (g_tracecalls)
+				opts |= SECCOPT_TRACING;
+			if (g_blocknew)
+				opts |= SECCOPT_BLOCKNEW;
+			if (g_allow_ptrace)
+				opts |= SECCOPT_PTRACE;
+			if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 					 count_syscalls(g_syscalls, MAX_SYSCALLS),
-					 g_trace, g_blocknew, g_retaction)) {
-			printf("unable to apply seccomp filter\n");
-			return -1;
+					 opts, g_retaction)) {
+				printf("unable to apply seccomp filter\n");
+				return -1;
+			}
 		}
 
-		if (g_trace) {
+		/* exec */
+		if (g_tracecalls) {
 			if (execve(TRACEE_PATH, (char **)data, environ) < 0)
 				printf("tracee exec error: %s\n", strerror(errno));
 			return -1;
 		}
-
-		if (execve(g_progpath, (char **)data, environ) < 0) {
-			printf("execerror: %s\n", strerror(errno));
+		else {
+			if (execve(g_progpath, (char **)data, environ) < 0) {
+				printf("execerror: %s\n", strerror(errno));
+			}
+			return -1;
 		}
-		return -1;
 	}
-
 }
 
 /* clone the current process and return pid
@@ -433,7 +446,7 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	if (podflags & (1 << OPTION_ROOTPID))
 		cloneflags &= ~CLONE_NEWPID;
 
-	/* TODO actually test newnet.. */
+	/* TODO actually test newnet.. isolates abstract socket namespace */
 	if (podflags & (1 << OPTION_NEWNET))
 		cloneflags |= CLONE_NEWNET;
 
@@ -471,27 +484,16 @@ int jettison_program(char *path, char *args[], size_t stacksize,
 }
 
 
-
-
-
 /*
- *  code specifically for command line jettison program
- */
-#ifndef STRIP_MAIN_ENTRY
-
-char g_executable_path[MAX_SYSTEMPATH];
-char g_podconfig_path[MAX_SYSTEMPATH];
-size_t g_stacksize;
-
-/*
- * checks for this program arguments and reorder additional arguments into
- * this threads argv array
+ * checks program arguments and reorder additional arguments into
+ * threads argv array to be passed directly to execve call
  */
 int process_arguments(int argc, char *argv[])
 {
 	unsigned int len;
 	int i;
 	int argidx = 3;
+	int argnew;
 	char *err;
 
 	/* must have executable path, and pod config file present */
@@ -503,9 +505,8 @@ int process_arguments(int argc, char *argv[])
 	g_pty_relay = 1;
 	g_tracecalls = 0;
 	g_blocknew = 0;
-	g_trace = 0;
+	g_allow_ptrace = 0;
 	g_nokill = 0;
-	g_argstart = 0;
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 
@@ -533,13 +534,10 @@ int process_arguments(int argc, char *argv[])
 
 			break;
 
-
-		/* check additional options, and arguments */
+		/* check additional options */
 		default:
-
-			/* check option length */
 			len = strnlen(argv[i], MAX_OPTLEN);
-			if (len >= MAX_OPTLEN || len == 0) /* no null terminator */
+			if (len >= MAX_OPTLEN || len == 0)
 				goto err_usage;
 
 			if (strncmp(argv[i], "--stacksize", len) == 0) {
@@ -573,20 +571,21 @@ int process_arguments(int argc, char *argv[])
 				g_nokill = 1;
 				argidx  += 1;
 			}
-			/*else if (strncmp(argv[i], "--notty", len) == 0) {
+			/* TODO: rename to --daemonize and add logging options
+			 * else if (strncmp(argv[i], "--notty", len) == 0) {
 				g_pty_relay = 0;
 				argidx  += 1;
 			}*/
-			else if (strncmp(argv[i], "--trace", len) == 0) {
-				g_trace = 1;
-				argidx  += 1;
-			}
 			else if (strncmp(argv[i], "--tracecalls", len) == 0) {
 				g_tracecalls = 1;
 				argidx  += 1;
 			}
 			else if (strncmp(argv[i], "--block-new-filters", len) == 0) {
 				g_blocknew = 1;
+				argidx  += 1;
+			}
+			else if (strncmp(argv[i], "--allow-ptrace", len) == 0) {
+				g_allow_ptrace = 1;
 				argidx  += 1;
 			}
 			else {
@@ -597,24 +596,22 @@ int process_arguments(int argc, char *argv[])
 		}
 
 	}
-	g_argstart = argidx;
+	/* new arguments to shift start here */
+	argnew = argidx;
 	/* --tracecalls needs to launch through jettison_tracee  */
+	/* will pass program path as argv[1] to tracee exec program */
 	if (g_tracecalls) {
-		g_trace = 1;
 		g_blocknew = 1;
-	}
-
-	/* no more additional options,  setup new argv */
-	i = argidx;
-	if (g_trace) /* will pass program path as argv[1] to tracee exec program */
 		argidx = 2;
+	}
 	else
 		argidx = 1;
+
+	/* shift remaining args for new exec call*/
+	i = argnew;
 	while(i < argc)
 	{
-		argv[argidx] = argv[i];
-		++argidx;
-		++i;
+		argv[argidx++] = argv[i++];
 	}
 
 
@@ -640,26 +637,36 @@ bad_opt:
 	return -1;
 
 err_usage:
-printf("\n");
-printf("usage:\n");
-printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
-printf("\n");
-printf("additional options:\n");
-printf("--procname   <process name> set pid1 name\n");
-printf("\n");
-printf("--stacksize  <kilobytes> set maximum stack size\n");
-printf("\n");
-printf("--nokill     seccomp fail returns error instead of killing process\n");
-printf("\n");
-printf("--tracecalls print all known system calls made, creates a template\n");
-printf("             configuration file in cwd with optimized whitelist\n");
-printf("\n");
-printf("--trace      launch process in stopped state, for a tracer to attach\n");
-printf("\n");
-printf("--block-new-filters    prevent additional filters from being installed\n");
-printf("\n");
-/*printf("--notty      do not relay terminal io, and close stdio\n");*/
-printf("\n");
+	printf("\n");
+	printf("usage:\n");
+	printf("jettison <executable> <podconfig> <options> <arg1, arg2, ..argn>\n");
+	printf("\n");
+	printf("additional options:\n");
+	printf("\n");
+	printf("--procname <process name>\n");
+	printf("        set new process name\n");
+	printf("\n");
+	printf("--stacksize  <kilobytes>\n");
+	printf("        set new process stack size\n");
+	printf("\n");
+	printf("--nokill\n");
+	printf("        seccomp fail returns error instead of killing process\n");
+	printf("\n");
+	printf("--tracecalls\n");
+	printf("        print all known system calls made. creates a template\n");
+	printf("        configuration file in cwd with optimized whitelist\n");
+	printf("\n");
+	printf("--block-new-filters\n");
+	printf("        prevent additional filters from being installed\n");
+	printf("        this will improve performance with programs that set\n");
+	printf("        their own seccomp filters.   --tracecalls always\n");
+	printf("        sets this for correct blocked call reporting. \n");
+	printf("\n");
+	printf("--allow-ptrace\n");
+	printf("        whitelist ptrace (it's always blacklisted otherwise)\n");
+	printf("        see seccomp documentation, there are security concerns\n");
+	printf("\n");
+	printf("\n");
 	return -1;
 }
 
@@ -674,7 +681,6 @@ void exit_func()
 {
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
-	usleep(200000); /* was noticing some error output getting lost */
 }
 
 /* terminal resize message */
@@ -689,7 +695,6 @@ static int handle_sigwinch()
 	/* get our main tty size */
 	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
 		return -1;
-
 	/*set pty size */
 	if (ioctl(g_ptym, TIOCSWINSZ, &w) == -1)
 		return -1;
@@ -838,13 +843,11 @@ int relay_tty(int ours, int theirs)
 		printf("relay_io not a tty\n");
 		return -1;
 	}
-
 	/* isolate this process + seccomp filter */
 	if(downgrade_relay()) {
 		printf("failed to downgrade relay\n");
 		return -1;
 	}
-
 	/* wait for other process to switch terminal */
 	while (read(g_pty_notify[0], rbuf, 1) == -1)
 	{
@@ -891,8 +894,10 @@ int relay_tty(int ours, int theirs)
 			}
 			if (FD_ISSET(theirs, &wrs)) {
 				r = pushbuf(theirs, &wbuf[wpos], wbytes - wpos);
-				if (r == -1)
+				if (r == -1) {
+					/*printf("pushbuf_theirs: %s\n", strerror(errno));*/
 					goto fatal;
+				}
 				else {
 					/* update pos */
 					wpos += r;
@@ -927,8 +932,10 @@ int relay_tty(int ours, int theirs)
 			/* read input from our side, and buffer it */
 			if (FD_ISSET(ours, &rds)) {
 				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
-				if (r == -1)
+				if (r == -1) {
+					/*printf("fillbuf_ours: %s\n", strerror(errno));*/
 					goto fatal;
+				}
 				wbytes = r;
 				wpos = 0;
 			}
@@ -937,11 +944,14 @@ int relay_tty(int ours, int theirs)
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
 				if (r == -1) {
+					/*printf("fillbuf_theirs: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				else if (r > 0) {
-					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1)
+					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1) {
+						/*printf("pushbuf_stdout: %s\n", strerror(errno));*/
 						goto fatal;
+					}
 				}
 			}
 		}
@@ -964,6 +974,63 @@ int do_trace(pid_t tracee)
 	_exit(-1);
 }
 
+/* tracer should be parent of cloned thread
+ * (for yama mode 1 TODO test it!)
+ */
+int trace_fork(char **argv)
+{
+	unsigned int podflags;
+	pid_t p;
+	p = fork();
+	if (p == -1) {
+		return -1;
+	}
+	else if (p == 0) {
+
+		/* TODO -- seccomp on tracer thread */
+		setuid(g_ruid);
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, g_traceipc)) {
+			printf("socketpair: %s\n", strerror(errno));
+			return -1;
+		}
+		setuid(0);
+
+		snprintf(g_procname, MAX_PROCNAME, "trace%d", g_traceipc[1]);
+		argv[0] = g_procname;
+
+		/* if not tracing, clone from relay thread */
+		if (jettison_readconfig(g_podconfig_path, &podflags)) {
+			printf("could not configure pod\n");
+			return -1;
+		}
+		g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
+					    podflags, NULL, NULL);
+
+		close(g_traceipc[1]);
+
+		/* drop tracer privs */
+		if (setregid(g_rgid, g_rgid)) {
+			printf("error setting gid(%d): %s\n",
+					g_rgid, strerror(errno));
+			return -1;
+		}
+	        if (setreuid(g_ruid, g_ruid)) {
+			printf("error setting uid(%d): %s\n",
+					g_ruid, strerror(errno));
+			return -1;
+		}
+
+		if (do_trace(g_newpid)) {
+			printf("do_trace error\n");
+			exit_func();
+			return -1;
+		}
+		return -1;
+	}
+
+	/* return to relay thread */
+	return 0;
+}
 
 int main(int argc, char *argv[])
 {
@@ -972,7 +1039,7 @@ int main(int argc, char *argv[])
 	g_ruid = getuid();
 	g_rgid = getgid();
 
-	/* we need gid 0 to create files in root group */
+	/* create files in root group */
 	if (setgid(0)) {
 		printf("error setting gid(%d): %s\n", 0, strerror(errno));
 		return -1;
@@ -1007,7 +1074,6 @@ int main(int argc, char *argv[])
 	/* resets tty to original termios at program exit */
 	if (atexit(exit_func)) {
 		printf("couldn't register exit function\n");
-		jettison_abort();
 		return -1;
 	}
 
@@ -1017,11 +1083,9 @@ int main(int argc, char *argv[])
 			printf("pipe2: %s\n", strerror(errno));
 			return -1;
 		}
-		relayio_sigsetup();
 		setuid(g_ruid);
 		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
 			printf("could not create pty\n");
-			jettison_abort();
 			return -1;
 		}
 		if (setuid(0)) {
@@ -1058,76 +1122,29 @@ int main(int argc, char *argv[])
 	if (create_nullspace())
 		return -1;
 
-        if (jettison_readconfig(g_podconfig_path, &podflags)) {
-		printf("could not configure pod\n");
-		return -1;
-	}
 
+
+
+	/* now we are in tracer thread (if tracing) TODO close PTY descriptors */
 	if (g_tracecalls) {
-		pid_t tracerpid;
-
-		if (socketpair(AF_UNIX, SOCK_STREAM, 0, g_traceipc)) {
-			printf("socketpair: %s\n", strerror(errno));
+		if (trace_fork(argv)) {
+			printf("error forking trace thread\n");
 			return -1;
-		}
-		snprintf(g_procname, MAX_PROCNAME, "trace%d", g_traceipc[1]);
-		argv[0] = g_procname;
-
-		tracerpid = fork();
-		if (tracerpid == -1)
-			return -1;
-		if (tracerpid == 0) {
-			struct ucred cred;
-			int r = -1;
-			int i = 0;
-
-			close(g_pty_notify[0]);
-			close(g_pty_notify[1]);
-			close(g_traceipc[1]);
-			memset(&cred, 0, sizeof(cred));
-			if (setregid(g_rgid, g_rgid)) {
-				printf("error setting gid(%d): %s\n",
-						g_rgid, strerror(errno));
-				return -1;
-			}
-		        if (setreuid(g_ruid, g_ruid)) {
-				printf("error setting uid(%d): %s\n",
-						g_ruid, strerror(errno));
-				return -1;
-			}
-			while (++i < 1000) /* 1+ second fail */
-			{
-				/* translate pid out of namespace */
-				r = eslib_sock_recv_cred(g_traceipc[0], &cred);
-				if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
-					usleep(1000);
-					continue;
-				}
-				else if (r == -1) {
-					printf("error receiving credentials\n");
-					return -1;
-				}
-				else {
-					break;
-				}
-			}
-
-			if (cred.pid <= 0) {
-				printf("bad pid\n");
-				return -1;
-			}
-			if (do_trace(cred.pid)) {
-				exit_func();
-				printf("do_trace error\n");
-				return -1;
-			}
-			return 0;
 		}
 	}
-
-	g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
-			podflags, NULL, NULL);
-
+	else {
+		/* if not tracing, clone from relay thread */
+		if (jettison_readconfig(g_podconfig_path, &podflags)) {
+			printf("could not configure pod\n");
+			return -1;
+		}
+		g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
+					    podflags, NULL, NULL);
+		if (g_newpid == -1) {
+			printf("jettison failure\n");
+			return -1;
+		}
+	}
 	/* switch back to real user credentials */
 	if (setregid(g_rgid, g_rgid)) {
 		printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
@@ -1138,23 +1155,22 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (g_newpid == -1) {
-		jettison_abort();
-		printf("jettison failure\n");
-		return -1;
-	}
+	printf(" ENTERING ROUTE IO\r\n");
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
-	handle_sigwinch(); /* set terminal size */
-
 	if (g_pty_relay) {
-		int ret = relay_tty(STDIN_FILENO, g_ptym);
+		int ret;
+		relayio_sigsetup();
+		handle_sigwinch(); /* set terminal size */
+		ret = relay_tty(STDIN_FILENO, g_ptym);
 		/* relay all i/o between stdio and new pty */
-		printf("relay_tty returned: %d\n", ret);
+		/*printf("relay_tty returned: %d\n", ret);*/
 	}
+	printf("jettison: program exited\n");
+	usleep(200000);
 	return 0;
+
 }
-#endif
 
 
 
