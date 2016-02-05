@@ -279,7 +279,7 @@ int tracecalls(pid_t p, int ipc)
 	}
     }
     close(ipc);
-printf("\n\n\n we are inside tracecalls----------------------\n");
+
     while (1)
     {
 	status = 0;
