@@ -44,12 +44,11 @@ there are additional options we can pass:
 
 `--tracecalls` track every systemcall and generate whitelist
 
-`--trace` launch in stopped state for an external tracer
-
 `--nokill` make seccomp return error ENOSYS instead of killing process
 
-`--notty` disconnect standard io
+`--block-new-filters` prevent additional seccomp ilters form being installed
 
+`--allow-ptrace` whitelist ptrace (otherwise it's always blacklisted)
 
 #pod configuration
 
@@ -63,23 +62,10 @@ home is the same as file, except that it will mount the file from current
 $HOME path, to <podroot>/podhome
 
 ##seccomp
-use --nokill option until you have documented exactly which calls the
-program makes.  this can be done with strace.
-
-`strace -o outfile -f -s 0 && grep 'ENOSYS' outfile`
-
-when you have a working list, you should optimize it. sort by most
-frequently made call. strace can generate the list by doing the following
-
-`strace -o outfile -f -c -S calls`
-
-you can use seccomp_enumerator to convert outfile to pod options.
-
-`./seccomp_enumerator outfile whitelist`
-
-as programs are developed, new systemcalls may be added, there is currently
-no easy way to get a list of missing systemcalls without using strace, but
-hopefully this will change soon.
+use --tracecalls to track every system call made and generate an optimized
+whitelist at ./podtemplate.pod  .  if you have a configuration file already
+with no systemcalls you can simply do `cat podtemplate.pod >> config.pod`
+to append the whitelist to the configuration file.
 
 ##bugs
 
