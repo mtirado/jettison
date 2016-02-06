@@ -1159,10 +1159,9 @@ int main(int argc, char *argv[])
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
 	if (g_pty_relay) {
-		int ret;
 		relayio_sigsetup();
 		handle_sigwinch(); /* set terminal size */
-		ret = relay_tty(STDIN_FILENO, g_ptym);
+		relay_tty(STDIN_FILENO, g_ptym);
 		/* relay all i/o between stdio and new pty */
 		/*printf("relay_tty returned: %d\n", ret);*/
 	}

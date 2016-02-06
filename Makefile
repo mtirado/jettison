@@ -50,7 +50,6 @@ TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
 ########################################
 JETTISON		:= jettison
 UTIL_TRACEE  		:= jettison_tracee
-UTIL_SECCOMP_ENUM   	:= seccomp_enumerator
 #tests
 TEST_SECCOMP		:= seccomp_test
 TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
@@ -92,15 +91,6 @@ $(TEST_SECCOMP_LAUNCH):	$(TEST_SECCOMP_LAUNCH_OBJS)
 			@echo "x----------------------------------x"
 			@echo "| test:  seccomp_test_launcher  OK |"
 			@echo "x----------------------------------x"
-
-$(UTIL_SECCOMP_ENUM):
-			@echo ""
-			$(CC) $(CFLAGS) ./src/util/seccomp_enumerator.c -o $@
-			@echo ""
-			@echo "x-------------------------------x"
-			@echo "| util: seccomp_enumerator   OK |"
-			@echo "x-------------------------------x"
-			@echo ""
 
 $(UTIL_TRACEE):
 			@echo ""
