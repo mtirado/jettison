@@ -32,8 +32,7 @@
 #include "eslib/eslib.h"
 
 /* force these paths to be mounted as rdonly, we must prevent LD_PRELOAD
- * style attacks on executable with certain file capabilities set, or suid binaries
- * if anyone modifies this program to enable them..
+ * style attacks on executable with certain file capabilities set.
  * any paths at or below these are automatically remounted with MS_RDONLY.
  * if there are any special system mount points for whatever reason at these locations
  * you should specify them here since remount operation will not affect them.
@@ -56,10 +55,15 @@ struct path_node
 };
 struct path_node *g_mountpoints;
 
-/* external variables from jettison.c */
+/* external variables from jettison.c
+ * XXX - non-jettison.c C callers will have to define these,
+ * or we could provide pointer interface through pod_prepare
+ */
 extern char g_pty_slavepath[MAX_SYSTEMPATH];
 extern gid_t g_rgid;
 extern uid_t g_ruid;
+extern int g_tracecalls;
+
 
 /* right now the only heavy params are paths */
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
@@ -1032,6 +1036,7 @@ SINGLE_KEYWORD:		/* no parameters */
 		}
 	}
 
+
 	/* done with options, finalize pass */
 	if (g_firstpass) {
 		return do_chroot_setup();
@@ -1042,6 +1047,18 @@ SINGLE_KEYWORD:		/* no parameters */
 						| MS_NOEXEC
 						| MS_NODEV
 						| MS_RDONLY;
+
+		/* if tracing, we need to whitelist the launcher used to stop process */
+		if (g_tracecalls) {
+			char opt[256];
+			snprintf(opt, sizeof(opt), "rx %s", TRACEE_PATH);
+			if (pod_enact_option(OPTION_FILE, opt,
+					     strnlen(opt, sizeof(opt)))) {
+				printf("error whitelisting tracee program\n");
+				return -1;
+			}
+		}
+
 		/* some security checks */
 		if (pod_process_mountpoints()) {
 			printf("mountpoint processing failed\n");
