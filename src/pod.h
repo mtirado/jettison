@@ -18,7 +18,6 @@ enum
 	OPTION_NEWPTS,
 	OPTION_NOPROC,
 	OPTION_SLOG,
-	OPTION_TTYPOD, 
 
 	/*
 	 * anything above here is a pod flag that caller

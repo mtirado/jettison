@@ -98,7 +98,6 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
 	{ "slog"	},  /* pod wants to write to system log */
-	{ "ttypod"	},  /* mount stdio tty as /dev/ttypod */
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
 	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
