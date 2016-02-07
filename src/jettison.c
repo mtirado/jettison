@@ -87,7 +87,7 @@ int  g_newpid;
 
 /* seccomp */
 long g_retaction;
-int  g_nokill;
+int  g_strict;
 int  g_blocknew;
 int  g_allow_ptrace;
 
@@ -506,7 +506,7 @@ int process_arguments(int argc, char *argv[])
 	g_tracecalls = 0;
 	g_blocknew = 0;
 	g_allow_ptrace = 0;
-	g_nokill = 0;
+	g_strict = 0;
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 
@@ -567,8 +567,8 @@ int process_arguments(int argc, char *argv[])
 				argv[0] = g_procname;
 				argidx += 2;
 			}
-			else if (strncmp(argv[i], "--nokill", len) == 0) {
-				g_nokill = 1;
+			else if (strncmp(argv[i], "--strict", len) == 0) {
+				g_strict = 1;
 				argidx  += 1;
 			}
 			/* TODO: rename to --daemonize and add logging options
@@ -617,10 +617,10 @@ int process_arguments(int argc, char *argv[])
 
 	if (g_tracecalls)
 		g_retaction = SECCOMP_RET_TRAP;
-	else if (g_nokill)
-		g_retaction = SECCOMP_RET_ERRNO;
-	else
+	else if (g_strict)
 		g_retaction = SECCOMP_RET_KILL;
+	else
+		g_retaction = SECCOMP_RET_ERRNO;
 
 	/* terminate arguments */
 	argv[argidx] = NULL;
@@ -649,8 +649,8 @@ err_usage:
 	printf("--stacksize  <kilobytes>\n");
 	printf("        set new process stack size\n");
 	printf("\n");
-	printf("--nokill\n");
-	printf("        seccomp fail returns error instead of killing process\n");
+	printf("--strict\n");
+	printf("        seccomp fail kills process instead of ENOSYS error\n");
 	printf("\n");
 	printf("--tracecalls\n");
 	printf("        print all known system calls made. creates a template\n");
