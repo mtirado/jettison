@@ -1045,11 +1045,6 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	/* drop every privilege we don't need */
-	memset(g_fcaps, 0, sizeof(g_fcaps));
-	memset(g_newroot, 0, sizeof(g_nullspace));
-	memset(g_nullspace, 0, sizeof(g_nullspace));
-
 	if (downgrade_caps(g_fcaps)) {
 		printf("failed to downgrade caps\n");
 		return -1;
@@ -1061,13 +1056,17 @@ int main(int argc, char *argv[])
 	if (g_stacksize == 0)
 		g_stacksize = DEFAULT_STACKSIZE;
 
-	g_podflags = 0;
 	g_ptym = -1;
-	g_pty_notify[0] = -1;
-	g_pty_notify[1] = -1;
+	g_newpid = 0;
+	g_podflags = 0;
 	g_traceipc[0] = -1;
 	g_traceipc[1] = -1;
-	g_newpid = 0;
+	g_pty_notify[0] = -1;
+	g_pty_notify[1] = -1;
+	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(g_newroot, 0, sizeof(g_nullspace));
+	memset(g_nullspace, 0, sizeof(g_nullspace));
+	memset(g_pty_slavepath, 0, sizeof(g_nullspace));
 
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);

@@ -708,25 +708,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		break;
 
-	/* mount our tty as /dev/ttypod */
-	case OPTION_TTYPOD:
-		/* TODO daemons won't be able to use this... */
-		if (strncmp(g_pty_slavepath, "/dev/", 5) != 0) {
-			printf("slapath: %s\n", g_pty_slavepath);
-			return -1;
-		}
-		chop_trailing(g_pty_slavepath, MAX_SYSTEMPATH, '/');
-		if (eslib_file_path_check(g_pty_slavepath))
-			return -1;
-		snprintf(src, MAX_SYSTEMPATH, "%s", g_pty_slavepath);
-		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/ttypod", g_chroot_path);
-		printf("src: %s\n", src);
-		printf("dest: %s\n", dest);
-		if (do_bind(src, dest, MS_NOEXEC|MS_NOSUID|MS_UNBINDABLE))
-			return -1;
-
-		break;
-
 	/*
 	 * add a systemcall to the seccomp whitelist filter.
 	 */
@@ -771,13 +752,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		if (do_option_bind(params, size, 0))
 			return -1;
 		break;
-#if 0
-do_bind:
-#endif
-		/* TODO */
-		printf("fix this up, :\\\n");
-		return -1;
-		break;
 
 	case OPTION_HOME:
 		setuid(g_ruid);
@@ -789,11 +763,6 @@ do_bind:
 		}
 		break;
 
-
-
-	/*case OPTION_CAP_PSET:
-		is_pcap = 1;
-		break;*/
 
 	/* change to bounding set */
 	case OPTION_CAP_BSET:
@@ -847,6 +816,22 @@ static int find_keyword(char *kwcmp, size_t kwlen)
 	return -1;
 }
 
+
+/* final stage of pod, fix up environment*/
+static int post_load()
+{
+	/* if tracing, we need to whitelist the launcher used to stop process */
+	if (g_tracecalls) {
+		char opt[256];
+		snprintf(opt, sizeof(opt), "rx %s", TRACEE_PATH);
+		if (pod_enact_option(OPTION_FILE, opt,
+				     strnlen(opt, sizeof(opt)))) {
+			printf("error whitelisting tracee program\n");
+			return -1;
+		}
+	}
+	return 0;
+}
 
 
 #define STATE_NEWLINE  (1     ) /* on a fresh new line          */
@@ -1048,17 +1033,10 @@ SINGLE_KEYWORD:		/* no parameters */
 						| MS_NODEV
 						| MS_RDONLY;
 
-		/* if tracing, we need to whitelist the launcher used to stop process */
-		if (g_tracecalls) {
-			char opt[256];
-			snprintf(opt, sizeof(opt), "rx %s", TRACEE_PATH);
-			if (pod_enact_option(OPTION_FILE, opt,
-					     strnlen(opt, sizeof(opt)))) {
-				printf("error whitelisting tracee program\n");
-				return -1;
-			}
+		if (post_load()) {
+			printf("post_load()\n");
+			return -1;
 		}
-
 		/* some security checks */
 		if (pod_process_mountpoints()) {
 			printf("mountpoint processing failed\n");
