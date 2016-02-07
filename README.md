@@ -44,7 +44,7 @@ there are additional options we can pass:
 
 `--tracecalls` track every systemcall and generate whitelist
 
-`--nokill` make seccomp return error ENOSYS instead of killing process
+`--strict` kill process instead of returning error ENOSYS
 
 `--block-new-filters` prevent additional seccomp ilters form being installed
 
