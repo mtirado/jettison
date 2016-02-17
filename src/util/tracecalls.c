@@ -8,11 +8,6 @@
  * 	  to us. this could be avoided by doing strace style detection, but
  * 	  could end up being a terrible arch-specific #define mess.
  *
- * TODO - there is a new SECCOMP_RET coming soon that should remove our
- * 	  need to stop on system call entry/exit. and should be faster
- * 	  add option to support this when it is pulled, SECCOMP_RET_ACK
- * 	  is the working title of patch. though we should keep the slower code
- * 	  for argument inspection, and whatnot.
  */
 
 #define _GNU_SOURCE
@@ -292,6 +287,7 @@ int tracecalls(pid_t p, int ipc)
 	}
 	if ((WIFEXITED(status) || WIFSIGNALED(status))) {
 		if (curpid == p) {
+			/* tracee exited */
 			printf("\r\n\r\n");
 			printf("[%lu:%lu] unknown system calls made\r\n",
 					unknown[1], unknown[0]);

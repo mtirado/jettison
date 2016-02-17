@@ -14,7 +14,6 @@
 #define SECCOPT_TRACING  0x1
 #define SECCOPT_BLOCKNEW 0x2
 #define SECCOPT_PTRACE   0x4
-#define SECCOPT_EXEC     0x8
 
 
 int clear_caps();

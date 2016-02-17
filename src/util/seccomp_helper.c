@@ -513,8 +513,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	unsigned int i,z;
 	unsigned int proglen;
 	struct sock_filter *prog = NULL;
-	/* instruction limit is currently 4096 so we have 96
-	 * more instructions for optional functionality */
+
 	if (count > 2000) {
 		printf("2000 syscalls maximum\n");
 		return NULL;
@@ -522,15 +521,16 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	printf("build_whitelist syscall count: %d\n", count);
 
 	proglen = 4 + (count * 2) + 1;
-	if ((options & SECCOPT_EXEC) && count > 0)
-		proglen += 2; /* add execve */
+	/* whitelist for init process */
+	if (count > 0)
+		proglen += 14;
 	if (options & SECCOPT_TRACING) {
 		/* when tracing we must block new filters to prevent
 		 * receiving spoofed SIGSYS data
 		 */
 		options |= SECCOPT_BLOCKNEW;
 		if (count > 0)
-			proglen += 22;
+			proglen += 6;
 	}
 	if (options & SECCOPT_BLOCKNEW) {
 		proglen += 7;
@@ -547,7 +547,6 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	/* create seccomp bpf filter */
 	memset(prog, 0, proglen * sizeof(struct sock_filter));
 	i = 0;
-
 
 	/* validate arch */
 	SECBPF_LD_ABSW(prog, i, SECDAT_ARCH);
@@ -590,6 +589,9 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	if (count == 0) {
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		*instr_count = proglen;
+		printf("---------------------------------\n");
+		printf(" warning: no seccomp whitelist\n");
+		printf("--------------------------------\n");
 		return prog;
 	}
 
@@ -605,69 +607,32 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	}
 
-	/* i don't know of any other way to prohibit execve while
-	 * still allowing for functioning file capabilities since the new
-	 * process would need to have NO_NEW_PRIVS set to install it's own
-	 * seccomp filter. though a workaround could be implemented for
-	 * programs that don't need file caps by piping seccomp filter to
-	 * a LD_PRELOADed environment that applies filter after execve.
-	 */
-	if ((options & SECCOPT_EXEC)) {
-		/* process shouldn't be able to gain arbitrary privileges at least
-		 * TODO after deferred patch is hooked up againrwe can use ptrace
-		 * to verify arguments for execve*/
-		SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-	}
+	/* our init process needs to setup signals, fork exec waitpid exit */
+	SECBPF_JEQ(prog, i, __NR_signal, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_sigreturn, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_clone, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_waitpid, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_exit, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_exit_group, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	/* TODO some decent hack to disable exec after init calls it */
+	SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 
 	if (options & SECCOPT_TRACING) {
-		/* ptrace is messy, there are various things that need to
-		 * be done to facilitate thorough system call counting across
-		 * a pid namespace. we must fork and exec from pid 2 in new ns.
-		 * otherwise the attach fails.
-		 */
 
+		/* communicate with tracer, translate pid */
+		SECBPF_JEQ(prog, i, __NR_read, 0, 1);
+		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		SECBPF_JEQ(prog, i, __NR_write, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_kill, 0, 1); /* issue sigstop */
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_clone, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		SECBPF_JEQ(prog, i, __NR_close, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_waitpid, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_exit, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_exit_group, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-/*
- * use finer grained syscalls if available for the ipc socket we need
- * to translate PID between namespaces
- */
-#ifdef __NR_socketpair
-		SECBPF_JEQ(prog, i, __NR_socketpair, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#else
-		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#endif
-#ifdef __NR_setsockopt
-		SECBPF_JEQ(prog, i, __NR_setsockopt, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#else
-		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#endif
-#ifdef __NR_send
-		SECBPF_JEQ(prog, i, __NR_send, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#else
-		SECBPF_JEQ(prog, i, __NR_socketcall, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-#endif
 	}
 
 	/* set return action */
@@ -699,15 +664,13 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 }
 
 
-/* no seccomp_deferred patch in kernel, we have to whitelist execve  :( */
-int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count,
+int filter_syscalls(int arch, int *syscalls, unsigned int count,
 			     unsigned int options, long retaction)
 {
 	struct sock_filter *filter;
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
-	options |= SECCOPT_EXEC;
 	filter = build_seccomp_whitelist(arch, syscalls, count,
 					&instr_count, options, retaction);
 	if (filter == NULL)
@@ -725,31 +688,6 @@ int filter_syscalls_fallback(int arch, int *syscalls, unsigned int count,
 	printf("filter: %p\n", (void *)filter);
 	free(filter);
 	return 0;
-}
-
-
-int filter_syscalls(int arch, int *syscalls, unsigned int count,
-		    unsigned int options, long retaction)
-{
-	/*struct sock_filter *filter;
-	struct sock_fprog prog;
-	unsigned int instr_count;
-
-	memset(&prog, 0, sizeof(prog));
-	filter = build_seccomp_whitelist(arch, syscalls, count, &instr_count, 0, nokill);
-	if (filter == NULL)
-		return -1;
-
-	printf("whitelisted %d system calls\n", instr_count);
-	printf("filter: %p\n", (void *)filter);
-	prog.len = instr_count;
-	prog.filter = filter;
-	*/
-	/* TODO -- check for SECCOMP_FILTER_FLAG_DEFER, use fallback if not found */
-	return filter_syscalls_fallback(arch, syscalls, count, options, retaction);
-
-	/*free(filter);
-	return 0;*/
 }
 
 

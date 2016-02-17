@@ -31,20 +31,18 @@
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
-/* force these paths to be mounted as rdonly, we must prevent LD_PRELOAD
- * style attacks on executable with certain file capabilities set.
- * any paths at or below these are automatically remounted with MS_RDONLY.
- * if there are any special system mount points for whatever reason at these locations
- * you should specify them here since remount operation will not affect them.
- * for example, it would be fine to specify /usr instead of /usr/lib  and /usr/local/lib
- * but if on separate partitions, rdonly would not be applied to lower mountpoint.
- */
-#define PATHCHECK_COUNT 3
+/* force these paths, and below to be mounted as rdonly */
+#define PATHCHECK_COUNT 8
 static char *g_rdonly_paths[] =
 {
 	"/lib",
+	"/bin",
+	"/sbin",
 	"/usr/lib",
-	"/usr/local/lib"
+	"/usr/bin",
+	"/usr/sbin",
+	"/usr/local/lib",
+	"/usr/local/bin"
 };
 
 struct path_node
@@ -139,7 +137,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	char *filename;
 	char *pwline;
 	char *pwuser;
-	int slashidx;
 
 	if (outpath == NULL || outflags == NULL)
 		return -1;
@@ -165,21 +162,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
-	/* create chroot path, get filename */
-	slashidx = 0;
-	for (i = 0; i < MAX_SYSTEMPATH; ++i)
-	{
-		if (filepath[i] == '/')
-			slashidx = i+1;
-		else if (filepath[i] == '\0')
-			break;
-	}
-	if (i >= MAX_SYSTEMPATH-1) {
-		printf("pod file path too long\n");
-		fclose(file);
-		return -1;
-	}
-
 	pwline = passwd_fetchline(g_ruid);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
@@ -191,8 +173,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
-
-	filename = &filepath[slashidx];
+	filename = eslib_file_getname(filepath);
 	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
 	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
 		printf("chroot path too long: %s\n", g_chroot_path);
@@ -816,13 +797,15 @@ static int find_keyword(char *kwcmp, size_t kwlen)
 }
 
 
-/* final stage of pod, fix up environment*/
+/* final stage of setting up pod environment, add things to config
+ * depending on user supplied option
+ */
 static int post_load()
 {
 	/* if tracing, we need to whitelist the launcher used to stop process */
 	if (g_tracecalls) {
 		char opt[256];
-		snprintf(opt, sizeof(opt), "rx %s", TRACEE_PATH);
+		snprintf(opt, sizeof(opt), "rx %s", INIT_PATH);
 		if (pod_enact_option(OPTION_FILE, opt,
 				     strnlen(opt, sizeof(opt)))) {
 			printf("error whitelisting tracee program\n");

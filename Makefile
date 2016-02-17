@@ -1,9 +1,10 @@
 # some global defines
-DEFINES := 				\
-	-DMAX_SYSTEMPATH=2048 		\
-	-DDEFAULT_STACKSIZE=4194304	\
-	-DPOD_PATH=\"/opt/pods\"	\
-	-DTRACEE_PATH=\"/usr/local/bin/jettison_tracee\"
+DEFINES := 							\
+	-DMAX_SYSTEMPATH=2048 					\
+	-DDEFAULT_STACKSIZE=4194304				\
+	-DPOD_PATH=\"/opt/pods\"				\
+	-DINIT_PATH=\"/usr/local/bin/jettison_init\"		\
+	-DPRELOAD_PATH=\"/usr/local/bin/jettison_preload.so\"
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 #-rdynamic: backtrace names
@@ -22,6 +23,7 @@ JETTISON_SRCS :=					\
 		./src/util/seccomp_helper.c		\
 		./src/eslib/eslib_file.c		\
 		./src/eslib/eslib_sock.c		\
+		./src/eslib/eslib_proc.c		\
 		./src/util/tracecalls.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
@@ -49,7 +51,8 @@ TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
 #	PROGRAM FILENAMES
 ########################################
 JETTISON		:= jettison
-UTIL_TRACEE  		:= jettison_tracee
+UTIL_INIT  		:= jettison_init
+UTIL_PRELOAD		:= jettison_preload.so
 #tests
 TEST_SECCOMP		:= seccomp_test
 TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
@@ -61,7 +64,8 @@ TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
 all:				\
 	$(JETTISON)		\
 	$(UTIL_SECCOMP_ENUM)	\
-	$(UTIL_TRACEE)
+	$(UTIL_PRELOAD)		\
+	$(UTIL_INIT)
 
 tests:				\
 	$(TEST_SECCOMP)		\
@@ -92,18 +96,29 @@ $(TEST_SECCOMP_LAUNCH):	$(TEST_SECCOMP_LAUNCH_OBJS)
 			@echo "| test:  seccomp_test_launcher  OK |"
 			@echo "x----------------------------------x"
 
-$(UTIL_TRACEE):
+$(UTIL_INIT):
 			@echo ""
 			$(CC) $(CFLAGS) 				\
-					./src/util/tracee.c 		\
+					./src/util/jettison_init.c	\
 					./src/eslib/eslib_sock.c 	\
 					./src/eslib/eslib_file.c	\
+					./src/eslib/eslib_proc.c	\
 					-o $@
 			@echo ""
 			@echo "x--------------------x"
-			@echo "| util: tracee    OK |"
+			@echo "| util: init      OK |"
 			@echo "x--------------------x"
 			@echo ""
+$(UTIL_PRELOAD):
+			@echo ""
+			$(CC) $(CFLAGS) -shared -o $@ -fPIC 		\
+					./src/util/jettison_preload.c
+			@echo ""
+			@echo "x--------------------x"
+			@echo "| util: preload   OK |"
+			@echo "x--------------------x"
+			@echo ""
+
 
 ########################################
 #	CLEAN UP THE MESS
@@ -116,8 +131,8 @@ clean:
 	@-rm -fv ./$(JETTISON)
 	@-rm -fv ./$(TEST_SECCOMP)
 	@-rm -fv ./$(TEST_SECCOMP_LAUNCH)
-	@-rm -fv ./$(UTIL_SECCOMP_ENUM)
-	@-rm -fv ./$(UTIL_TRACEE)
+	@-rm -fv ./$(UTIL_PRELOAD)
+	@-rm -fv ./$(UTIL_INIT)
 	@echo cleaned.
 
 
