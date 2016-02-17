@@ -929,19 +929,21 @@ static int relay_io(int stdout_logfd)
 	memset(rbuf, 0, sizeof(rbuf));
 	memset(wbuf, 0, sizeof(wbuf));
 
-	/* isolate this process + seccomp filter */
-	if(downgrade_relay()) {
-		printf("failed to downgrade relay\n");
-		return -1;
-	}
 
 	if (g_daemon) {
 		if (stdout_logfd == -1) {
 			printf("NO LOGFILE FD\n");
-			usleep(500000);
 			return 0;
-			/* XXX fork and abandon process?
-			 * hold up hold up, shift this logic a bit*/
+		}
+		if (dup2(stdout_logfd, STDOUT_FILENO) != STDOUT_FILENO
+				|| dup2(stdout_logfd, STDERR_FILENO) != STDERR_FILENO) {
+			printf("stdio dup error: %s\n", strerror(errno));
+			return -1;
+		}
+		/* isolate this process + seccomp filter */
+		if(downgrade_relay()) {
+			printf("failed to downgrade relay\n");
+			return -1;
 		}
 		/* daemon update loop */
 		while (1)
@@ -952,8 +954,6 @@ static int relay_io(int stdout_logfd)
 			FD_SET(g_daemon_pipe[0], &rds);
 
 			r = select(g_daemon_pipe[0]+1, &rds, NULL, NULL, &tmr);
-			/* XXX hook stdio directly to log file
-			 * printf("read: %d\n", g_daemon_pipe[0]);*/
 			if (stdout_logfd != -1 && FD_ISSET(g_daemon_pipe[0], &rds)) {
 				r = read(g_daemon_pipe[0], rbuf, sizeof(rbuf)-1);
 				if (r > 0) {
@@ -979,6 +979,13 @@ static int relay_io(int stdout_logfd)
 				return 0;
 			}
 		}
+	}
+
+
+	/* isolate this process + seccomp filter */
+	if(downgrade_relay()) {
+		printf("failed to downgrade relay\n");
+		return -1;
 	}
 
 	handle_sigwinch(); /* set terminal size */
