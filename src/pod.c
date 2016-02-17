@@ -802,15 +802,13 @@ static int find_keyword(char *kwcmp, size_t kwlen)
  */
 static int post_load()
 {
-	/* if tracing, we need to whitelist the launcher used to stop process */
-	if (g_tracecalls) {
-		char opt[256];
-		snprintf(opt, sizeof(opt), "rx %s", INIT_PATH);
-		if (pod_enact_option(OPTION_FILE, opt,
-				     strnlen(opt, sizeof(opt)))) {
-			printf("error whitelisting tracee program\n");
-			return -1;
-		}
+	char opt[MAX_SYSTEMPATH];
+
+	snprintf(opt, sizeof(opt), "rx %s", INIT_PATH);
+	if (pod_enact_option(OPTION_FILE, opt,
+			     strnlen(opt, sizeof(opt)))) {
+		printf("error whitelisting tracee program\n");
+		return -1;
 	}
 	return 0;
 }
