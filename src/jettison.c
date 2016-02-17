@@ -666,6 +666,12 @@ err_usage:
 	printf("        whitelist ptrace (it's always blacklisted otherwise)\n");
 	printf("        see seccomp documentation, there are security concerns\n");
 	printf("\n");
+	printf("--daemon\n");
+	printf("        orphan process and disconnect tty\n");
+	printf("\n");
+	printf("--logoutput\n");
+	printf("        write stdout/stderr to a timestamped log file in cwd\n");
+	printf("\n");
 	printf("\n");
 	return -1;
 }
