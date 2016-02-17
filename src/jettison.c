@@ -932,7 +932,6 @@ static int relay_io(int stdout_logfd)
 
 	if (g_daemon) {
 		if (stdout_logfd == -1) {
-			printf("NO LOGFILE FD\n");
 			return 0;
 		}
 		if (dup2(stdout_logfd, STDOUT_FILENO) != STDOUT_FILENO
