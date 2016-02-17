@@ -771,7 +771,9 @@ static void relayio_sigsetup()
 	signal(SIGUNUSED, relayio_sighand);
 	signal(SIGTRAP,   relayio_sighand);
 
-	signal(SIGWINCH, relayio_sighand);
+	if (!g_daemon) {
+		signal(SIGWINCH, relayio_sighand);
+	}
 }
 
 
