@@ -248,59 +248,27 @@ static int downgrade_relay()
 #define ENV_MAX_ITER 9001
 static int change_environ()
 {
-	char newhome[] = "/podhome";
-	char newxauth[] = "/podhome/.Xauthority";
-	char **env = environ;
-	char *str;
-	unsigned int len;
-	int count;
-	int preload_idx = -1;
-	if (env == NULL) {
-		printf("no environ??\n");
+
+	if (eslib_proc_getenv("HOME")) {
+		if (eslib_proc_setenv("HOME", "/podhome")) {
+			printf("error setting $HOME\n");
+			return -1;
+		}
+	}
+	else {
+		printf("$HOME is not set\n");
 		return -1;
 	}
 
-	count = 0;
-	while(*env)
-	{
-		printf("env: %s\n", *env);
-		if (strncmp(*env, "HOME=", 5) == 0) {
-			len = strnlen(newhome, MAX_SYSTEMPATH) + 6;
-			if (len >= MAX_SYSTEMPATH)
-				return -1;
-			str = malloc(len);
-			if (str == NULL)
-				return -1;
-			snprintf(str, len, "HOME=%s", newhome);
-			*env = str;
-		}
-		else if (strncmp(*env, "XAUTHORITY=", 11) == 0) {
-			len = strnlen(newxauth, MAX_SYSTEMPATH) + 12;
-			if (len >= MAX_SYSTEMPATH)
-				return -1;
-			str = malloc(len);
-			if (str == NULL)
-				return -1;
-			snprintf(str, len, "XAUTHORITY=%s", newxauth);
-
-			*env = str;
-		}
-		else if (g_daemon && g_logoutput /* preserve existing preloads */
-				&& strncmp(*env, "LD_PRELOAD=", 11) == 0) {
-			if (preload_idx != -1)
-				return -1;
-			preload_idx = count;
-
-		}
-		++env;
-		if (++count >= ENV_MAX_ITER)
+	if (eslib_proc_getenv("XAUTHORITY")) {
+		if (eslib_proc_setenv("XAUTHORITY", "/podhome/.Xauthority")) {
+			printf("error setting $XAUTHORITY\n");
 			return -1;
+		}
 	}
-
-	/* needs a preload to set linebuffered standard output */
 	if (g_daemon && g_logoutput) {
 		if (eslib_proc_setenv("LD_PRELOAD", PRELOAD_PATH)) {
-			printf("could not set environment variable\n");
+			printf("error setting LD_PRELOAD\n");
 			return -1;
 		}
 	}
