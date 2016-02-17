@@ -174,6 +174,10 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	}
 
 	filename = eslib_file_getname(filepath);
+	if (filename == NULL) {
+		printf("bad filename\n");
+		return -1;
+	}
 	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
 	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
 		printf("chroot path too long: %s\n", g_chroot_path);
