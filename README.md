@@ -18,7 +18,7 @@ make
 
 su root
 
-cp ./{jettison,jettison_tracee} /usr/local/bin/
+cp ./{jettison,jettison_init,jettison_preload.so} /usr/local/bin/
 
 chmod u+s /usr/local/bin/jettison (setuid bit)
 
@@ -49,6 +49,10 @@ there are additional options we can pass:
 `--block-new-filters` prevent additional seccomp ilters form being installed
 
 `--allow-ptrace` whitelist ptrace (otherwise it's always blacklisted)
+
+`--daemon` orphan process without a tty
+
+`--logoutput` write stdio to logfile, daemon stdio will use a pipe
 
 #pod configuration
 

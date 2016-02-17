@@ -626,7 +626,6 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 
 	if (options & SECCOPT_TRACING) {
 
-		/* communicate with tracer, translate pid */
 		SECBPF_JEQ(prog, i, __NR_read, 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		SECBPF_JEQ(prog, i, __NR_write, 0, 1);
