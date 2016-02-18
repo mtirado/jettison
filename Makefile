@@ -28,23 +28,6 @@ JETTISON_SRCS :=					\
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
 
-########################################
-#	TESTS
-########################################
-TEST_SECCOMP_SRCS := 					\
-		./src/tests/seccomp_test.c		\
-		./src/util/seccomp_helper.c
-TEST_SECCOMP_OBJS := $(TEST_SECCOMP_SRCS:.c=.o)
-########################################
-TEST_SECCOMP_LAUNCH_SRCS := 				\
-		./src/tests/seccomp_test_launcher.c	\
-		./src/util/seccomp_helper.c
-TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
-
-
-
-
-
 
 
 ########################################
@@ -53,9 +36,6 @@ TEST_SECCOMP_LAUNCH_OBJS := $(TEST_SECCOMP_LAUNCH_SRCS:.c=.o)
 JETTISON		:= jettison
 UTIL_INIT  		:= jettison_init
 UTIL_PRELOAD		:= jettison_preload.so
-#tests
-TEST_SECCOMP		:= seccomp_test
-TEST_SECCOMP_LAUNCH 	:= seccomp_test_launcher
 
 %.o: 		%.c
 			$(CC) -c $(DEFLANG) $(CFLAGS) $(DBG) -o $@ $<
@@ -67,10 +47,6 @@ all:				\
 	$(UTIL_PRELOAD)		\
 	$(UTIL_INIT)
 
-tests:				\
-	$(TEST_SECCOMP)		\
-	$(TEST_SECCOMP_LAUNCH)
-
 
 ########################################
 #	BUILD TARGETS
@@ -81,20 +57,6 @@ $(JETTISON):		$(JETTISON_OBJS)
 			@echo "x------------------x"
 			@echo "| jettison      OK |"
 			@echo "x------------------x"
-
-$(TEST_SECCOMP):	$(TEST_SECCOMP_OBJS)
-		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_OBJS) -o $@
-			@echo ""
-			@echo "x-------------------------x"
-			@echo "| test: seccomp_test   OK |"
-			@echo "x-------------------------x"
-
-$(TEST_SECCOMP_LAUNCH):	$(TEST_SECCOMP_LAUNCH_OBJS)
-		  	$(CC) $(LDFLAGS) $(TEST_SECCOMP_LAUNCH_OBJS) -o $@
-			@echo ""
-			@echo "x----------------------------------x"
-			@echo "| test:  seccomp_test_launcher  OK |"
-			@echo "x----------------------------------x"
 
 $(UTIL_INIT):
 			@echo ""
@@ -125,17 +87,9 @@ $(UTIL_PRELOAD):
 ########################################
 clean:
 	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
-	@$(foreach obj, $(TEST_SECCOMP_OBJS), rm -fv $(obj);)
-	@$(foreach obj, $(TEST_SECCOMP_LAUNCH_OBJS), rm -fv $(obj);)
 
 	@-rm -fv ./$(JETTISON)
-	@-rm -fv ./$(TEST_SECCOMP)
-	@-rm -fv ./$(TEST_SECCOMP_LAUNCH)
 	@-rm -fv ./$(UTIL_PRELOAD)
 	@-rm -fv ./$(UTIL_INIT)
 	@echo cleaned.
-
-
-
-
 
