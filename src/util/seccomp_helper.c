@@ -518,7 +518,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 		printf("2000 syscalls maximum\n");
 		return NULL;
 	}
-	printf("build_whitelist syscall count: %d\n", count);
+	printf("build_whitelist syscall count: %d\r\n", count);
 
 	proglen = 4 + (count * 2) + 1;
 	/* whitelist for init process */
@@ -641,15 +641,15 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	/* if tracing we must forbid any new filters from being installed
 	 * otherwise an attacker could spoof the SECCOMP_RET_TRAP signal
 	 * and data used to describe the nature of the trap event.
-	 */	printf("\n\n-------------------\nSET TRAP!\n\n\n");
+	 */	printf("SECCOMP_RET_TRAP\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_TRAP|(SECCRET_DENIED & SECCOMP_RET_DATA));
 		break;
 	case SECCOMP_RET_KILL:
-		printf("\n\n-------------------\nSET KILL!\n\n\n");
+		printf("SECCOMP_RET_KILL\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_KILL);
 		break;
 	case SECCOMP_RET_ERRNO:
-		printf("\n\n-------------------\nSET ERRNO!\n\n\n");
+		printf("SECCOMP_RET_ERRNO\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 		break;
 	default:
@@ -684,7 +684,6 @@ int filter_syscalls(int arch, int *syscalls, unsigned int count,
 		free(filter);
 		return -1;
 	}
-	printf("filter: %p\n", (void *)filter);
 	free(filter);
 	return 0;
 }

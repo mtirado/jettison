@@ -8,14 +8,10 @@
  * TODO need some way to tell if a pod is in use, so user does not
  * reconfigure over a running environment
  *
- * TODO stderr / stdout should be written to a separate log directory
- * in ~/pods/log  or something
- *
  * bugs: spaces / tabs after parameters may cause failure.
  *
  */
 
-/*#define _DEFAULT_SOURCE*/
 #define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
@@ -31,39 +27,77 @@
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
-/* force these paths, and below to be mounted as rdonly */
-#define PATHCHECK_COUNT 8
-static char *g_rdonly_paths[] =
+/*
+ *  prevent these exact paths from being mounted without MS_RDONLY.
+ *  you can mount writable directories after these locations.
+ *  theres probably more paths i should add to this list.
+ *  be extra careful when running root pods.
+ */
+static char *g_rdonly_dirs[] =
 {
-	"/lib",
-	"/bin",
+	"/test",
+	"/etc",
 	"/sbin",
-	"/usr/lib",
-	"/usr/bin",
+	"/root",
+	"/home",
+	"/bin",
+	"/lib",
+	"/usr",
+	"/usr/etc",
 	"/usr/sbin",
+	"/usr/bin",
+	"/usr/lib",
+	"/usr/libexec",
+	"/usr/include",
+	"/usr/local",
+	"/usr/local/etc",
+	"/usr/local/sbin",
+	"/usr/local/bin",
 	"/usr/local/lib",
-	"/usr/local/bin"
+	"/usr/local/libexec",
+	"/usr/local/include",
+	"/mnt",
+	"/var",
+	"/run"
 };
+#define RDONLY_COUNT (sizeof(g_rdonly_dirs) / sizeof(*g_rdonly_dirs))
 
+/* files at or below these paths can not be mounted to a pod. */
+static char *g_blacklist_paths[] =
+{
+	"/boot",
+	"/proc",
+	"/sys",
+	POD_PATH
+};
+#define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
+
+/* node flags */
+#define NODE_HOME  1 /* node created using home option */
+#define NODE_EMPTY 2 /* mounted on itself (dest/dest) instead of (src/dest) */
+
+/* bind mount data */
 struct path_node
 {
 	struct path_node *next;
-	char *path;
+	char src[MAX_SYSTEMPATH];
+	char dest[MAX_SYSTEMPATH];
 	unsigned long mntflags;
+	unsigned long nodeflags;
+	/* strlens, no null terminator */
+	unsigned int srclen;
+	unsigned int destlen;
 };
 struct path_node *g_mountpoints;
 
 /* external variables from jettison.c
- * XXX - non-jettison.c C callers will have to define these,
- * or we could provide pointer interface through pod_prepare
+ * non-jettison.c C callers will have to define these.
  */
 extern char g_pty_slavepath[MAX_SYSTEMPATH];
 extern gid_t g_rgid;
 extern uid_t g_ruid;
 extern int g_tracecalls;
 
-
-/* right now the only heavy params are paths */
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
 char g_params[MAX_PARAM];
 
@@ -104,7 +138,8 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "file"        },  /* bind mount file with options w,r,x,d,s */
 	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
 
-	/* TODO make configuration file read string instead of number, like seccomp does */
+	/* TODO make configuration file read string instead of number, like seccomp does
+	 * also add a switch to disable capabilities (always set NO_NEW_PRIVS) */
 	{ "cap_bset"	},  /* allow file capability in bounding set */
 
 };
@@ -137,9 +172,15 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	char *filename;
 	char *pwline;
 	char *pwuser;
+	char buf[MAX_SYSTEMPATH];
 
 	if (outpath == NULL || outflags == NULL)
 		return -1;
+
+	if (MAX_SYSTEMPATH < 256) {
+		printf("MAX_SYSTEMPATH is too small (<256)\n");
+		return -1;
+	}
 
 	g_allow_dev = 0;
 	g_podflags = 0;
@@ -148,7 +189,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	g_mountpoints = NULL;
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	memset(g_fcaps, 0, sizeof(g_fcaps));
-	/*memset(g_pcaps, 0, sizeof(g_pcaps));*/
 	g_syscall_idx = 0;
 
 	for (i = 0; i < sizeof(g_syscalls) / sizeof(*g_syscalls); ++i)
@@ -189,8 +229,8 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		fclose(file);
 		return -1;
 	}
-	printf("filename: %s\n", filename);
-	printf("chroot path: %s\n", g_chroot_path);
+	printf("filename: %s\r\n", filename);
+	printf("chroot path: %s\r\n", g_chroot_path);
 
 	fseek(file, 0, SEEK_END);
 	g_filesize = ftell(file);
@@ -220,6 +260,14 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 	g_firstpass = 0;
+
+	/* protect user owned pods directory */
+	snprintf(buf, MAX_SYSTEMPATH, "%s/%s", POD_PATH, pwuser);
+	if (chmod(buf, 0750)) {
+		printf("chmod(%s): %s\n", buf, strerror(errno));
+		pod_free();
+		return -1;
+	}
 
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
@@ -272,7 +320,7 @@ err_free:
 
 
 
-int do_chroot_setup()
+static int do_chroot_setup()
 {
 	char podhome[MAX_SYSTEMPATH];
 	int r;
@@ -339,15 +387,16 @@ char *gethome()
 				return NULL;
 			root_ino = eslib_file_getino("/");
 			file_ino = eslib_file_getino(r);
-			if (root_ino == 0 || file_ino == 0)
+			if (root_ino == 0 || file_ino == 0) {
 				return NULL;
+			}
 			if (root_ino == file_ino) {
 				printf("home cannot be \"/\" (root inode)\n");
 				return NULL;
 			}
-			if (chop_trailing(r, len+1, '/'))
+			if (chop_trailing(r, len+1, '/')) {
 				return NULL;
-			printf("HOME=(%s)\n", r);
+			}
 			return r;
 		}
 		++env;
@@ -356,25 +405,44 @@ char *gethome()
 	return NULL;
 }
 
-static int do_remount(char *dest, unsigned long flags)
+/* returns -1 on error
+ * 1 if path starts with blacklisted path string
+ * 0 no match
+ */
+static int check_blacklisted(char *path)
 {
-	flags |= MS_REMOUNT;
-	if (mount(NULL, dest, NULL, MS_BIND|flags, NULL)) {
-		printf("remount failed: %s\n", strerror(errno));
+	unsigned int i, len;
+
+	if (path == NULL)
 		return -1;
-	}
-	if (mount(NULL, dest, NULL, MS_SLAVE|MS_REC, NULL)) {
-		printf("could not make slave: %s\n", strerror(errno));
-		return -1;
+	for (i = 0; i < BLACKLIST_COUNT; ++i)
+	{
+		len = strnlen(g_blacklist_paths[i], MAX_SYSTEMPATH);
+		if (len >= MAX_SYSTEMPATH)
+			return -1;
+		if (strncmp(path, g_blacklist_paths[i], len) == 0) {
+			return 1;
+		}
+
 	}
 	return 0;
-
 }
-static int do_bind(char *src, char *dest, unsigned long remountflags)
+
+static int prep_bind(struct path_node *node)
 {
 	int isdir, r;
-	struct path_node *newpath;
+	char *src, *dest;
 
+	if (node == NULL)
+		return -1;
+
+	/* create home paths as user */
+	if (node->nodeflags & NODE_HOME) {
+		setuid(g_ruid);
+	}
+
+	src = node->src;
+	dest = node->dest;
 
 	if (eslib_file_path_check(src) || eslib_file_path_check(dest))
 		return -1;
@@ -385,7 +453,7 @@ static int do_bind(char *src, char *dest, unsigned long remountflags)
 	if (isdir == -1)
 		return -1;
 
-	printf("do_bind(%s, %s)\n", src, dest);
+	printf("prep_bind(%s, %s)\n", src, dest);
 
 	/* needs a file / directory to bind over */
 	r = eslib_file_exists(dest);
@@ -413,52 +481,65 @@ static int do_bind(char *src, char *dest, unsigned long remountflags)
 			return -1;
 		}
 	}
-	/* do the bind */
-	if (mount(src, dest, NULL, MS_BIND, NULL)) {
-		printf("mount failed: %s\n", strerror(errno));
-		return -1;
-	}
-	if (do_remount(dest, remountflags)) {
-		printf("remount failed\n");
-		return -1;
-	}
 
-
-	/* add to front of mountpoint list for later processing */
-	newpath = malloc(sizeof(struct path_node));
-	if (!newpath)
-		return -1;
-	r = strnlen(src, MAX_SYSTEMPATH);
-	newpath->path = malloc(r+1);
-	if (!newpath->path)
-		return -1;
-	strncpy(newpath->path, src, r);
-	newpath->path[r] = '\0';
-	newpath->mntflags = remountflags;
-	newpath->next = g_mountpoints;
-	g_mountpoints = newpath;
+	if (node->nodeflags & NODE_HOME) {
+		if (setuid(0)) {
+			printf("setuid: %s\n", strerror(errno));
+			return -1;
+		}
+	}
 	return 0;
 }
 
+static int do_bind(struct path_node *node)
+{
+	if (node == NULL)
+		return -1;
+	if (node->nodeflags & NODE_EMPTY) {
+		printf("do_empty(%s, %s)\n", node->src, node->dest);
+		if (mount(node->dest, node->dest, NULL, MS_BIND, NULL)) {
+			printf("home mount failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	else {
+		printf("do_bind(%s, %s)\n", node->src, node->dest);
+		if (mount(node->src, node->dest, NULL, MS_BIND, NULL)) {
+			printf("mount failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	/* remount */
+	if (mount(NULL, node->dest, NULL, MS_BIND|MS_REMOUNT|node->mntflags, NULL)) {
+		printf("remount failed: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, node->dest, NULL, MS_SLAVE|MS_REC, NULL)) {
+		printf("could not make slave: %s\n", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
 
-int do_option_bind(char *params, size_t size, int home)
+int create_pathnode(char *params, size_t size, int home)
 {
 	char src[MAX_SYSTEMPATH];
 	char dest[MAX_SYSTEMPATH];
 	char *path;
 	char *homepath;
+	struct path_node *node;
 	uid_t fuid;
-	unsigned int i;
+	unsigned int i, len;
 	unsigned long remountflags;
 	char c;
 
-	if (size >= MAX_SYSTEMPATH) {
+	if (params == NULL || size == 0)
+		goto bad_param;
+
+	if (strnlen(params, size) >= MAX_SYSTEMPATH) {
 		printf("path too long\n");
 		return -1;
 	}
-
-	if (params == NULL || size == 0)
-		goto bad_param;
 
 	 /*
 	  * these appear to work, only if we remount.
@@ -524,20 +605,26 @@ int do_option_bind(char *params, size_t size, int home)
 		return -1;
 
 
-	/* setup mount relative to /podhome ? */
+	/* setup mount assuming / == /$HOME/user to be mounted in /podhome
+	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
+	 */
 	if (home) {
 		homepath = gethome();
 		if (homepath == NULL)
 			return -1;
+		if (check_blacklisted(homepath)) {
+			printf("$HOME is blacklisted: %s\n", homepath);
+			return -1;
+		}
 		if (eslib_file_isdir(homepath) != 1) {
-			printf("not a directory: $HOME=%s\n", homepath);
+			printf("$HOME is not a directory: %s\n", homepath);
 			return -1;
 		}
 		fuid = eslib_file_getuid(homepath);
 		if (fuid == (uid_t)-1)
 			return -1;
 		if (fuid != g_ruid) {
-			printf("you don't own $HOME=%s\n", homepath);
+			printf("$HOME permission denied: %s\n", homepath);
 			return -1;
 		}
 		snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
@@ -545,95 +632,219 @@ int do_option_bind(char *params, size_t size, int home)
 	}
 	else { /* setup mount normally */
 		strncpy(src , path, MAX_SYSTEMPATH-1);
+		if (check_blacklisted(src)) {
+			return -1;
+		}
 		snprintf(dest, MAX_SYSTEMPATH-1, "%s%s", g_chroot_path, src);
 	}
 	src[MAX_SYSTEMPATH-1]  = '\0';
 	dest[MAX_SYSTEMPATH-1] = '\0';
 
-	return do_bind(src, dest, remountflags);
+
+	/* create the new node */
+	node = malloc(sizeof(*node));
+	if (node == NULL)
+		return -1;
+	memset(node, 0, sizeof(*node));
+
+	/* setup source */
+	len = strnlen(src, MAX_SYSTEMPATH);
+	if (len >= MAX_SYSTEMPATH)
+		return -1;
+	strncpy(node->src, src, len);
+	node->src[len] = '\0';
+	node->srclen = len;
+
+	/* dest */
+	len = strnlen(dest, MAX_SYSTEMPATH);
+	if (len >= MAX_SYSTEMPATH)
+		return -1;
+	strncpy(node->dest, dest, len);
+	node->dest[len] = '\0';
+	node->destlen = len;
+
+	if (home) {
+		node->nodeflags |= NODE_HOME;
+	}
+	node->mntflags = remountflags;
+	node->next = g_mountpoints;
+	g_mountpoints = node;
+
+	return 0;
 
 bad_param:
-	printf("bad param");
+	printf("bad param\n");
 	return -1;
 }
 
 /*
- * some paths must be forced as rdonly, to prevent user from injecting libs
+ * return -1 on error,
+ * 1 if any path_nodes start with path
+ * 0 if could not match beginning of any path_node with path
  */
-static int pod_process_mountpoints()
+static int match_pathnode(char *path)
 {
-	char dest[MAX_SYSTEMPATH];
-	unsigned int len[PATHCHECK_COUNT];
-	unsigned int isbound[PATHCHECK_COUNT];
-	unsigned int testbound[PATHCHECK_COUNT];
-	unsigned int testlen;
-	unsigned int i;
-	unsigned long pathflags = MS_RDONLY
-				| MS_NOSUID
-				| MS_NODEV
-				| MS_UNBINDABLE;
+	struct path_node *n = g_mountpoints;
+	unsigned int len;
 
+	if (path == NULL)
+		return -1;
 
-	for (i = 0; i < PATHCHECK_COUNT; ++i)
+	len = strnlen(path, MAX_SYSTEMPATH);
+	if (len >= MAX_SYSTEMPATH)
+		return -1;
+
+	while (n)
 	{
-		if (eslib_file_path_check(g_rdonly_paths[i]))
-			return -1;
-		isbound[i] = 0;
-		testbound[i] = 0;
-		len[i] = strlen(g_rdonly_paths[i]);
+		if (strncmp(path, n->src, len) == 0)
+			return 1;
+		n = n->next;
 	}
-
-	/* remount any points below paths */
-	while (g_mountpoints)
-	{
-		for (i = 0; i < PATHCHECK_COUNT; ++i)
-		{
-			if (strncmp(g_mountpoints->path, g_rdonly_paths[i], len[i]))
-				continue; /* no match */
-
-			testlen = strnlen(g_mountpoints->path, MAX_SYSTEMPATH);
-			testbound[i] = 1; /* only bind paths we matched here */
-			if (testlen == len[i])
-				isbound[i] = 1; /* exact path match, its already bound */
-			snprintf(dest, MAX_SYSTEMPATH, "%s%s",
-					g_chroot_path, g_mountpoints->path);
-			printf("remount: %s\n", dest);
-			if (do_remount(dest, g_mountpoints->mntflags|MS_RDONLY))
-				return -1;
-		}
-		g_mountpoints = g_mountpoints->next;
-	}
-
-	/* remount the prescribed paths as read only */
-	for (i = 0; i < PATHCHECK_COUNT; ++i)
-	{
-		if (testbound[i]) {
-			snprintf(dest, MAX_SYSTEMPATH, "%s%s",
-					g_chroot_path, g_rdonly_paths[i]);
-
-			if (isbound[i]) {
-				printf("remount, nobind: %s\n", dest);
-				if (do_remount(dest, pathflags))
-					return -1;
-			}
-			else {
-				printf("bind, remount: %s\n", dest);
-				/* do the bind */
-				if (mount(dest, dest, NULL, MS_BIND, 0)) {
-					printf("mount failed: %s\n", strerror(errno));
-					return -1;
-				}
-				if (do_remount(dest, pathflags))
-					return -1;
-			}
-		}
-	}
-
 	return 0;
 }
 
+/* return exact matching node,
+ * return NULL on error,
+ * ENOENT if not found
+ * ENOTUNIQ if multiples found
+ */
+static struct path_node *get_pathnode(char *path)
+{
+	struct path_node *n = g_mountpoints;
+	struct path_node *ret = NULL;
+	unsigned int len;
 
+	if (path == NULL)
+		return NULL;
 
+	errno = 0;
+	len = strnlen(path, MAX_SYSTEMPATH);
+	if (len >= MAX_SYSTEMPATH)
+		return NULL;
+
+	while (n)
+	{
+		if (strncmp(path, n->src, len) == 0
+				&& n->src[len] == '\0') {
+			if (ret) {
+				printf("duplicate entries\n");
+				errno = ENOTUNIQ;
+				return NULL;
+			}
+			ret = n;
+		}
+		n = n->next;
+	}
+	if (ret == NULL)
+		errno = ENOENT;
+	return ret;
+}
+
+/* sort mountpoints by length
+ *
+ * sort paths shortest to longest and check for duplicate entries.
+ * sorting enables predictable hierarchical bind order
+ * e.g. /usr always gets mounted before /usr/lib
+ *
+ * TODO
+ * perhaps we should set rdonly paths as private instead of slave?
+ */
+static int prepare_mountpoints()
+{
+	struct path_node *a, *b, *tmp, *prev;
+	unsigned int i, count;
+
+	if (g_mountpoints == NULL)
+		return -1;
+
+	/* if we are mounting below or at a rdonly path, make sure there is a
+	 * unique entry in g_mountpoints, and note which are empty directories
+	 */
+	for (i = 0; i < RDONLY_COUNT; ++i)
+	{
+		char opt[MAX_SYSTEMPATH];
+		int r;
+
+		/* find node that starts with rdonly path */
+		r = match_pathnode(g_rdonly_dirs[i]);
+		if (r == -1)
+			return -1;
+		else if (r == 0)
+			continue;
+
+		/* check if exact path already exists */
+		tmp = get_pathnode(g_rdonly_dirs[i]);
+		if (tmp == NULL && errno != ENOENT)
+			return -1;
+		if (tmp) {
+			/* exists, override with rdonly flag */
+			printf("override as rdonly: %s\n", tmp->src);
+			tmp->mntflags |= MS_RDONLY;
+			continue;
+		}
+
+		/* did not exist, we must create it before sorting */
+		snprintf(opt, sizeof(opt), "r %s", g_rdonly_dirs[i]);
+		if (create_pathnode(opt, sizeof(opt), 0)) {
+			printf("couldn't create rdonly path(%s)\n", opt);
+			return -1;
+		}
+		g_mountpoints->nodeflags |= NODE_EMPTY;
+		printf("rdonly node marked as empty: %s\n", opt);
+	}
+
+	/* sort mountpoints in hierarchical order */
+	count = 0;
+	a = g_mountpoints;
+	while (a)
+	{
+		a = a->next;
+		++count;
+	}
+	for (i = 0; i < count; ++i )
+	{
+		prev = NULL;
+		a = g_mountpoints;
+		b = g_mountpoints->next;
+		while (b)
+		{
+			if (a->srclen > b->srclen) {
+				/* push a towards back */
+				if (prev != NULL) {
+					prev->next = b;
+					a->next = b->next;
+					b->next = a;
+				}
+				else {
+					tmp = b->next;
+					b->next = a;
+					a->next = tmp;
+					g_mountpoints = b;
+				}
+			}
+			prev = a;
+			a = b;
+			b = b->next;
+		}
+	}
+
+	/* check for duplicates */
+	a = g_mountpoints;
+	while (a)
+	{
+		b = a->next;
+		while(b && b->srclen == a->srclen)
+		{
+			if (strncmp(a->src, b->src, a->srclen) == 0) {
+				printf("error, duplicate entries: %s\n", a->src);
+				return -1;
+			}
+			b = b->next;
+		}
+		a = a->next;
+	}
+	return 0;
+}
 
 /* returns negative on error,
  *  0 if ok,
@@ -651,16 +862,26 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char *err;
 	unsigned int read_uint;
 	char numbuf[32]; /* for strtol and whatnot */
-	/*int is_pcap = 0;*/
 
 	if (option >= KWCOUNT)
 		return -1;
 
-	/* first pass only cares about getting config flags */
+	/* first pass only cares about getting config flags, and path nodes */
 	if (g_firstpass == 1) {
 		if (option < OPTION_PODFLAG_CUTOFF) {
 			/* set flag if below cutoff */
 			g_podflags |= (1 << option);
+		}
+		/* file mount points need to be sorted after first pass */
+		if (option == OPTION_FILE) {
+			if (create_pathnode(params, size, 0)) {
+				return -1;
+			}
+		}
+		else if (option == OPTION_HOME) {
+			if (create_pathnode(params, size, 1)) {
+				return -1;
+			}
 		}
 		return 0;
 	}
@@ -719,38 +940,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		++g_syscall_idx;
 		break;
 
-
-	/* by default i used to block whole /dev directory mount
-	 * probably bringing this back.
-	 * case OPTION_ALLOW_DEV:
-		g_allow_dev = 1;
-		break;
-	*/
-
-
-	/*
-	 * Bind mount a file from new pod root.
-	 */
+	/* binds happen at the end of second pass */
 	case OPTION_FILE:
-
-		if (do_option_bind(params, size, 0))
-			return -1;
-		break;
-
 	case OPTION_HOME:
-		setuid(g_ruid);
-		if (do_option_bind(params, size, 1))
-			return -1;
-		if (setuid(0)) {
-			printf("setuid: %s\n", strerror(errno));
-			return -1;
-		}
 		break;
-
 
 	/* change to bounding set */
 	case OPTION_CAP_BSET:
-
 		if (params == NULL) {
 			printf("null parameter\n");
 			return -1;
@@ -772,15 +968,12 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		}
 
 		printf("cap requested: %d\n", read_uint);
-		/*if (is_pcap)
-			g_pcaps[read_uint] = 1;
-		else*/
-			g_fcaps[read_uint] = 1;
-
+		g_fcaps[read_uint] = 1;
 		break;
 
 	default:
-		break;
+		printf("unknown option\n");
+		return -1;
 	}
 
 	return 0;
@@ -801,17 +994,17 @@ static int find_keyword(char *kwcmp, size_t kwlen)
 }
 
 
-/* final stage of setting up pod environment, add things to config
+/* final stage of pass 1, add things to config as needed
  * depending on user supplied option
  */
-static int post_load()
+static int pass1_finalize()
 {
 	char opt[MAX_SYSTEMPATH];
 
+	/* whitelist jettison init program */
 	snprintf(opt, sizeof(opt), "rx %s", INIT_PATH);
-	if (pod_enact_option(OPTION_FILE, opt,
-			     strnlen(opt, sizeof(opt)))) {
-		printf("error whitelisting tracee program\n");
+	if (create_pathnode(opt, sizeof(opt), 0)) {
+		printf("couldn't create rdonly path(%s)\n", opt);
 		return -1;
 	}
 	return 0;
@@ -1006,38 +1199,59 @@ SINGLE_KEYWORD:		/* no parameters */
 	}
 
 
-	/* done with options, finalize pass */
 	if (g_firstpass) {
+		/* additional options to add?*/
+		if (pass1_finalize()) {
+			printf("pass1_finalize()\n");
+			return -1;
+		}
+		/* add rdonly dirs, sort all path nodes */
+		if (prepare_mountpoints()) {
+			printf("prepare_mountpoints()\n");
+			return -1;
+		}
+		/* make sure chroot path is intact */
 		return do_chroot_setup();
 	}
-	else {  /* second pass finished, do the chroot */
+	else {  /* second pass finished, do binds and chroot */
+		struct path_node *n;
 		unsigned long remountflags =	  MS_REMOUNT
 						| MS_NOSUID
 						| MS_NOEXEC
 						| MS_NODEV
-						| MS_RDONLY;
+						| MS_RDONLY
+						| MS_UNBINDABLE;
 
-		if (post_load()) {
-			printf("post_load()\n");
-			return -1;
+		/* actually do bind/remount */
+		n = g_mountpoints;
+		while (n)
+		{
+			if (prep_bind(n)) {
+				printf("prep_bind()\n");
+				return -1;
+			}
+			n = n->next;
 		}
-		/* some security checks */
-		if (pod_process_mountpoints()) {
-			printf("mountpoint processing failed\n");
-			return -1;
+		n = g_mountpoints;
+		while(n)
+		{
+			if (do_bind(n)) {
+				printf("do_bind()\n");
+				return -1;
+			}
+			n = n->next;
 		}
-
 		if (mount(g_chroot_path, g_chroot_path, "bind",
 					MS_BIND, NULL)) {
 			printf("could not bind mount: %s\n", strerror(errno));
 			return -1;
 		}
-		if (mount(g_chroot_path, g_chroot_path, "bind",
+		if (mount(NULL, g_chroot_path, "bind",
 					MS_BIND|remountflags, NULL)) {
 			printf("could not bind mount: %s\n", strerror(errno));
 			return -1;
 		}
-		if (mount(NULL, g_chroot_path, NULL, MS_SLAVE|MS_REC, NULL)) {
+		if (mount(NULL, g_chroot_path, NULL, MS_PRIVATE/*|MS_REC*/, NULL)) {
 			printf("could not make slave: %s\n", strerror(errno));
 			return -1;
 		}
@@ -1048,7 +1262,6 @@ SINGLE_KEYWORD:		/* no parameters */
 			printf("chdir(\"/\") failed: %s\n", strerror(errno));
 			return -1;
 		}
-		/* remount subtree to / */
 		if (mount(g_chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
 			printf("mount / MS_MOVE failed: %s\n", strerror(errno));
 			return -1;

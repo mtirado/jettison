@@ -220,6 +220,7 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	g_syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
+	printf("setting relay seccomp filter\r\n");
 	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 				 count_syscalls(g_syscalls,MAX_SYSCALLS),
 				 0, SECCOMP_RET_ERRNO)) {
@@ -228,7 +229,7 @@ static int downgrade_relay()
 	}
 
 	if (clear_caps()) {
-		printf("\rclear_caps failed\r\n");
+		printf("clear_caps failed\n");
 		return -1;
 	}
 
@@ -315,7 +316,6 @@ int jettison_initiate(unsigned int podflags)
 /* new thread function */
 int jettison_clone_func(void *data)
 {
-
 	close(g_ptym);
 	close(g_pty_notify[0]);
 	close(g_traceipc[0]);
@@ -359,19 +359,6 @@ int jettison_clone_func(void *data)
 		return -1; /* TODO g_entry(data);*/
 	}
 	else {
-		/*char *benv[6] = {
-			"PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/bin",
-			"HOME=/podhome",
-			"SHELL=/bin/bash",
-			"TERM=linux",
-			"DISPLAY=:0.0",
-			NULL
-		};*/
-
-		if (chown("/podhome", g_ruid, g_rgid)) {
-			printf("chown /podhome failed\n");
-			return -1;
-		}
 
 		/* switch back to real user credentials */
 		if (setregid(g_rgid, g_rgid)) {
@@ -385,10 +372,6 @@ int jettison_clone_func(void *data)
 			return -1;
 		}
 
-		if (chmod("/podhome", 0750)) {
-			printf("home directory error\n");
-			return -1;
-		}
 		chdir("/podhome");
 
 		/* install seccomp filter. block ptrace if no options specified */
@@ -403,6 +386,7 @@ int jettison_clone_func(void *data)
 				opts |= SECCOPT_BLOCKNEW;
 			if (g_allow_ptrace)
 				opts |= SECCOPT_PTRACE;
+			printf("installing sandbox seccomp filter\r\n");
 			if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
 					 count_syscalls(g_syscalls, MAX_SYSCALLS),
 					 opts, g_retaction)) {
@@ -449,7 +433,12 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	if (podflags & (1 << OPTION_ROOTPID))
 		cloneflags &= ~CLONE_NEWPID;
 
-	/* TODO actually test newnet.. isolates abstract socket namespace */
+	/* TODO actually test newnet.. isolates abstract socket namespace,
+	 * but also disables networking, unless we bridge it. though before
+	 * i do this, there will need to be config options to setup packet
+	 * filtering, and IP/domain whitelisting options/packet logging
+	 * option for metadata logging and/or content.
+	 */
 	if (podflags & (1 << OPTION_NEWNET))
 		cloneflags |= CLONE_NEWNET;
 
@@ -1032,7 +1021,7 @@ static int relay_io(int stdout_logfd)
 			if (FD_ISSET(ours, &rds)) {
 				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
 				if (r == -1) {
-					printf("fillbuf_ours: %s\n", strerror(errno));
+					/*printf("fillbuf_ours: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				wbytes = r;
@@ -1043,12 +1032,12 @@ static int relay_io(int stdout_logfd)
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
 				if (r == -1) {
-					printf("fillbuf_theirs: %s\n", strerror(errno));
+					/*printf("fillbuf_theirs: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				else if (r > 0) {
 					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1) {
-						printf("pushbuf_stdout: %s\n", strerror(errno));
+						/*printf("pushbuf_stdout: %s\n", strerror(errno));*/
 						goto fatal;
 					}
 					if (stdout_logfd != -1) {
@@ -1216,13 +1205,15 @@ static int trace_fork(char **argv)
 	}
 	else if (p == 0) {
 		char buf[64];
-
+		mode_t origmask;
 		/* TODO -- install seccomp on tracer thread */
 		setuid(g_ruid);
+		origmask = umask(0027);
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, g_traceipc)) {
 			printf("socketpair: %s\n", strerror(errno));
 			return -1;
 		}
+		umask(origmask);
 		setuid(0);
 
 		snprintf(buf, sizeof(buf), "%d", g_traceipc[1]);
@@ -1293,7 +1284,6 @@ int main(int argc, char *argv[])
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 
-	umask(0027);
 	if (getcwd(g_cwd, MAX_SYSTEMPATH) == NULL) {
 		printf("getcwd: %s\n", strerror(errno));
 		return -1;
@@ -1316,6 +1306,15 @@ int main(int argc, char *argv[])
 	if (g_stacksize == 0)
 		g_stacksize = DEFAULT_STACKSIZE;
 
+
+	if (create_nullspace())
+		return -1;
+
+	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
+		printf("could not configure pod\n");
+		return -1;
+	}
+
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
 	/* resets tty to original termios at program exit */
@@ -1326,10 +1325,12 @@ int main(int argc, char *argv[])
 
 	/* hook up pseudo terminal if not being daemonized */
 	if (!g_daemon) {
+		mode_t origmask = umask(0027);
 		if (pipe2(g_pty_notify, O_CLOEXEC)) {
 			printf("pipe2: %s\n", strerror(errno));
 			return -1;
 		}
+		umask(origmask);
 		setuid(g_ruid);
 		if (pty_create(&g_ptym, O_CLOEXEC|O_NONBLOCK, g_pty_slavepath)) {
 			printf("could not create pty\n");
@@ -1365,14 +1366,6 @@ int main(int argc, char *argv[])
 		tcflush(STDIN_FILENO, TCIOFLUSH);
 	}
 
-	if (create_nullspace())
-		return -1;
-
-	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
-		printf("could not configure pod\n");
-		return -1;
-	}
-
 	if (g_logoutput) {
 		stdout_logfd = create_logfile();
 		if (stdout_logfd == -1) {
@@ -1387,12 +1380,15 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 		if (g_logoutput) {
+			mode_t origmask;
 			/* use a pipe to better protect log data */
 			setuid(g_ruid);
+			origmask = umask(0027);
 			if (pipe2(g_daemon_pipe, 0)) {
 				printf("pipe2: %s\n", strerror(errno));
 				return -1;
 			}
+			umask(origmask);
 			if (setuid(0)) {
 				printf("uid error\n");
 				return -1;
@@ -1415,6 +1411,7 @@ int main(int argc, char *argv[])
 					    g_podflags, NULL, NULL);
 		if (g_newpid == -1) {
 			printf("jettison failure\n");
+			usleep(200000);
 			return -1;
 		}
 	}
