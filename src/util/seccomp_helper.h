@@ -29,7 +29,8 @@ unsigned int count_syscalls(int *syscalls, unsigned int count);
  *
  * arch:  ex: AUDIT_ARCH_I386, etc.
  */
-int filter_syscalls(int arch, int *syscalls, unsigned int count,
+int filter_syscalls(int arch, int *whitelist, int *blocklist,
+		    unsigned int wcount, unsigned int bcount,
 		    unsigned int options, long retaction);
 
 /* defstring should be the syscalls #define name,

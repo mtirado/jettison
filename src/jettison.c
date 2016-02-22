@@ -67,6 +67,7 @@ extern int tracecalls(pid_t p, int ipc);
 /* pod.c globals */
 extern char g_fcaps[64];
 extern int  g_syscalls[MAX_SYSCALLS];
+extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
 
 /* entry and  filter function type */
@@ -221,8 +222,8 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	g_syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
 	printf("setting relay seccomp filter\r\n");
-	if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
-				 count_syscalls(g_syscalls,MAX_SYSCALLS),
+	if (filter_syscalls(SYSCALL_ARCH, g_syscalls, NULL,
+				 count_syscalls(g_syscalls,MAX_SYSCALLS), 0,
 				 0, SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
 		return -1;
@@ -387,8 +388,9 @@ int jettison_clone_func(void *data)
 			if (g_allow_ptrace)
 				opts |= SECCOPT_PTRACE;
 			printf("installing sandbox seccomp filter\r\n");
-			if (filter_syscalls(SYSCALL_ARCH, g_syscalls,
+			if (filter_syscalls(SYSCALL_ARCH, g_syscalls, g_blkcalls,
 					 count_syscalls(g_syscalls, MAX_SYSCALLS),
+					 count_syscalls(g_blkcalls, MAX_SYSCALLS),
 					 opts, g_retaction)) {
 				printf("unable to apply seccomp filter\n");
 				return -1;
@@ -556,10 +558,18 @@ int process_arguments(int argc, char *argv[])
 				argidx += 2;
 			}
 			else if (strncmp(argv[i], "--strict", len) == 0) {
+				if (g_tracecalls) {
+					printf("can't use --strict with --tracecalls\n");
+					return -1;
+				}
 				g_strict = 1;
 				argidx  += 1;
 			}
 			else if (strncmp(argv[i], "--tracecalls", len) == 0) {
+				if (g_strict) {
+					printf("can't use --tracecalls with --strict\n");
+					return -1;
+				}
 				g_tracecalls = 1;
 				argidx  += 1;
 			}

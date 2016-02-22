@@ -113,7 +113,9 @@ unsigned int g_podflags;
 char g_fcaps[64];
 /*char g_pcaps[64];*/
 int g_syscalls[MAX_SYSCALLS];
+int g_blkcalls[MAX_SYSCALLS];
 unsigned int  g_syscall_idx;
+unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 
 static int pod_load_config(char *data, size_t size);
@@ -134,7 +136,7 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "|||||||||||||" },
 	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
 				if nothing is added, everything is allowed. */
-
+	{ "seccomp_block" }, /* block syscall without sigkill if using --strict */
 	{ "file"        },  /* bind mount file with options w,r,x,d,s */
 	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
 
@@ -190,12 +192,13 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	g_syscall_idx = 0;
+	g_blkcall_idx = 0;
 
-	for (i = 0; i < sizeof(g_syscalls) / sizeof(*g_syscalls); ++i)
+	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
 	{
 		g_syscalls[i] = -1;
+		g_blkcalls[i] = -1;
 	}
-
 	file = fopen(filepath, "r");
 	if (file == NULL) {
 		printf("could not read pod configuration file: %s\n", filepath);
@@ -966,9 +969,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		break;
 
-	/*
-	 * add a systemcall to the seccomp whitelist filter.
-	 */
+	/* add a systemcall to the whitelist */
 	case OPTION_SECCOMP_ALLOW:
 		if (params == NULL) {
 			printf("null parameter\n");
@@ -979,7 +980,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		if (size >= MAX_SYSCALL_DEFLEN) {
-			printf("seccomp_allow syscall name too long...\n");
+			printf("seccomp_allow syscall name too long.\n");
 			return -1;
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
@@ -993,6 +994,30 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		++g_syscall_idx;
 		break;
 
+	/* add a systemcall to the blocklist */
+	case OPTION_SECCOMP_BLOCK:
+		if (params == NULL) {
+			printf("null parameter\n");
+			return -1;
+		}
+		if (g_blkcall_idx >= MAX_SYSCALLS) {
+			printf("too many syscalls in blocklist\n");
+			return -1;
+		}
+		if (size >= MAX_SYSCALL_DEFLEN) {
+			printf("seccomp_block syscall name too long.\n");
+			return -1;
+		}
+		memset(syscall_buf, 0, sizeof(syscall_buf));
+		strncpy(syscall_buf, params, size);
+		syscall_nr = syscall_getnum(syscall_buf);
+		if (syscall_nr == -1) {
+			printf("could not find syscall: %s\n", syscall_buf);
+			return -1;
+		}
+		g_blkcalls[g_blkcall_idx] = syscall_nr;
+		++g_blkcall_idx;
+		break;
 	/* binds happen at the end of second pass */
 	case OPTION_FILE:
 	case OPTION_HOME:

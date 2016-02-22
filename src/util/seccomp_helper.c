@@ -506,19 +506,26 @@ unsigned int count_syscalls(int *syscalls, unsigned int count)
 #define SECDAT_NR                  offsetof(struct seccomp_data,nr)
 
 
-struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
-		unsigned int count, unsigned int *instr_count,
+static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *blocklist,
+		unsigned int wcount, unsigned int bcount, unsigned int *instr_count,
 		unsigned int options, long retaction)
 {
 	unsigned int i,z;
 	unsigned int proglen;
+	unsigned int count;
 	struct sock_filter *prog = NULL;
 
+	if (bcount > 0 && wcount <= 0) {
+		printf("error, cannot use seccomp_block without any seccomp_allow\n");
+		return NULL;
+	}
+	count = wcount + bcount;
 	if (count > 2000) {
 		printf("2000 syscalls maximum\n");
 		return NULL;
 	}
-	printf("build_whitelist syscall count: %d\r\n", count);
+	printf("whitelist count: %d\r\n", wcount);
+	printf("blocklist count: %d\r\n", bcount);
 
 	proglen = 4 + (count * 2) + 1;
 	/* whitelist for init process */
@@ -596,15 +603,27 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	}
 
 	/* generate whitelist jumps */
-	for (z = 0; z < count; ++z)
+	for (z = 0; z < wcount; ++z)
 	{
-		if (syscalls[z] == -1) {
+		if (whitelist[z] == -1) {
 			printf("invalid syscall: z(%d)\n", z);
 			free(prog);
 			return NULL;
 		}
-		SECBPF_JEQ(prog, i, syscalls[z], 0, 1);
+		SECBPF_JEQ(prog, i, whitelist[z], 0, 1);
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	}
+
+	/* generate blocklist jumps */
+	for (z = 0; z < bcount; ++z)
+	{
+		if (blocklist[z] == -1) {
+			printf("invalid syscall: z(%d)\n", z);
+			free(prog);
+			return NULL;
+		}
+		SECBPF_JEQ(prog, i, blocklist[z], 0, 1);
+		SECBPF_RET(prog,i,SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 	}
 
 	/* our init process needs to setup signals, fork exec waitpid exit */
@@ -638,10 +657,7 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 	switch (retaction)
 	{
 	case SECCOMP_RET_TRAP:
-	/* if tracing we must forbid any new filters from being installed
-	 * otherwise an attacker could spoof the SECCOMP_RET_TRAP signal
-	 * and data used to describe the nature of the trap event.
-	 */	printf("SECCOMP_RET_TRAP\r\n");
+		printf("SECCOMP_RET_TRAP\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_TRAP|(SECCRET_DENIED & SECCOMP_RET_DATA));
 		break;
 	case SECCOMP_RET_KILL:
@@ -663,15 +679,21 @@ struct sock_filter *build_seccomp_whitelist(int arch, int *syscalls,
 }
 
 
-int filter_syscalls(int arch, int *syscalls, unsigned int count,
-			     unsigned int options, long retaction)
+int filter_syscalls(int arch, int *whitelist, int *blocklist,
+		    unsigned int wcount, unsigned int bcount,
+		    unsigned int options, long retaction)
 {
 	struct sock_filter *filter;
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
-	filter = build_seccomp_whitelist(arch, syscalls, count,
-					&instr_count, options, retaction);
+	if (!whitelist)
+		return -1;
+	if (!blocklist)
+		bcount = 0;
+
+	filter = build_seccomp_filter(arch, whitelist, blocklist, wcount,
+				      bcount, &instr_count, options, retaction);
 	if (filter == NULL)
 		return -1;
 
