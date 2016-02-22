@@ -530,7 +530,7 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	proglen = 4 + (count * 2) + 1;
 	/* whitelist for init process */
 	if (count > 0)
-		proglen += 14;
+		proglen += 18;
 	if (options & SECCOPT_TRACING) {
 		/* when tracing we must block new filters to prevent
 		 * receiving spoofed SIGSYS data
@@ -626,7 +626,7 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 		SECBPF_RET(prog,i,SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 	}
 
-	/* our init process needs to setup signals, fork exec waitpid exit */
+	/* our init process needs to setup signals, fork exec waitpid kill exit */
 	SECBPF_JEQ(prog, i, __NR_signal, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	SECBPF_JEQ(prog, i, __NR_sigreturn, 0, 1);
@@ -634,6 +634,10 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	SECBPF_JEQ(prog, i, __NR_clone, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	SECBPF_JEQ(prog, i, __NR_waitpid, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_kill, 0, 1);
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	SECBPF_JEQ(prog, i, __NR_nanosleep, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	SECBPF_JEQ(prog, i, __NR_exit, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);

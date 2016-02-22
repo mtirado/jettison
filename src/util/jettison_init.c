@@ -24,9 +24,25 @@ extern char **environ;
 
 static void sighand(int signum)
 {
-	/* TODO send sigterm to every process ?
-	 * will require kill to be whitelisted though, hmmm.. */
+	int i = 0;
 	printf("jettison_init got signal: %d\n", signum);
+	switch (signum)
+	{
+		case SIGTERM:
+		case SIGINT:
+		case SIGHUP:
+		case SIGQUIT:
+			printf("propagating termination signal\n");
+			kill(-1, SIGTERM);
+			for (i = 0; i < 5000; ++i)
+				usleep(1000); /* 5 sec */
+			printf("terminating.\n");
+			kill(-1, SIGKILL);
+			_exit(0);
+			break;
+		default:
+			break;
+	}
 }
 /* catch basic termination sigs */
 static void sigsetup()
