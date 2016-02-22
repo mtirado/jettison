@@ -1311,7 +1311,6 @@ int main(int argc, char *argv[])
 		return -1;
 
 	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
-		printf("could not configure pod\n");
 		return -1;
 	}
 

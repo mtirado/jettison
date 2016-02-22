@@ -254,8 +254,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	/* first pass, copy out flags and path */
 	r = pod_load_config(g_filedata, g_filesize);
 	if (r) {
-		printf("pod_load_config error: %d on line %d\n", r, g_lineno);
-		printf("podconfig: %s\n", filepath);
+		printf("pod_load_config error: on line %d\n", g_lineno);
 		pod_free();
 		return -1;
 	}
@@ -263,12 +262,13 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 
 	/* protect user owned pods directory */
 	snprintf(buf, MAX_SYSTEMPATH, "%s/%s", POD_PATH, pwuser);
+	setuid(g_ruid);
 	if (chmod(buf, 0750)) {
 		printf("chmod(%s): %s\n", buf, strerror(errno));
 		pod_free();
 		return -1;
 	}
-
+	setuid(0);
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
 	outpath[MAX_SYSTEMPATH-1] = '\0';
@@ -331,6 +331,8 @@ static int do_chroot_setup()
 	if (strncmp(g_chroot_path, POD_PATH, l) != 0)
 		return -1;
 
+	setuid(g_ruid);
+	setgid(g_rgid);
 	r = eslib_file_exists(g_chroot_path);
 	if (r == -1)
 		return -1;
@@ -352,10 +354,12 @@ static int do_chroot_setup()
 	}
 	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
 	mkdir(podhome, 0750);
-	if (chown(podhome, g_ruid, g_rgid)) {
+	if (chown(g_chroot_path, 0, 0)) {
 		printf("chown %s failed\n", podhome);
 		return -1;
 	}
+	setuid(0);
+	setgid(0);
 	return 0;
 }
 
@@ -426,6 +430,56 @@ static int check_blacklisted(char *path)
 
 	}
 	return 0;
+}
+
+static int check_pathperms(char *path)
+{
+	char tmpath[MAX_SYSTEMPATH];
+	char updir[MAX_SYSTEMPATH];
+	struct stat st;
+
+	memset(&st, 0, sizeof(st));
+	if (stat(path, &st)) {
+		goto esrch;
+	}
+	/* start at parent if not a dir */
+	if (!S_ISDIR(st.st_mode)) {
+		if (eslib_file_getparent(path, updir)) {
+			goto esrch;
+		}
+		if (updir[0] == '/' && updir[1] == '\0') {
+			return 0;
+		}
+	}
+	else {
+		strncpy(updir, path, MAX_SYSTEMPATH-1);
+		updir[MAX_SYSTEMPATH-1] = '\0';
+	}
+	while(1)
+	{
+		memset(&st, 0, sizeof(st));
+		if (stat(updir, &st)) {
+			break;
+		}
+		/* other read and search bits required if not dir owner */
+		if (st.st_uid != g_ruid) {
+			if (!(st.st_mode & S_IXOTH)) {
+				break;
+			}
+		}
+		strncpy(tmpath, updir, MAX_SYSTEMPATH-1);
+		tmpath[MAX_SYSTEMPATH-1] = '\0';
+		if (eslib_file_getparent(tmpath, updir)) {
+			break;
+		}
+		if (updir[0] == '/' && updir[1] == '\0') {
+			return 0;
+		}
+	}
+
+esrch:
+	printf("could not find file: %s\n", path);
+	return -1;
 }
 
 static int prep_bind(struct path_node *node)
@@ -521,6 +575,8 @@ static int do_bind(struct path_node *node)
 	return 0;
 }
 
+
+
 int create_pathnode(char *params, size_t size, int home)
 {
 	char src[MAX_SYSTEMPATH];
@@ -541,17 +597,12 @@ int create_pathnode(char *params, size_t size, int home)
 		return -1;
 	}
 
-	 /*
-	  * these appear to work, only if we remount.
-	  * TODO test UNBINDABLE
-	  */
 	remountflags =	  MS_REMOUNT
 			| MS_NOEXEC
 			| MS_RDONLY
 			| MS_NOSUID
 			| MS_NODEV
 			| MS_UNBINDABLE;
-
 
 	/* read mount permissions from parameters */
 	for (i = 0; i < size; ++i)
@@ -581,7 +632,6 @@ int create_pathnode(char *params, size_t size, int home)
 				break;
 			default:
 				goto bad_param;
-
 		}
 	}
 	if (i >= size)
@@ -603,7 +653,6 @@ int create_pathnode(char *params, size_t size, int home)
 	chop_trailing(path, MAX_SYSTEMPATH, '/');
 	if (eslib_file_path_check(path))
 		return -1;
-
 
 	/* setup mount assuming / == /$HOME/user to be mounted in /podhome
 	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
@@ -640,6 +689,10 @@ int create_pathnode(char *params, size_t size, int home)
 	src[MAX_SYSTEMPATH-1]  = '\0';
 	dest[MAX_SYSTEMPATH-1] = '\0';
 
+	/* make sure path is visible to our ruid */
+	if (check_pathperms(src)) {
+		return -1;
+	}
 
 	/* create the new node */
 	node = malloc(sizeof(*node));
@@ -673,7 +726,7 @@ int create_pathnode(char *params, size_t size, int home)
 	return 0;
 
 bad_param:
-	printf("bad param\n");
+	printf("bad file param, missing rwxsd value(s) \n");
 	return -1;
 }
 
@@ -1176,7 +1229,6 @@ SINGLE_KEYWORD:		/* no parameters */
 
 					r = pod_enact_option(key, params, param_size);
 					if (r) { /* chroot on 2'nd pass */
-						printf("enact option error\n");
 						return -1;
 					}
 
