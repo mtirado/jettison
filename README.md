@@ -34,7 +34,7 @@ all files here are root owned, except for /podhome and /tmp
 
 
 usage:
-`jettison /bin/bash config.pod --nokill`
+`jettison /bin/bash config.pod`
 
 there are additional options we can pass:
 
