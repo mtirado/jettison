@@ -222,10 +222,8 @@ void logemerg(const char *fmt, ...)
 
 
 /*
- *  return username of the given uid, or NULL on error.
- *  this has an added bonus of returning the entire passwd line, the only
- *  difference being a null terminator instead of : separating first field.
- *  uses static global memory to store line, so it's overwritten each call.
+ *  return pointer to static memory containing passwd line for the given uid,
+ *  or NULL on error. memory is overwritten each call.
  */
 #define FMAXLINE 4095*4
 #define PASSWD_FILE "/etc/passwd"
