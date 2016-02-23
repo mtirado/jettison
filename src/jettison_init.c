@@ -3,7 +3,8 @@
  * namespace init.
  *
  * we register at least SIGTERM to let a user gracefully shut down entire
- * running pod without any messy plumbing. hopefully 5 seconds is enough?
+ * running pod without any messy plumbing. give programs 10 seconds to exit
+ * before pid1 exits.
  *
  * if you want to use an external trace program,
  * it would be best to use a wrapper to launch in a stopped state before
