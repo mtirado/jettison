@@ -3,7 +3,10 @@
 
 
 #define MAX_SYSCALL_DEFLEN 64
+#define MAX_CAP_DEFLEN 64
 #define MAX_SYSCALLS 2000
+
+#define NUM_OF_CAPS 64
 
 /* SECCOMP_RET_DATA values,
  * these are only reliable if new process is unable to add
@@ -18,7 +21,9 @@
 
 int clear_caps();
 int print_caps();
-int downgrade_caps(char fcaps[64]);
+int downgrade_caps();
+int drop_caps();
+int capbset_drop(char fcaps[NUM_OF_CAPS]);
 
 unsigned int count_syscalls(int *syscalls, unsigned int count);
 
@@ -43,6 +48,12 @@ int syscall_getnum(char *defstring);
  * NULL if not recognized.
  */
 char *syscall_getname(long syscall_nr);
+
+/*
+ * return value of capability, defined in <linux/capability.h>
+ * -1 is an error
+ */
+int cap_getnum(char *defstring);
 
 /* return the highest system call number */
 unsigned int syscall_gethighest();

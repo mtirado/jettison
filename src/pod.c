@@ -109,9 +109,7 @@ int g_allow_dev;
 int g_firstpass;
 unsigned int g_podflags;
 
-/* if/when v4 comes out change the hardcoded 64's everywhere */
-char g_fcaps[64];
-/*char g_pcaps[64];*/
+char g_fcaps[NUM_OF_CAPS];
 int g_syscalls[MAX_SYSCALLS];
 int g_blkcalls[MAX_SYSCALLS];
 unsigned int  g_syscall_idx;
@@ -914,10 +912,8 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char dest[MAX_SYSTEMPATH];
 	char path[MAX_SYSTEMPATH];
 	char syscall_buf[MAX_SYSCALL_DEFLEN];
-	int  syscall_nr;
-	char *err;
-	unsigned int read_uint;
-	char numbuf[32]; /* for strtol and whatnot */
+	char cap_buf[MAX_CAP_DEFLEN];
+	int  syscall_nr, cap_nr;
 
 	if (option >= KWCOUNT)
 		return -1;
@@ -986,7 +982,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		memset(syscall_buf, 0, sizeof(syscall_buf));
 		strncpy(syscall_buf, params, size);
 		syscall_nr = syscall_getnum(syscall_buf);
-		if (syscall_nr == -1) {
+		if (syscall_nr < 0) {
 			printf("could not find syscall: %s\n", syscall_buf);
 			return -1;
 		}
@@ -1011,7 +1007,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		memset(syscall_buf, 0, sizeof(syscall_buf));
 		strncpy(syscall_buf, params, size);
 		syscall_nr = syscall_getnum(syscall_buf);
-		if (syscall_nr == -1) {
+		if (syscall_nr < 0) {
 			printf("could not find syscall: %s\n", syscall_buf);
 			return -1;
 		}
@@ -1029,24 +1025,20 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("null parameter\n");
 			return -1;
 		}
-		printf("params(%s)\n", params);
-		memset(numbuf, 0, sizeof(numbuf));
-		strncpy(numbuf, params, sizeof(numbuf)-1);
-		if (chop_trailing(numbuf, sizeof(numbuf), '\n'))
-			return -1;
-		errno = 0;
-		read_uint = strtol(numbuf, &err, 10);
-		if (*err || errno) {
-			printf("allow_cap not an integer\n");
-			return -1;
-		}
-		if (read_uint >= 64) {
-			printf("allow_cap too big, v3 supports 64 caps\n");
-			return -1;
-		}
 
-		printf("cap requested: %d\n", read_uint);
-		g_fcaps[read_uint] = 1;
+		memset(cap_buf, 0, sizeof(cap_buf));
+		strncpy(cap_buf, params, size);
+		cap_nr = cap_getnum(cap_buf);
+		if (cap_nr < 0) {
+			printf("could not find capability: %s\n", cap_buf);
+			return -1;
+		}
+		if (cap_nr >= NUM_OF_CAPS) {
+			printf("cap error\n");
+			return -1;
+		}
+		printf("cap(%d) requested: %s\n", cap_nr, cap_buf);
+		g_fcaps[cap_nr] = 1;
 		break;
 
 	default:
@@ -1282,6 +1274,7 @@ SINGLE_KEYWORD:		/* no parameters */
 			printf("pass1_finalize()\n");
 			return -1;
 		}
+
 		/* add rdonly dirs, sort all path nodes */
 		if (prepare_mountpoints()) {
 			printf("prepare_mountpoints()\n");
@@ -1299,6 +1292,10 @@ SINGLE_KEYWORD:		/* no parameters */
 						| MS_RDONLY
 						| MS_UNBINDABLE;
 
+		if (capbset_drop(g_fcaps)) {
+			printf("failed to set bounding caps\n");
+			return -1;
+		}
 		/* actually do bind/remount */
 		n = g_mountpoints;
 		while (n)

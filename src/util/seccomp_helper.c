@@ -28,8 +28,55 @@
 /* translate config file strings to syscall number */
 struct sc_translate
 {
-	char defname[MAX_SYSCALL_DEFLEN];
+	char name[MAX_SYSCALL_DEFLEN];
 	int  nr;
+};
+
+struct cap_translate
+{
+	char name[MAX_CAP_DEFLEN];
+	int  nr;
+};
+
+struct cap_translate cap_table[] = {
+{"CAP_CHOWN", CAP_CHOWN },
+{"CAP_DAC_OVERRIDE", CAP_DAC_OVERRIDE },
+{"CAP_DAC_READ_SEARCH", CAP_DAC_READ_SEARCH },
+{"CAP_FOWNER", CAP_FOWNER },
+{"CAP_FSETID", CAP_FSETID },
+{"CAP_KILL", CAP_KILL },
+{"CAP_SETGID", CAP_SETGID },
+{"CAP_SETUID", CAP_SETUID },
+{"CAP_SETPCAP", CAP_SETPCAP },
+{"CAP_LINUX_IMMUTABLE", CAP_LINUX_IMMUTABLE },
+{"CAP_NET_BIND_SERVICE", CAP_NET_BIND_SERVICE },
+{"CAP_NET_BROADCAST", CAP_NET_BROADCAST },
+{"CAP_NET_ADMIN", CAP_NET_ADMIN },
+{"CAP_NET_RAW", CAP_NET_RAW },
+{"CAP_IPC_LOCK", CAP_IPC_LOCK },
+{"CAP_IPC_OWNER", CAP_IPC_OWNER },
+{"CAP_SYS_MODULE", CAP_SYS_MODULE },
+{"CAP_SYS_RAWIO", CAP_SYS_RAWIO },
+{"CAP_SYS_CHROOT", CAP_SYS_CHROOT },
+{"CAP_SYS_PTRACE", CAP_SYS_PTRACE },
+{"CAP_SYS_PACCT", CAP_SYS_PACCT },
+{"CAP_SYS_ADMIN", CAP_SYS_ADMIN },
+{"CAP_SYS_BOOT", CAP_SYS_BOOT },
+{"CAP_SYS_NICE", CAP_SYS_NICE },
+{"CAP_SYS_RESOURCE", CAP_SYS_RESOURCE },
+{"CAP_SYS_TIME", CAP_SYS_TIME },
+{"CAP_SYS_TTY_CONFIG", CAP_SYS_TTY_CONFIG },
+{"CAP_MKNOD", CAP_MKNOD },
+{"CAP_LEASE", CAP_LEASE },
+{"CAP_AUDIT_WRITE", CAP_AUDIT_WRITE },
+{"CAP_AUDIT_CONTROL", CAP_AUDIT_CONTROL },
+{"CAP_SETFCAP", CAP_SETFCAP },
+{"CAP_MAC_OVERRIDE", CAP_MAC_OVERRIDE },
+{"CAP_MAC_ADMIN", CAP_MAC_ADMIN },
+{"CAP_SYSLOG", CAP_SYSLOG },
+{"CAP_WAKE_ALARM", CAP_WAKE_ALARM },
+{"CAP_BLOCK_SUSPEND", CAP_BLOCK_SUSPEND },
+{"CAP_AUDIT_READ", CAP_AUDIT_READ },
 };
 
 /* XXX
@@ -444,13 +491,12 @@ int syscall_getnum(char *defstring)
 	unsigned int count;
 	char buf[MAX_SYSCALL_DEFLEN];
 
-	memset(buf, 0, MAX_SYSCALL_DEFLEN);
 	strncpy(buf, defstring, MAX_SYSCALL_DEFLEN-1);
-
+	buf[MAX_SYSCALL_DEFLEN-1] = '\0';
 	count = sizeof(sc_table) / sizeof(struct sc_translate);
 	for (i = 0; i < count; ++i)
 	{
-		if (strncmp(buf, sc_table[i].defname, MAX_SYSCALL_DEFLEN) == 0)
+		if (strncmp(buf, sc_table[i].name, MAX_SYSCALL_DEFLEN) == 0)
 			return sc_table[i].nr;
 	}
 	return -1;
@@ -468,9 +514,26 @@ char *syscall_getname(long syscall_nr)
 	for (i = 0; i < count; ++i)
 	{
 		if (sc_table[i].nr == syscall_nr)
-			return sc_table[i].defname;
+			return sc_table[i].name;
 	}
 	return NULL;
+}
+
+int cap_getnum(char *defstring)
+{
+	unsigned int i;
+	unsigned int count;
+	char buf[MAX_CAP_DEFLEN];
+
+	strncpy(buf, defstring, MAX_CAP_DEFLEN-1);
+	buf[MAX_CAP_DEFLEN-1] = '\0';
+	count = sizeof(cap_table) / sizeof(struct cap_translate);
+	for (i = 0; i < count; ++i)
+	{
+		if (strncmp(buf, cap_table[i].name, MAX_CAP_DEFLEN) == 0)
+			return cap_table[i].nr;
+	}
+	return -1;
 }
 
 /* number of systemcalls in a given number array ( -1 is invalid )*/
@@ -726,7 +789,7 @@ extern int capget(cap_user_header_t header, const cap_user_data_t data);
 
 static int cap_blisted(unsigned long cap)
 {
-	if (cap >= 64) {
+	if (cap >= NUM_OF_CAPS) {
 		printf("cap out of bounds\n");
 		return 1;
 	}
@@ -754,6 +817,9 @@ static int cap_blisted(unsigned long cap)
 			return 1;
 		case CAP_SYS_ADMIN: /* don't allow remounts... */
 			printf("CAP_SYS_ADMIN is prohibited\n");
+			return 1;
+		case CAP_LINUX_IMMUTABLE:
+			printf("CAP_LINUX_IMMUTABLE is prohibited\n");
 			return 1;
 		/*case CAP_DAC_READ_SEARCH:
 			printf("CAP_DAC_READ_SEARCH is prohibited\n");
@@ -855,62 +921,29 @@ int print_caps()
  *
  * returns 0,  -1 on error.
  */
-#include <stdlib.h>
-int downgrade_caps(char fcaps[64])
+int downgrade_caps()
 {
 	struct __user_cap_header_struct hdr;
 	struct __user_cap_data_struct   data[2];
 	int i;
-	int c;
-
 
 	memset(&hdr, 0, sizeof(hdr));
 	memset(data, 0, sizeof(data));
 	hdr.pid = syscall(__NR_gettid);
 	hdr.version = _LINUX_CAPABILITY_VERSION_3;
-	c = 0;
-	for(i = 0; i < 64; ++i)
+
+	for(i = 0; i < NUM_OF_CAPS; ++i)
 	{
 		/* these are dropped later when exec is called */
-		if (i == CAP_SYS_CHROOT || i == CAP_SYS_ADMIN
-				|| i == CAP_CHOWN || i == CAP_SETGID) {
+		if (i == CAP_SYS_CHROOT
+				|| i == CAP_SYS_ADMIN
+				|| i == CAP_CHOWN
+				|| i == CAP_SETGID
+				|| i == CAP_SETPCAP) {
 			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
 			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
 		}
-		/* allow requested file caps if not blacklisted */
-		if (fcaps[i] && !cap_blisted(i)) {
-			if (i > CAP_LAST_CAP)
-			       return -1;
-			/*for (i = 0; i < 64; ++i)
-			{
-				if (fcaps[i]) XXX is this even needed?
-					data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
-					data[CAP_TO_INDEX(i)].inherited |= CAP_TO_MASK(i);
-			}*/
-			printf("VERIFYME: cap permitted: %d\n", i);
-			++c;
-		} /* remove from bounding set */
-		else if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
-			if (i > CAP_LAST_CAP)
-				break;
-			else if (errno == EINVAL) {
-				printf("cap not found: %d\n", i);
-				return -1;
-			}
-			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
-			return -1;
-		}
 	}
-
-	/* if not requesting any file caps, set no new privs process flag */
-	if (c == 0) {
-		printf("no file caps, setting NO_NEW_PRIVS\r\n");
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-			printf("no new privs failed\n");
-			return -1;
-		}
-	}
-
 	/* don't grant privileges, except for file capabilities */
 	if (prctl(PR_SET_SECUREBITS,
 			SECBIT_KEEP_CAPS_LOCKED		|
@@ -922,7 +955,6 @@ int downgrade_caps(char fcaps[64])
 		return -1;
 	}
 
-	/* finally, set caps and new uid */
 	if (capset(&hdr, data)) {
 		printf("capset: %s\r\n", strerror(errno));
 		printf("cap version: %p\r\n", (void *)hdr.version);
@@ -934,5 +966,60 @@ int downgrade_caps(char fcaps[64])
 }
 
 
+/* drop everything or caps get left over, tracer thread never calls exex */
+int drop_caps()
+{
+	struct __user_cap_header_struct hdr;
+	struct __user_cap_data_struct   data[2];
+	memset(&hdr, 0, sizeof(hdr));
+	memset(data, 0, sizeof(data));
+	hdr.pid = syscall(__NR_gettid);
+	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+
+	if (capset(&hdr, data)) {
+		printf("capset: %s\r\n", strerror(errno));
+		printf("cap version: %p\r\n", (void *)hdr.version);
+		printf("pid: %d\r\n", hdr.pid);
+		return -1;
+	}
+	return 0;
+}
+
+int capbset_drop(char fcaps[NUM_OF_CAPS])
+{
+	int i;
+	int c;
+
+	c = 0;
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		/* allow requested file caps if not blacklisted */
+		if (fcaps[i] && !cap_blisted(i)) {
+			if (i > CAP_LAST_CAP) {
+			       return -1;
+			}
+			++c;
+		}
+		else if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+			if (i > CAP_LAST_CAP)
+				break;
+			else if (errno == EINVAL) {
+				printf("cap not found: %d\n", i);
+				return -1;
+			}
+			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	/* if not requesting any file caps, set no new privs process flag */
+	if (c == 0) {
+		printf("no file caps, setting NO_NEW_PRIVS\r\n");
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			printf("no new privs failed\n");
+			return -1;
+		}
+	}
+	return 0;
+}
 
 

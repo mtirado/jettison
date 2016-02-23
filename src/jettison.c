@@ -28,6 +28,7 @@
 #include <sys/select.h>
 #include <sys/mount.h>
 #include <sys/socket.h>
+#include <sys/prctl.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <time.h>
@@ -65,7 +66,7 @@ extern char **environ;
 extern int tracecalls(pid_t p, int ipc);
 
 /* pod.c globals */
-extern char g_fcaps[64];
+extern char g_fcaps[NUM_OF_CAPS];
 extern int  g_syscalls[MAX_SYSCALLS];
 extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
@@ -1256,6 +1257,19 @@ static int trace_fork(char **argv)
 			return -1;
 		}
 
+		memset(g_fcaps, 0, NUM_OF_CAPS);
+		if (capbset_drop(g_fcaps)) {
+			printf("failed to set bounding caps\n");
+			return -1;
+		}
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			printf("set no new privs failed\n");
+			return -1;
+		}
+		if (drop_caps()) {
+			printf("drop_caps()\n");
+			return -1;
+		}
 		if (do_trace(p)) {
 			printf("do_trace error\n");
 			exit_func();
@@ -1290,7 +1304,7 @@ int main(int argc, char *argv[])
 	g_daemon_pipe[0] = -1;
 	g_daemon_pipe[1] = -1;
 	memset(g_cwd, 0, sizeof(g_cwd));
-	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(g_fcaps, 0, NUM_OF_CAPS);
 	memset(g_newroot, 0, sizeof(g_newroot));
 	memset(g_procname, 0, sizeof(g_procname));
 	memset(g_pid1name, 0, sizeof(g_pid1name));
@@ -1314,7 +1328,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (downgrade_caps(g_fcaps)) {
+	if (downgrade_caps()) {
 		printf("failed to downgrade caps\n");
 		return -1;
 	}
@@ -1453,6 +1467,16 @@ int main(int argc, char *argv[])
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
 	close(g_daemon_pipe[1]);
+
+	memset(g_fcaps, 0, NUM_OF_CAPS);
+	if (capbset_drop(g_fcaps)) {
+		printf("failed to set bounding caps\n");
+		return -1;
+	}
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		printf("set no new privs failed\n");
+		return -1;
+	}
 
 	relayio_sigsetup();
 	relay_io(stdout_logfd);
