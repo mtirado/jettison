@@ -75,7 +75,7 @@ to append the whitelist to the configuration file.
 ##capabilities
 use cap_bset to specify which file capabilities should be added to bounding set
 
-`cap_bset CAP_NET_RAW`  or any non-blacklisted cap from <linux/capablilitiy.h>
+`cap_bset CAP_NET_RAW`  or any non-blacklisted cap from \<linux/capablilitiy.h\>
 
 
 ##bugs
