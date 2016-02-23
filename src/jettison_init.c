@@ -2,8 +2,8 @@
  *
  * namespace init.
  *
- * We need an init program to register signals, otherwise they are not sent
- * to this namespace. also to halt program until tracecalls is ready.
+ * we register at least SIGTERM to let a user gracefully shut down entire
+ * running pod without any messy plumbing. hopefully 5 seconds is enough?
  *
  * if you want to use an external trace program,
  * it would be best to use a wrapper to launch in a stopped state before
@@ -18,13 +18,13 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "../eslib/eslib.h"
-
+#include "eslib/eslib.h"
 extern char **environ;
 
 static void sighand(int signum)
 {
-	int i = 0;
+	int i, status;
+	pid_t p;
 	printf("jettison_init got signal: %d\n", signum);
 	switch (signum)
 	{
@@ -34,8 +34,20 @@ static void sighand(int signum)
 		case SIGQUIT:
 			printf("propagating termination signal\n");
 			kill(-1, SIGTERM);
-			for (i = 0; i < 5000; ++i)
-				usleep(1000); /* 5 sec */
+			/* give programs 10ish seconds to exit */
+			for (i = 0; i < 10000; ++i) {
+				usleep(1000);
+				p = waitpid(-1, &status, WNOHANG);
+				if (p == 0) {
+					continue;
+				}
+				else if (p != -1) {
+					printf("exited: %d\n", p);
+				}
+				else if (p == -1 && errno == ECHILD) {
+					break;
+				}
+			}
 			printf("terminating.\n");
 			kill(-1, SIGKILL);
 			_exit(0);
@@ -48,9 +60,9 @@ static void sighand(int signum)
 static void sigsetup()
 {
 	signal(SIGTERM, sighand);
+	signal(SIGQUIT, sighand);
 	signal(SIGINT,  sighand);
 	signal(SIGHUP,  sighand);
-	signal(SIGQUIT, sighand);
 }
 
 /* arg[1] should be full program path */
@@ -66,11 +78,6 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	/*
-	 * pidns 1 process blocks all unregistered signals to children
-	 * which is less than ideal for handling shutdown/reboot sigterm
-	 * TODO -- add more signals through config file / environ
-	 */
 	sigsetup();
 
 	ipc = -1;
@@ -146,15 +153,3 @@ int main(int argc, char *argv[])
 	printf("impossible!!\n");
 	return -1;
 }
-
-
-
-
-
-
-
-
-
-
-
-

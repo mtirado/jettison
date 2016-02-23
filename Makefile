@@ -34,7 +34,7 @@ JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 #	PROGRAM FILENAMES
 ########################################
 JETTISON		:= jettison
-UTIL_INIT  		:= jettison_init
+INIT	  		:= jettison_init
 UTIL_PRELOAD		:= jettison_preload.so
 
 %.o: 		%.c
@@ -45,7 +45,7 @@ all:				\
 	$(JETTISON)		\
 	$(UTIL_SECCOMP_ENUM)	\
 	$(UTIL_PRELOAD)		\
-	$(UTIL_INIT)
+	$(INIT)
 
 
 ########################################
@@ -58,11 +58,10 @@ $(JETTISON):		$(JETTISON_OBJS)
 			@echo "| jettison      OK |"
 			@echo "x------------------x"
 
-$(UTIL_INIT):
+$(INIT):
 			@echo ""
 			$(CC) $(CFLAGS) 				\
-					./src/util/jettison_init.c	\
-					./src/eslib/eslib_sock.c 	\
+					./src/jettison_init.c		\
 					./src/eslib/eslib_file.c	\
 					./src/eslib/eslib_proc.c	\
 					-o $@
@@ -90,6 +89,6 @@ clean:
 
 	@-rm -fv ./$(JETTISON)
 	@-rm -fv ./$(UTIL_PRELOAD)
-	@-rm -fv ./$(UTIL_INIT)
+	@-rm -fv ./$(INIT)
 	@echo cleaned.
 

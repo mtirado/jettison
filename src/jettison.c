@@ -684,6 +684,8 @@ err_usage:
 struct termios g_origterm;
 void exit_func()
 {
+	/* send pid1 sigterm to propagate to new namespace */
+	kill(g_newpid, 15);
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 }
