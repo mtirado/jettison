@@ -71,6 +71,13 @@ whitelist at ./podtemplate.pod  .  if you have a configuration file already
 with no systemcalls you can simply do `cat podtemplate.pod >> config.pod`
 to append the whitelist to the configuration file.
 
+
+##capabilities
+use cap_bset to specify which file capabilities should be added to bounding set
+
+`cap_bset CAP_NET_RAW`  or any non-blacklisted cap from <linux/capablilitiy.h>
+
+
 ##bugs
 
 currently hardcoded for AUDIT_ARCH_I386, you will have to change
