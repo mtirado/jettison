@@ -81,13 +81,14 @@ main_entry g_entry;
  * or just make strong note that they should do this
  * immediately in main_entry, also be aware there is
  * a memory leak that should be handled, see pod_free().
- * this has no effect on standalone jettison.
+ * this has no serious effect on standalone jettison.
  */
 filter_func g_filter;
 void *g_filterdata;
 
 char *g_progpath;
 char g_procname[MAX_PROCNAME];
+char g_pid1name[MAX_PROCNAME];
 int  g_newpid; /* process to wait for */
 
 int g_daemon;
@@ -554,7 +555,6 @@ int process_arguments(int argc, char *argv[])
 				}
 				strncpy(g_procname, argv[i], MAX_PROCNAME-1);
 				g_procname[MAX_PROCNAME-1] = '\0';
-				argv[0] = g_procname;
 				argidx += 2;
 			}
 			else if (strncmp(argv[i], "--strict", len) == 0) {
@@ -1234,6 +1234,7 @@ static int trace_fork(char **argv)
 			return -1;
 		}
 
+		argv[0] = g_pid1name;
 		p = jettison_program(g_executable_path, argv, g_stacksize,
 					    g_podflags, NULL, NULL);
 
@@ -1291,10 +1292,16 @@ int main(int argc, char *argv[])
 	memset(g_cwd, 0, sizeof(g_cwd));
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(g_newroot, 0, sizeof(g_newroot));
+	memset(g_procname, 0, sizeof(g_procname));
+	memset(g_pid1name, 0, sizeof(g_pid1name));
 	memset(g_nullspace, 0, sizeof(g_nullspace));
 	memset(g_pty_slavepath, 0, sizeof(g_pty_slavepath));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));
+
+
+	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
+	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
 
 	if (getcwd(g_cwd, MAX_SYSTEMPATH) == NULL) {
 		printf("getcwd: %s\n", strerror(errno));
@@ -1411,6 +1418,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/* set procname for pid1 to read */
+	if (eslib_proc_setenv("JETTISON_PROCNAME", g_procname)) {
+		printf("error setting process name\n");
+		return -1;
+	}
+
 	if (g_tracecalls) {
 		if (trace_fork(argv)) {
 			printf("error forking trace thread\n");
@@ -1418,6 +1431,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	else {
+		argv[0] = g_pid1name;
 		g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
 					    g_podflags, NULL, NULL);
 		if (g_newpid == -1) {

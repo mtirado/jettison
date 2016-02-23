@@ -20,7 +20,10 @@
 #include <stdlib.h>
 
 #include "eslib/eslib.h"
+#define MAX_PROCNAME 17
+
 extern char **environ;
+char g_procname[MAX_PROCNAME];
 
 static void sighand(int signum)
 {
@@ -69,8 +72,10 @@ static void sigsetup()
 /* arg[1] should be full program path */
 int main(int argc, char *argv[])
 {
+	char progpath[MAX_SYSTEMPATH];
 	char *err = NULL;
 	char *traceline;
+	char *procname;
 	pid_t p;
 	int ipc;
 
@@ -80,6 +85,23 @@ int main(int argc, char *argv[])
 	}
 
 	sigsetup();
+
+	strncpy(progpath, argv[1], MAX_SYSTEMPATH-1);
+	progpath[MAX_SYSTEMPATH-1] = '\0';
+
+	/* set process name */
+	procname = eslib_proc_getenv("JETTISON_PROCNAME");
+	printf("init got procname: %s\n", procname);
+	if (procname != NULL) {
+		int len = strnlen(procname, MAX_PROCNAME);
+		if (len >= MAX_PROCNAME) {
+			printf("invalid procname\n");
+			return -1;
+		}
+		strncpy(g_procname, procname, MAX_PROCNAME-1);
+		g_procname[MAX_PROCNAME-1] = '\0';
+		argv[1] = g_procname;
+	}
 
 	ipc = -1;
 	traceline = eslib_proc_getenv("JETTISON_TRACEFD");
@@ -131,7 +153,7 @@ int main(int argc, char *argv[])
 	}
 	else if (p == 0) {
 		/* that's all folks */
-		if (execve(argv[1], &argv[1], environ)) {
+		if (execve(progpath, &argv[1], environ)) {
 			printf("exec(%s) error: %s\n", argv[1], strerror(errno));
 		}
 		return -1;
