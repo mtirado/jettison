@@ -12,6 +12,8 @@
 #include <linux/seccomp.h>
 #include <linux/unistd.h>
 #include <sys/prctl.h>
+#include <sys/mount.h>
+#include <sched.h>
 #include <unistd.h>
 
 #include <malloc.h>
@@ -594,14 +596,6 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	/* whitelist for init process */
 	if (count > 0)
 		proglen += 18;
-	if (options & SECCOPT_TRACING) {
-		/* when tracing we must block new filters to prevent
-		 * receiving spoofed SIGSYS data
-		 */
-		options |= SECCOPT_BLOCKNEW;
-		if (count > 0)
-			proglen += 6;
-	}
 	if (options & SECCOPT_BLOCKNEW) {
 		proglen += 7;
 	}
@@ -709,16 +703,6 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	/* TODO some decent hack to disable exec after init calls it */
 	SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-
-	if (options & SECCOPT_TRACING) {
-
-		SECBPF_JEQ(prog, i, __NR_read, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_write, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-		SECBPF_JEQ(prog, i, __NR_close, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-	}
 
 	/* set return action */
 	switch (retaction)
@@ -1017,4 +1001,67 @@ int capbset_drop(char fcaps[NUM_OF_CAPS])
 	return 0;
 }
 
+int jail_process(char *chroot_path, int *whitelist, unsigned int opts)
+{
+	unsigned long remountflags =	  MS_REMOUNT
+					| MS_NOSUID
+					| MS_NOEXEC
+					| MS_NODEV
+					| MS_RDONLY;
+	if (!chroot_path || !whitelist)
+		return -1;
 
+	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
+		printf("relay unshare: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(chroot_path, chroot_path, "bind", MS_BIND, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(chroot_path, chroot_path, "bind", MS_BIND|remountflags, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, chroot_path, NULL, MS_PRIVATE|MS_REC, NULL)) {
+		printf("could not make slave: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chdir(chroot_path) < 0) {
+		printf("chdir(\"%s\") failed: %s\n", chroot_path, strerror(errno));
+		return -1;
+	}
+	if (mount(chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
+		printf("mount / MS_MOVE failed: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chroot(chroot_path) < 0) {
+		printf("chroot failed: %s\n", strerror(errno));
+		return -1;
+	}
+	/*chroot doesnt change CWD, so we must.*/
+	if (chdir("/") < 0) {
+		printf("chdir(\"/\") failed: %s\n", strerror(errno));
+		return -1;
+	}
+
+	if (clear_caps()) {
+		printf("clear_caps failed\n");
+		return -1;
+	}
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		printf("set no new privs failed\n");
+		return -1;
+	}
+
+	printf("setting seccomp filter\r\n");
+	if (filter_syscalls(SYSCALL_ARCH, whitelist, NULL,
+				 count_syscalls(whitelist, MAX_SYSCALLS), 0,
+				 opts, SECCOMP_RET_ERRNO)) {
+		/* TODO eventually set this to RET_KILL */
+		printf("unable to apply seccomp filter\n");
+		return -1;
+	}
+
+	return 0;
+}

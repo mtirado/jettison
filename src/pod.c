@@ -1089,6 +1089,14 @@ static int pass1_finalize()
 		printf("couldn't create rdonly path(%s)\n", opt);
 		return -1;
 	}
+
+	/* whitelist jettison preload */
+	snprintf(opt, sizeof(opt), "rx %s", PRELOAD_PATH);
+	if (create_pathnode(opt, sizeof(opt), 0)) {
+		printf("couldn't create rdonly path(%s)\n", opt);
+		return -1;
+	}
+
 	return 0;
 }
 

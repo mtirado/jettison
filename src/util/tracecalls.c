@@ -43,7 +43,7 @@
 	#define REG_RETVAL  (4 * EAX)
 #endif
 extern char **environ;
-
+pid_t g_pid;
 /*
  * 64bit counter for pedantic C89 compilers. 32bit may not be enough to
  * properly sort with if trace left running for extensive periods.
@@ -88,11 +88,10 @@ static int sc_cmplt(struct sc_info *lhs, struct sc_info *rhs)
  * prints systemcall stats sorted by frequency
  * also generates a configuration file ./podtemplate.pod
  */
-void print_stats(struct sc_info *info, unsigned int numbers)
+void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
 {
 	unsigned int i, z;
 	struct sc_info tmp;
-	int fd;
 	int fstatus = 0;
 
 	for (i = 0; i < numbers; ++i)
@@ -124,11 +123,6 @@ void print_stats(struct sc_info *info, unsigned int numbers)
 		}
 	}
 
-	fd = open("podtemplate.pod", O_CREAT|O_TRUNC|O_RDWR, S_IRWXU);
-	if (fd == -1) {
-		printf("error creating template.pod: %s\r\n", strerror(errno));
-		fstatus = -errno;
-	}
 	printf("\r\n");
 	printf("---------  system call frequency ---------\r\n");
 	for (i = 0; i < numbers; ++i)
@@ -147,14 +141,14 @@ void print_stats(struct sc_info *info, unsigned int numbers)
 			char buf[256];
 			snprintf(buf, 256, "seccomp_allow %s\n",
 					syscall_getname(info[i].callnum));
-			if (write(fd, buf, strnlen(buf,256)) == -1) {
+			if (write(podfile, buf, strnlen(buf,256)) == -1) {
 				printf("write: %s\n", strerror(errno));
 				fstatus = -errno;
 			}
 		}
 	}
 
-	close(fd);
+	close(podfile);
 	if (fstatus < 0) {
 		printf("error occured writing file: %s\n", strerror(-fstatus));
 		return;
@@ -213,8 +207,52 @@ void print_stats(struct sc_info *info, unsigned int numbers)
 
 }
 
-int tracecalls(pid_t p, int ipc)
+/* uses /opt/pods/.nullspace as chroot directory */
+static int downgrade_tracer(char *jailpath)
 {
+	int syscalls[MAX_SYSCALLS];
+	unsigned int i;
+
+	/* setup seccomp filter */
+	for (i = 0; i < sizeof(syscalls) / sizeof(syscalls[0]); ++i)
+	{
+		syscalls[i] = -1;
+	}
+
+	i = 0;
+
+	syscalls[i]   = syscall_getnum("__NR_waitpid");
+	syscalls[++i] = syscall_getnum("__NR_ptrace");
+	syscalls[++i] = syscall_getnum("__NR_read");
+	syscalls[++i] = syscall_getnum("__NR_write");
+	syscalls[++i] = syscall_getnum("__NR_close");
+	syscalls[++i] = syscall_getnum("__NR_exit");
+	syscalls[++i] = syscall_getnum("__NR_exit_group");
+	syscalls[++i] = syscall_getnum("__NR_sigreturn");
+	syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
+
+	if (jail_process(jailpath, syscalls, SECCOPT_PTRACE)) {
+		printf("jail_process failed\n");
+		return -1;
+	}
+	return 0;
+}
+
+static void sighand(int signum)
+{
+	printf("tracer got signal: %d\n", signum);
+}
+static void sigsetup()
+{
+	signal(SIGTERM,   sighand);
+	signal(SIGINT,    sighand);
+	signal(SIGHUP,    sighand);
+	signal(SIGQUIT,   sighand);
+}
+
+int tracecalls(pid_t p, int ipc, char *jailpath)
+{
+    int podfile;
     int status;
     int ret;
     pid_t curpid;
@@ -223,7 +261,10 @@ int tracecalls(pid_t p, int ipc)
     struct sc_info *info = NULL;
     unsigned long unknown[2];
 
-
+    if (!jailpath)
+	    return -1;
+    g_pid = p;
+    sigsetup();
     /* +1 to get count of 0 based syscall numbers */
     numbers = syscall_gethighest() + 1;
     info = malloc(numbers * sizeof(struct sc_info));
@@ -234,6 +275,19 @@ int tracecalls(pid_t p, int ipc)
     unknown[1] = 0;
     sc_init(info, numbers);
     status = 0;
+
+    /* open pod template in cwd before we jail process */
+    podfile = open("podtemplate.pod", O_CREAT|O_TRUNC|O_RDWR, S_IRWXU);
+    if (podfile == -1) {
+	printf("error creating template.pod: %s\r\n", strerror(errno));
+	status = -errno;
+    }
+    /* we attached, jail ourselves */
+    if (downgrade_tracer(jailpath)) {
+	    printf("downgrade_tracer\n");
+	    return -1;
+    }
+
     while(1)
     {
 	    ret = ptrace(PTRACE_SEIZE, p, NULL,
@@ -259,6 +313,7 @@ int tracecalls(pid_t p, int ipc)
 	    }
 	    usleep(100);
     }
+
     /* tell jettison_tracee to begin execution */
     while (1)
     {
@@ -282,16 +337,17 @@ int tracecalls(pid_t p, int ipc)
 	curpid = waitpid(-1, &status, __WALL);
 	if (curpid == -1) {
 		printf("waitpid: %s\r\n", strerror(errno));
-		print_stats(info, numbers);
+		print_stats(info, numbers, podfile);
 		_exit(-1);
 	}
 	if ((WIFEXITED(status) || WIFSIGNALED(status))) {
 		if (curpid == p) {
 			/* tracee exited */
+			printf("normal exit\r\n");
 			printf("\r\n\r\n");
 			printf("[%lu:%lu] unknown system calls made\r\n",
 					unknown[1], unknown[0]);
-			print_stats(info, numbers);
+			print_stats(info, numbers, podfile);
 			_exit(0);
 		}
 	}
@@ -303,7 +359,7 @@ int tracecalls(pid_t p, int ipc)
 			ret = ptrace(PTRACE_GETSIGINFO, curpid, NULL, &sig);
 			if (ret == -1) {
 				printf("ptrace_getsiginfo: %s\r\n", strerror(errno));
-				print_stats(info, numbers);
+				print_stats(info, numbers, podfile);
 				_exit(-1);
 			}
 			if (sig.si_code == SYS_SECCOMP) {
@@ -333,7 +389,7 @@ int tracecalls(pid_t p, int ipc)
 				ret = ptrace(PTRACE_POKEUSER, curpid, REG_RETVAL,setret);
 				if (ret == -1) {
 					printf("ptrace_pokeuser:%s\r\n",strerror(errno));
-					print_stats(info, numbers);
+					print_stats(info, numbers, podfile);
 					_exit(-1);
 				}
 			}

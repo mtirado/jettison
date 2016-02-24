@@ -4,7 +4,6 @@
 #ifndef MISC_H__
 #define MISC_H__
 
-#include <sys/types.h>
 
 /* chop matching character from the end of string
  * returns 0 on first non matching character, -1 on error.

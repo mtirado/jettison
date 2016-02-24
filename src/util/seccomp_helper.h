@@ -14,15 +14,22 @@
  */
 #define SECCRET_DENIED 0xF0FF
 
-#define SECCOPT_TRACING  0x1
-#define SECCOPT_BLOCKNEW 0x2
-#define SECCOPT_PTRACE   0x4
+#define SECCOPT_BLOCKNEW 0x1
+#define SECCOPT_PTRACE   0x2
 
+#ifdef __x86_64__ /* TODO this is untested... add other arch's */
+	#define SYSCALL_ARCH AUDIT_ARCH_X86_64
+#elif __i386__
+	#define SYSCALL_ARCH AUDIT_ARCH_I386
+#else
+	#error arch lacks systemcall define, add it and test!
+#endif
 
 int clear_caps();
 int print_caps();
 int downgrade_caps();
 int capbset_drop(char fcaps[NUM_OF_CAPS]);
+int jail_process(char *chroot_path, int *whitelist, unsigned int opts);
 
 unsigned int count_syscalls(int *syscalls, unsigned int count);
 

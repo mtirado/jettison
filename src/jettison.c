@@ -54,16 +54,8 @@
 	#define PRELOAD_PATH="/usr/local/bin/jettison_preload.so"
 #endif
 
-#ifdef __x86_64__ /* TODO this is untested... add other arch's */
-	#define SYSCALL_ARCH AUDIT_ARCH_X86_64
-#elif __i386__
-	#define SYSCALL_ARCH AUDIT_ARCH_I386
-#else
-	#error arch lacks systemcall define, add it and test!
-#endif
-
 extern char **environ;
-extern int tracecalls(pid_t p, int ipc);
+extern int tracecalls(pid_t p, int ipc, char *jailpath);
 
 /* pod.c globals */
 extern char g_fcaps[NUM_OF_CAPS];
@@ -162,64 +154,13 @@ static int create_nullspace()
 static int downgrade_relay()
 {
 	unsigned int i;
-	unsigned long remountflags =	  MS_REMOUNT
-					| MS_NOSUID
-					| MS_NOEXEC
-					| MS_NODEV
-					| MS_RDONLY;
-	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
-		printf("relay unshare: %s\n", strerror(errno));
-		return -1;
-	}
-	if (mount(g_nullspace, g_nullspace, "bind",
-				MS_BIND, NULL)) {
-		printf("could not bind mount: %s\n", strerror(errno));
-		return -1;
-	}
-	if (mount(g_nullspace, g_nullspace, "bind",
-				MS_BIND|remountflags, NULL)) {
-		printf("could not bind mount: %s\n", strerror(errno));
-		return -1;
-	}
-	if (mount(NULL, g_nullspace, NULL, MS_SLAVE|MS_REC, NULL)) {
-		printf("could not make slave: %s\n", strerror(errno));
-		return -1;
-	}
-	if (chdir(g_nullspace) < 0) {
-		printf("chdir(\"%s\") failed: %s\n", g_nullspace, strerror(errno));
-		return -1;
-	}
-	/* remount subtree to / */
-	if (mount(g_nullspace, "/", NULL, MS_MOVE, NULL) < 0) {
-		printf("mount / MS_MOVE failed: %s\n", strerror(errno));
-		return -1;
-	}
-	if (chroot(g_nullspace) < 0) {
-		printf("chroot failed: %s\n", strerror(errno));
-		return -1;
-	}
-	/*chroot doesnt change CWD, so we must.*/
-	if (chdir("/") < 0) {
-		printf("chdir(\"/\") failed: %s\n", strerror(errno));
-		return -1;
-	}
-	/* apply seccomp filter */
+	/* set up new seccomp filter */
 	for (i = 0; i < sizeof(g_syscalls) / sizeof(g_syscalls[0]); ++i)
 	{
 		g_syscalls[i] = -1;
 	}
+
 	i = 0;
-
-	if (clear_caps()) {
-		printf("clear_caps failed\n");
-		return -1;
-	}
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-		printf("set no new privs failed\n");
-		return -1;
-	}
-
-	/*g_syscalls[i] = syscall_getnum("__NR_select");*/
 	g_syscalls[i]   = syscall_getnum("__NR__newselect");
 	g_syscalls[++i] = syscall_getnum("__NR_close");
 	g_syscalls[++i] = syscall_getnum("__NR_waitpid");
@@ -232,14 +173,11 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	g_syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
-	printf("setting relay seccomp filter\r\n");
-	if (filter_syscalls(SYSCALL_ARCH, g_syscalls, NULL,
-				 count_syscalls(g_syscalls,MAX_SYSCALLS), 0,
-				 0, SECCOMP_RET_ERRNO)) {
-		printf("unable to apply seccomp filter\n");
+
+	if (jail_process(g_nullspace, g_syscalls, 0)) {
+		printf("jail_process failed\n");
 		return -1;
 	}
-
 	return 0;
 }
 
@@ -387,8 +325,6 @@ int jettison_clone_func(void *data)
 		}
 		else {
 			unsigned int opts = 0;
-			if (g_tracecalls)
-				opts |= SECCOPT_TRACING;
 			if (g_blocknew)
 				opts |= SECCOPT_BLOCKNEW;
 			if (g_allow_ptrace)
@@ -605,8 +541,8 @@ int process_arguments(int argc, char *argv[])
 	/* shifted arguments start here */
 	argnew = argidx;
 
-	/* launch through jettison_init which needs path in argv[1] */
 	if (g_tracecalls) {
+		/* always block new filters to prevent spoofed data */
 		g_blocknew = 1;
 	}
 	argidx = 2;
@@ -1199,7 +1135,8 @@ static int do_trace(pid_t tracee)
 			return -1;
 		}
 	}
-	if (tracecalls(tracee, g_traceipc[0])) {
+
+	if (tracecalls(tracee, g_traceipc[0], g_nullspace)) {
 		printf("tracecalls error: %d\n", tracee);
 		_exit(-1);
 	}
@@ -1212,15 +1149,25 @@ static int do_trace(pid_t tracee)
  */
 static int trace_fork(char **argv)
 {
+	int ipc[2];
 	pid_t p;
+	mode_t origmask;
+
+	origmask = umask(0027);
+	if (pipe2(ipc, O_CLOEXEC)) {
+		printf("trace pipe2: %s\n", strerror(errno));
+		return -1;
+	}
+	umask(origmask);
+
 	p = fork();
 	if (p == -1) {
 		return -1;
 	}
 	else if (p == 0) {
 		char buf[64];
-		mode_t origmask;
-		/* TODO -- install seccomp on tracer thread */
+
+		close(ipc[0]);
 		setuid(g_ruid);
 		origmask = umask(0027);
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, g_traceipc)) {
@@ -1246,26 +1193,29 @@ static int trace_fork(char **argv)
 		close(g_pty_notify[0]);
 		close(g_pty_notify[1]);
 		close(g_ptym);
-		/* drop tracer privs */
-		if (setregid(g_rgid, g_rgid)) {
-			printf("error setting gid(%d): %s\n",
-					g_rgid, strerror(errno));
-			return -1;
-		}
-	        if (setreuid(g_ruid, g_ruid)) {
-			printf("error setting uid(%d): %s\n",
-					g_ruid, strerror(errno));
+
+		if (p == -1) {
+			printf("jettison failed\n");
 			return -1;
 		}
 
-		if (clear_caps()) {
-			printf("clear_caps()\n");
+		/* send pid back to main thread */
+		while(write(ipc[1], &p, sizeof(p)) == -1)
+		{
+			if (errno != EINTR) {
+				printf("write: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+		if (setregid(g_rgid, g_rgid)) {
+			printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
 			return -1;
 		}
-		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-			printf("set no new privs failed\n");
+	        if (setreuid(g_ruid, g_ruid)) {
+			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
 			return -1;
 		}
+
 		if (do_trace(p)) {
 			printf("do_trace error\n");
 			exit_func();
@@ -1274,9 +1224,22 @@ static int trace_fork(char **argv)
 		return -1;
 	}
 
-	/* we will wait on tracer to exit */
+	/* get pid for graceful shutdown */
+	while(1)
+	{
+		int r = read(ipc[0], &p, sizeof(p));
+		if (r == sizeof(p))
+			break;
+		else if (r == -1 && errno == EINTR)
+			continue;
+		else {
+			printf("read(%d): %s\n", r, strerror(errno));
+			return -1;
+		}
+	}
+	close(ipc[0]);
+	close(ipc[1]);
 	g_newpid = p;
-	/* return to relay thread */
 	return 0;
 }
 
@@ -1473,7 +1436,6 @@ int main(int argc, char *argv[])
 
 	relayio_sigsetup();
 	relay_io(stdout_logfd);
-
 	return 0;
 }
 
