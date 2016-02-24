@@ -22,7 +22,6 @@
 int clear_caps();
 int print_caps();
 int downgrade_caps();
-int drop_caps();
 int capbset_drop(char fcaps[NUM_OF_CAPS]);
 
 unsigned int count_syscalls(int *syscalls, unsigned int count);

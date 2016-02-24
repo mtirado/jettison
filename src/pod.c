@@ -11,7 +11,6 @@
  * bugs: spaces / tabs after parameters may cause failure.
  *
  */
-
 #define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
@@ -625,8 +624,13 @@ int create_pathnode(char *params, size_t size, int home)
 			case 'x':
 				remountflags &= ~MS_NOEXEC;
 				break;
-			case 's': /* this is needed for file caps (i think) */
+			case 's':
+#ifdef USE_FILE_CAPS
 				remountflags &= ~MS_NOSUID;
+#else
+				printf("WARNING: ");
+				printf("s parameter disabled\n");
+#endif
 				break;
 			case 'd':
 				remountflags &= ~MS_NODEV;
@@ -912,9 +916,11 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char dest[MAX_SYSTEMPATH];
 	char path[MAX_SYSTEMPATH];
 	char syscall_buf[MAX_SYSCALL_DEFLEN];
+	int  syscall_nr;
+#ifdef USE_FILE_CAPS
+	int  cap_nr;
 	char cap_buf[MAX_CAP_DEFLEN];
-	int  syscall_nr, cap_nr;
-
+#endif
 	if (option >= KWCOUNT)
 		return -1;
 
@@ -1014,13 +1020,15 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		g_blkcalls[g_blkcall_idx] = syscall_nr;
 		++g_blkcall_idx;
 		break;
-	/* binds happen at the end of second pass */
+
+	/* moved to end of second pass */
 	case OPTION_FILE:
 	case OPTION_HOME:
 		break;
 
 	/* change to bounding set */
 	case OPTION_CAP_BSET:
+#ifdef USE_FILE_CAPS
 		if (params == NULL) {
 			printf("null parameter\n");
 			return -1;
@@ -1040,6 +1048,10 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		printf("cap(%d) requested: %s\n", cap_nr, cap_buf);
 		g_fcaps[cap_nr] = 1;
 		break;
+#else
+		printf("file capabilities are disabled\n");
+		return -1;
+#endif
 
 	default:
 		printf("unknown option\n");

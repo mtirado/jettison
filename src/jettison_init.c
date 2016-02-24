@@ -11,9 +11,12 @@
  * attaching from an ancestor process, and having your tracer continue it.
  */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <time.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>

@@ -1,5 +1,6 @@
 # some global defines
 DEFINES := 							\
+	-DUSE_FILE_CAPS						\
 	-DMAX_SYSTEMPATH=2048 					\
 	-DDEFAULT_STACKSIZE=4194304				\
 	-DPOD_PATH=\"/opt/pods\"				\
@@ -28,6 +29,10 @@ JETTISON_SRCS :=					\
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
 
+INIT_SRCS :=	./src/jettison_init.c		\
+		./src/eslib/eslib_file.c	\
+		./src/eslib/eslib_proc.c
+INIT_OBJS := $(INIT_SRCS:.c=.o)
 
 
 ########################################
@@ -58,13 +63,8 @@ $(JETTISON):		$(JETTISON_OBJS)
 			@echo "| jettison      OK |"
 			@echo "x------------------x"
 
-$(INIT):
-			@echo ""
-			$(CC) $(CFLAGS) 				\
-					./src/jettison_init.c		\
-					./src/eslib/eslib_file.c	\
-					./src/eslib/eslib_proc.c	\
-					-o $@
+$(INIT):		$(INIT_OBJS)
+			$(CC) $(LDFLAGS) $(INIT_OBJS) -o $@
 			@echo ""
 			@echo "x--------------------x"
 			@echo "| util: init      OK |"
@@ -86,6 +86,7 @@ $(UTIL_PRELOAD):
 ########################################
 clean:
 	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)
 
 	@-rm -fv ./$(JETTISON)
 	@-rm -fv ./$(UTIL_PRELOAD)

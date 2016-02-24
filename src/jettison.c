@@ -210,6 +210,15 @@ static int downgrade_relay()
 	}
 	i = 0;
 
+	if (clear_caps()) {
+		printf("clear_caps failed\n");
+		return -1;
+	}
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		printf("set no new privs failed\n");
+		return -1;
+	}
+
 	/*g_syscalls[i] = syscall_getnum("__NR_select");*/
 	g_syscalls[i]   = syscall_getnum("__NR__newselect");
 	g_syscalls[++i] = syscall_getnum("__NR_close");
@@ -228,11 +237,6 @@ static int downgrade_relay()
 				 count_syscalls(g_syscalls,MAX_SYSCALLS), 0,
 				 0, SECCOMP_RET_ERRNO)) {
 		printf("unable to apply seccomp filter\n");
-		return -1;
-	}
-
-	if (clear_caps()) {
-		printf("clear_caps failed\n");
 		return -1;
 	}
 
@@ -905,7 +909,6 @@ static int relay_io(int stdout_logfd)
 	memset(rbuf, 0, sizeof(rbuf));
 	memset(wbuf, 0, sizeof(wbuf));
 
-
 	if (g_daemon) {
 		if (stdout_logfd == -1) {
 			return 0;
@@ -915,7 +918,6 @@ static int relay_io(int stdout_logfd)
 			printf("stdio dup error: %s\n", strerror(errno));
 			return -1;
 		}
-		/* isolate this process + seccomp filter */
 		if(downgrade_relay()) {
 			printf("failed to downgrade relay\n");
 			return -1;
@@ -956,8 +958,7 @@ static int relay_io(int stdout_logfd)
 		}
 	}
 
-
-	/* isolate this process + seccomp filter */
+	/* non-daemon, route tty normally */
 	if(downgrade_relay()) {
 		printf("failed to downgrade relay\n");
 		return -1;
@@ -1257,17 +1258,12 @@ static int trace_fork(char **argv)
 			return -1;
 		}
 
-		memset(g_fcaps, 0, NUM_OF_CAPS);
-		if (capbset_drop(g_fcaps)) {
-			printf("failed to set bounding caps\n");
+		if (clear_caps()) {
+			printf("clear_caps()\n");
 			return -1;
 		}
 		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
 			printf("set no new privs failed\n");
-			return -1;
-		}
-		if (drop_caps()) {
-			printf("drop_caps()\n");
 			return -1;
 		}
 		if (do_trace(p)) {
@@ -1317,14 +1313,21 @@ int main(int argc, char *argv[])
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
 
-	if (getcwd(g_cwd, MAX_SYSTEMPATH) == NULL) {
-		printf("getcwd: %s\n", strerror(errno));
+#ifndef USE_FILE_CAPS
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		printf("set no new privs failed\n");
 		return -1;
 	}
+#endif
 
 	/* create files in root group */
 	if (setgid(0)) {
 		printf("error setting gid(%d): %s\n", 0, strerror(errno));
+		return -1;
+	}
+
+	if (getcwd(g_cwd, MAX_SYSTEMPATH) == NULL) {
+		printf("getcwd: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -1467,16 +1470,6 @@ int main(int argc, char *argv[])
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
 	close(g_daemon_pipe[1]);
-
-	memset(g_fcaps, 0, NUM_OF_CAPS);
-	if (capbset_drop(g_fcaps)) {
-		printf("failed to set bounding caps\n");
-		return -1;
-	}
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-		printf("set no new privs failed\n");
-		return -1;
-	}
 
 	relayio_sigsetup();
 	relay_io(stdout_logfd);

@@ -877,6 +877,7 @@ int clear_caps()
 {
 	struct __user_cap_header_struct hdr;
 	struct __user_cap_data_struct   data[2];
+	int i;
 
 	memset(&hdr, 0, sizeof(hdr));
 	memset(data, 0, sizeof(data));
@@ -884,12 +885,28 @@ int clear_caps()
 	hdr.pid = syscall(__NR_gettid);
 	hdr.version = _LINUX_CAPABILITY_VERSION_3;
 
+	/* clear bounding set */
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		/* allow requested file caps if not blacklisted */
+		if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+			if (i > CAP_LAST_CAP)
+				break;
+			else if (errno == EINVAL) {
+				printf("cap not found: %d\n", i);
+				return -1;
+			}
+			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
+			return -1;
+		}
+	}
 	if (capset(&hdr, data)) {
 		printf("capset: %s\n", strerror(errno));
 		printf("cap version: %p\n", (void *)hdr.version);
 		printf("pid: %d\n", hdr.pid);
 		return -1;
 	}
+
 	return 0;
 }
 
@@ -914,11 +931,9 @@ int print_caps()
 }
 
 /*
- * lock down the potential privileges that could be gained via filesystem,
- * and remove all capabilities this program does not require.
+ * remove all capabilities this program does not require.
  *
  * an fcap should be either 0 or 1
- *
  * returns 0,  -1 on error.
  */
 int downgrade_caps()
@@ -962,26 +977,6 @@ int downgrade_caps()
 		return -1;
 	}
 
-	return 0;
-}
-
-
-/* drop everything or caps get left over, tracer thread never calls exex */
-int drop_caps()
-{
-	struct __user_cap_header_struct hdr;
-	struct __user_cap_data_struct   data[2];
-	memset(&hdr, 0, sizeof(hdr));
-	memset(data, 0, sizeof(data));
-	hdr.pid = syscall(__NR_gettid);
-	hdr.version = _LINUX_CAPABILITY_VERSION_3;
-
-	if (capset(&hdr, data)) {
-		printf("capset: %s\r\n", strerror(errno));
-		printf("cap version: %p\r\n", (void *)hdr.version);
-		printf("pid: %d\r\n", hdr.pid);
-		return -1;
-	}
 	return 0;
 }
 
