@@ -199,15 +199,8 @@ void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
 	*/
 	printf("\r\n");
 
-	/* TODO */
-	/*printf("TODO: seccomp_disable option to always return ENOSYS for a call\r\n");
-	printf("useful for blocking dangerous calls programs make without killing\r\n");
-	printf("while still preserving RET_KILL behavior for unexpected calls\r\n");
-	printf("\r\n");*/
-
 }
 
-/* uses /opt/pods/.nullspace as chroot directory */
 static int downgrade_tracer(char *jailpath)
 {
 	int syscalls[MAX_SYSCALLS];
@@ -229,7 +222,7 @@ static int downgrade_tracer(char *jailpath)
 	syscalls[++i] = syscall_getnum("__NR_exit");
 	syscalls[++i] = syscall_getnum("__NR_exit_group");
 	syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
+	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
 	if (jail_process(jailpath, syscalls, SECCOPT_PTRACE)) {
 		printf("jail_process failed\n");
