@@ -665,7 +665,11 @@ static void relayio_sighand(int signum)
 		handle_sigwinch();
 		break;
 	case SIGTERM:
-		kill(g_initpid, SIGTERM);
+	case SIGHUP:
+	case SIGUSR1:
+	case SIGUSR2:
+	case SIGQUIT:
+		kill(g_initpid, signum);
 		break;
 	default:
 		exit_func();
@@ -679,7 +683,6 @@ static void relayio_sigsetup()
 {
 	signal(SIGTERM,   relayio_sighand);
 	signal(SIGINT,    relayio_sighand);
-	signal(SIGHUP,    relayio_sighand);
 	signal(SIGQUIT,   relayio_sighand);
 	signal(SIGILL,    relayio_sighand);
 	signal(SIGABRT,   relayio_sighand);
@@ -687,8 +690,6 @@ static void relayio_sigsetup()
 	signal(SIGSEGV,   relayio_sighand);
 	signal(SIGPIPE,   relayio_sighand);
 	signal(SIGALRM,   relayio_sighand);
-	signal(SIGUSR1,   relayio_sighand);
-	signal(SIGUSR2,   relayio_sighand);
 	signal(SIGBUS,    relayio_sighand);
 	signal(SIGPOLL,   relayio_sighand);
 	signal(SIGIO,     relayio_sighand);
@@ -701,6 +702,11 @@ static void relayio_sigsetup()
 	signal(SIGSTKFLT, relayio_sighand);
 	signal(SIGUNUSED, relayio_sighand);
 	signal(SIGTRAP,   relayio_sighand);
+
+	/* forward these */
+	signal(SIGHUP,    relayio_sighand);
+	signal(SIGUSR1,   relayio_sighand);
+	signal(SIGUSR2,   relayio_sighand);
 
 	if (!g_daemon) {
 		signal(SIGWINCH, relayio_sighand);

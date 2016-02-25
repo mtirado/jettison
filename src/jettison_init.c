@@ -34,9 +34,13 @@ static void sighand(int signum)
 	{
 		case SIGTERM:
 		case SIGINT:
-		case SIGHUP:
 		case SIGQUIT:
 			terminating = 1;
+			break;
+		case SIGHUP:
+		case SIGUSR1:
+		case SIGUSR2:
+			kill(-1, signum);
 			break;
 		default:
 			break;
@@ -50,10 +54,12 @@ static void sigsetup()
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighand;
 
-	sigaction(SIGTERM, &sa, NULL);
-	sigaction(SIGQUIT, &sa, NULL);
-	sigaction(SIGINT,  &sa, NULL);
-	sigaction(SIGHUP,  &sa, NULL);
+	sigaction(SIGTERM,  &sa, NULL);
+	sigaction(SIGQUIT,  &sa, NULL);
+	sigaction(SIGINT,   &sa, NULL);
+	sigaction(SIGHUP,   &sa, NULL);
+	sigaction(SIGUSR1,  &sa, NULL);
+	sigaction(SIGUSR2,  &sa, NULL);
 }
 static void terminator()
 {
