@@ -134,6 +134,7 @@ static int create_nullspace()
 {
 	memset(g_nullspace, 0, sizeof(g_nullspace));
 	snprintf(g_nullspace, sizeof(g_nullspace), "%s/.nullspace", POD_PATH);
+
 	if (eslib_file_exists(POD_PATH) != 1) {
 		printf("directory missing: %s\n", POD_PATH);
 		return -1;
@@ -141,7 +142,16 @@ static int create_nullspace()
 	if (eslib_file_path_check(g_nullspace))
 		return -1;
 
-	/* directory may have not been created yet */
+	/* unlink directory, nothing here needs persistent storage */
+	if (eslib_file_exists(g_nullspace) == 1) {
+		if (rmdir(g_nullspace)) {
+			printf("could not rmdir %s\n", strerror(errno));
+			printf("check that no files were created in %s\n", g_nullspace);
+			printf("this should never happen.\n");
+			return -1;
+		}
+	}
+	/* create new nullspace directory */
 	if (eslib_file_mkdirpath(g_nullspace, 0755, 0) != 0) {
 		printf("could not create: %s\n", g_nullspace);
 		return -1;
@@ -150,7 +160,7 @@ static int create_nullspace()
 	return 0;
 }
 
-/* uses /opt/pods/.nullspace as chroot directory */
+/* uses POD_PATH/.nullspace as chroot directory */
 static int downgrade_relay()
 {
 	unsigned int i;

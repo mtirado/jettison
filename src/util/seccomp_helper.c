@@ -23,10 +23,6 @@
 #include <sys/syscall.h>
 #include "seccomp_helper.h"
 
-#ifndef SECCOMP_MODE_FILTER_DEFERRED
-	#define SECCOMP_MODE_FILTER_DEFERRED (-1)
-#endif
-
 /* translate config file strings to syscall number */
 struct sc_translate
 {
@@ -790,6 +786,9 @@ static int cap_blisted(unsigned long cap)
 		case CAP_MKNOD:
 			printf("CAP_MKNOD is prohibited\n");
 			return 1;
+		case CAP_SYS_MODULE:
+			printf("CAP_SYS_MODULE is prohibited\n");
+			return 1;
 		case CAP_SETPCAP:
 			printf("CAP_SETPCAP is prohibited\n");
 			return 1;
@@ -831,9 +830,6 @@ static int cap_blisted(unsigned long cap)
 			return 1;
 		case CAP_KILL:
 			printf("CAP_KILL is prohibited\n");
-			return 1;
-		case CAP_SYS_MODULE:
-			printf("CAP_SYS_MODULE is prohibited\n");
 			return 1;
 		case CAP_SYS_TIME:
 			printf("CAP_SYS_TIME is prohibited\n");
@@ -916,8 +912,6 @@ int print_caps()
 
 /*
  * remove all capabilities this program does not require.
- *
- * an fcap should be either 0 or 1
  * returns 0,  -1 on error.
  */
 int downgrade_caps()
