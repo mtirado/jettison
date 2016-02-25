@@ -2,11 +2,7 @@
  *
  * ptrace thread that looks for SECCOMP_RET_TRAP filter returns via SIGSYS
  *
- * TODO - This uses SECCOMP_RET_DATA to identify bad systemcalls.
- * 	  Our seccomp filter will have to block future seccomp filters from
- * 	  being installed, as they would be able to send false signals back
- * 	  to us. this could be avoided by doing strace style detection, but
- * 	  could end up being a terrible arch-specific #define mess.
+ * This uses SECCOMP_RET_DATA to identify bad systemcalls.
  *
  */
 
