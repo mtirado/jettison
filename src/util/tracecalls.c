@@ -109,7 +109,7 @@ void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
 	/* sort high to low */
 	for (i = 0; i < numbers-1; ++i)
 	{
-		for (z = 0; z < numbers - i - 1; ++z)
+		for (z = 0; z < count - i - 1; ++z)
 		{
 			if (sc_cmplt(&info[z], &info[z+1])) {
 				memcpy(&tmp, &info[z], sizeof(tmp));
@@ -121,7 +121,7 @@ void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
 
 	printf("\r\n");
 	printf("---------  system call frequency ---------\r\n");
-	for (i = 0; i < numbers; ++i)
+	for (i = 0; i < count; ++i)
 	{
 		if (info[i].callnum == -1)
 			continue;
@@ -246,7 +246,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
     int ret;
     pid_t curpid;
     long sigsend;
-    long numbers;
+    long count;
     struct sc_info *info = NULL;
     unsigned long unknown[2];
 
@@ -254,15 +254,15 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	    return -1;
     g_pid = p;
     sigsetup();
-    /* +1 to get count of 0 based syscall numbers */
-    numbers = syscall_gethighest() + 1;
-    info = malloc(numbers * sizeof(struct sc_info));
-    if (info == NULL || numbers == 0)
+    /* +1 to get count of 0 based syscall count */
+    count = syscall_gethighest() + 1;
+    info = malloc(count * sizeof(struct sc_info));
+    if (info == NULL || count == 0)
 	    _exit(-1);
-    memset(info, 0, numbers * sizeof(struct sc_info));
+    memset(info, 0, count * sizeof(struct sc_info));
     unknown[0] = 0;
     unknown[1] = 0;
-    sc_init(info, numbers);
+    sc_init(info, count);
     status = 0;
 
     /* open pod template in cwd before we jail process */
@@ -326,7 +326,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	curpid = waitpid(-1, &status, __WALL);
 	if (curpid == -1) {
 		printf("waitpid: %s\r\n", strerror(errno));
-		print_stats(info, numbers, podfile);
+		print_stats(info, count, podfile);
 		_exit(-1);
 	}
 	if ((WIFEXITED(status) || WIFSIGNALED(status))) {
@@ -336,7 +336,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 			printf("\r\n\r\n");
 			printf("[%lu:%lu] unknown system calls made\r\n",
 					unknown[1], unknown[0]);
-			print_stats(info, numbers, podfile);
+			print_stats(info, count, podfile);
 			_exit(0);
 		}
 	}
@@ -348,7 +348,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 			ret = ptrace(PTRACE_GETSIGINFO, curpid, NULL, &sig);
 			if (ret == -1) {
 				printf("ptrace_getsiginfo: %s\r\n", strerror(errno));
-				print_stats(info, numbers, podfile);
+				print_stats(info, count, podfile);
 				_exit(-1);
 			}
 			if (sig.si_code == SYS_SECCOMP) {
@@ -378,7 +378,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 				ret = ptrace(PTRACE_POKEUSER, curpid, REG_RETVAL,setret);
 				if (ret == -1) {
 					printf("ptrace_pokeuser:%s\r\n",strerror(errno));
-					print_stats(info, numbers, podfile);
+					print_stats(info, count, podfile);
 					_exit(-1);
 				}
 			}
@@ -404,7 +404,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 		else if (callnum == -1) {
 			printf("ptrace_peekuser: %s\r\n", strerror(errno));
 		}
-		else if (callnum < numbers) {
+		else if (callnum < count) {
 			sc_incr(info[callnum].counter);
 		}
 		else {
