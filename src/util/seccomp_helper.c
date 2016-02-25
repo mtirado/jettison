@@ -680,7 +680,7 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	}
 
 	/* our init process needs to setup signals, fork exec waitpid kill exit */
-	SECBPF_JEQ(prog, i, __NR_signal, 0, 1);
+	SECBPF_JEQ(prog, i, __NR_sigaction, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	SECBPF_JEQ(prog, i, __NR_sigreturn, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);

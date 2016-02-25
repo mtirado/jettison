@@ -45,21 +45,36 @@ static void sighand(int signum)
 /* catch basic termination sigs */
 static void sigsetup()
 {
+	struct sigaction sa;
 	terminating = 0;
-	signal(SIGTERM, sighand);
-	signal(SIGQUIT, sighand);
-	signal(SIGINT,  sighand);
-	signal(SIGHUP,  sighand);
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = sighand;
+
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGQUIT, &sa, NULL);
+	sigaction(SIGINT,  &sa, NULL);
+	sigaction(SIGHUP,  &sa, NULL);
 }
 static void terminator()
 {
+	struct timespec request, remain;
 	int i, status;
 	pid_t p;
 	printf("propagating termination signal\n");
 	kill(-1, SIGTERM);
-	/* give programs 10ish seconds to exit */
-	for (i = 0; i < 1000; ++i) {
-		usleep(10000);
+	/* give programs 10 seconds to exit before killing */
+	for (i = 0; i < 10; ++i)
+	{
+		request.tv_sec  = 1;
+		request.tv_nsec = 0;
+		remain.tv_sec   = 0;
+		remain.tv_nsec  = 0;
+re_sleep:
+		if (nanosleep(&request, &remain)) {
+			request.tv_sec = remain.tv_sec;
+			request.tv_nsec = remain.tv_nsec;
+			goto re_sleep;
+		}
 		p = waitpid(-1, &status, WNOHANG);
 		if (p == 0) {
 			continue;
@@ -170,15 +185,13 @@ int main(int argc, char *argv[])
 	while (1)
 	{
 		int status;
-		p = waitpid(-1, &status, WNOHANG);
-		usleep(1000);
 		if (terminating)
 			terminator();
+		p = waitpid(-1, &status, 0);
 		if (p == -1 && errno == ECHILD) {
-			printf("fin.\n");
 			return 0;
 		}
-		else if (p == -1) {
+		else if (p == -1 && errno != EINTR) {
 			printf("waitpid: %s\n", strerror(errno));
 			return -1;
 		}
