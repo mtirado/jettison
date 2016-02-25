@@ -39,7 +39,7 @@
 	#define REG_RETVAL  (4 * EAX)
 #endif
 extern char **environ;
-pid_t g_pid;
+
 /*
  * 64bit counter for pedantic C89 compilers. 32bit may not be enough to
  * properly sort with if trace left running for extensive periods.
@@ -227,16 +227,12 @@ static int downgrade_tracer(char *jailpath)
 	return 0;
 }
 
-static void sighand(int signum)
-{
-	printf("tracer got signal: %d\n", signum);
-}
 static void sigsetup()
 {
-	signal(SIGTERM,   sighand);
-	signal(SIGINT,    sighand);
-	signal(SIGHUP,    sighand);
-	signal(SIGQUIT,   sighand);
+	signal(SIGTERM,   SIG_IGN);
+	signal(SIGINT,    SIG_IGN);
+	signal(SIGHUP,    SIG_IGN);
+	signal(SIGQUIT,   SIG_IGN);
 }
 
 int tracecalls(pid_t p, int ipc, char *jailpath)
@@ -252,7 +248,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 
     if (!jailpath)
 	    return -1;
-    g_pid = p;
+
     sigsetup();
     /* +1 to get count of 0 based syscall count */
     count = syscall_gethighest() + 1;

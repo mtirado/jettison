@@ -27,37 +27,16 @@
 
 extern char **environ;
 char g_procname[MAX_PROCNAME];
-
+sig_atomic_t terminating;
 static void sighand(int signum)
 {
-	int i, status;
-	pid_t p;
-	printf("jettison_init got signal: %d\n", signum);
 	switch (signum)
 	{
 		case SIGTERM:
 		case SIGINT:
 		case SIGHUP:
 		case SIGQUIT:
-			printf("propagating termination signal\n");
-			kill(-1, SIGTERM);
-			/* give programs 10ish seconds to exit */
-			for (i = 0; i < 10000; ++i) {
-				usleep(1000);
-				p = waitpid(-1, &status, WNOHANG);
-				if (p == 0) {
-					continue;
-				}
-				else if (p != -1) {
-					printf("exited: %d\n", p);
-				}
-				else if (p == -1 && errno == ECHILD) {
-					break;
-				}
-			}
-			printf("terminating.\n");
-			kill(-1, SIGKILL);
-			_exit(0);
+			terminating = 1;
 			break;
 		default:
 			break;
@@ -66,10 +45,35 @@ static void sighand(int signum)
 /* catch basic termination sigs */
 static void sigsetup()
 {
+	terminating = 0;
 	signal(SIGTERM, sighand);
 	signal(SIGQUIT, sighand);
 	signal(SIGINT,  sighand);
 	signal(SIGHUP,  sighand);
+}
+static void terminator()
+{
+	int i, status;
+	pid_t p;
+	printf("propagating termination signal\n");
+	kill(-1, SIGTERM);
+	/* give programs 10ish seconds to exit */
+	for (i = 0; i < 1000; ++i) {
+		usleep(10000);
+		p = waitpid(-1, &status, WNOHANG);
+		if (p == 0) {
+			continue;
+		}
+		else if (p != -1) {
+			printf("exited: %d\n", p);
+		}
+		else if (p == -1 && errno == ECHILD) {
+			break;
+		}
+	}
+	printf("terminating.\n");
+	kill(-1, SIGKILL);
+	_exit(0);
 }
 
 /* arg[1] should be full program path */
@@ -166,7 +170,10 @@ int main(int argc, char *argv[])
 	while (1)
 	{
 		int status;
-		p = waitpid(-1, &status, 0);
+		p = waitpid(-1, &status, WNOHANG);
+		usleep(1000);
+		if (terminating)
+			terminator();
 		if (p == -1 && errno == ECHILD) {
 			printf("fin.\n");
 			return 0;

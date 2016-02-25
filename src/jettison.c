@@ -82,7 +82,7 @@ void *g_filterdata;
 char *g_progpath;
 char g_procname[MAX_PROCNAME];
 char g_pid1name[MAX_PROCNAME];
-int  g_newpid; /* process to wait for */
+int  g_initpid; /* jettison_init process */
 
 int g_daemon;
 int g_logoutput;
@@ -636,7 +636,7 @@ struct termios g_origterm;
 void exit_func()
 {
 	/* send pid1 sigterm to propagate to new namespace */
-	kill(g_newpid, 15);
+	kill(g_initpid, SIGTERM);
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 }
@@ -659,14 +659,19 @@ static int handle_sigwinch()
 
 static void relayio_sighand(int signum)
 {
-	if (signum == SIGWINCH) {
-		if (handle_sigwinch())
-			printf("sigwinch handler: %s\n", strerror(errno));
-		return;
+	switch (signum)
+	{
+	case SIGWINCH:
+		handle_sigwinch();
+		break;
+	case SIGTERM:
+		kill(g_initpid, SIGTERM);
+		break;
+	default:
+		exit_func();
+		exit(-1);
+		break;
 	}
-	printf("jettison received signal: %d\n", signum);
-	exit_func();
-	exit(-1);
 }
 
 /* catch everything short of a sigkill */
@@ -774,7 +779,6 @@ static int logwrite(int fd, char *buf, int bytes)
 {
 	while(bytes > 0)
 	{
-		/* TODO catch all terminating signals and kill daemon */
 		int r = write(fd, buf, bytes);
 		if (r == bytes) {
 			break;
@@ -872,7 +876,7 @@ static int relay_io(int stdout_logfd)
 		while (1)
 		{
 			tmr.tv_usec = 0;
-			tmr.tv_sec = 5;
+			tmr.tv_sec = 10;
 			FD_ZERO(&rds);
 			FD_SET(g_daemon_pipe[0], &rds);
 
@@ -885,7 +889,7 @@ static int relay_io(int stdout_logfd)
 					}
 				}
 				else if (r == -1 && errno == EINTR) {
-					;
+					continue;
 				}
 				else if (r == 0) {
 					printf("daemon_pipe EOF\n");
@@ -897,7 +901,6 @@ static int relay_io(int stdout_logfd)
 				}
 			}
 			if (waitpid(-1, &status, WNOHANG) == -1) {
-				printf("daemon exited\n");
 				close(stdout_logfd);
 				return 0;
 			}
@@ -925,27 +928,24 @@ static int relay_io(int stdout_logfd)
 	while(loop)
 	{
 		tmr.tv_usec = 0;
-		tmr.tv_sec = 5;
+		tmr.tv_sec = 10;
 
-		/* wait for event */
-		FD_ZERO(&rds);
-		FD_ZERO(&wrs);
-		FD_SET(ours, &rds);
-		FD_SET(ours, &wrs);
-		FD_SET(theirs, &wrs);
-		FD_SET(theirs, &rds);
-
-		if (waitpid(g_newpid, &status, WNOHANG) == g_newpid) {
-			printf("process exiting\n");
-			loop = 0;
+		if (waitpid(g_initpid, &status, WNOHANG) == g_initpid) {
 			wbytes = 0;
 		}
 		/* waiting on them to consume wbuf */
 		if (wbytes) {
-			r = select(highfd, NULL, &wrs, NULL, &instant);
-			if (r == -1 && errno != EINTR) {
-				printf("writeset select(): %s\n", strerror(errno));
-				goto fatal;
+			FD_ZERO(&wrs);
+			FD_SET(theirs, &wrs);
+			r = select(theirs+1, NULL, &wrs, NULL, &instant);
+			if (r == -1) {
+				if (errno != EINTR) {
+					printf("writeset select(): %s\n", strerror(errno));
+					goto fatal;
+				}
+				else {
+					continue;
+				}
 			}
 			if (FD_ISSET(theirs, &wrs)) {
 				r = pushbuf(theirs, &wbuf[wpos], wbytes - wpos);
@@ -963,18 +963,24 @@ static int relay_io(int stdout_logfd)
 					}
 					else if (wpos > wbytes) {
 						printf("relay io write error\n");
-						return -1;
+						goto fatal;
 					}
 				}
 			}
 		}
 		else {
+			FD_ZERO(&rds);
+			FD_SET(ours, &rds);
+			FD_SET(theirs, &rds);
 			/* check read set for input wait until data is ready. */
 			r = select(highfd, &rds, NULL, NULL, &tmr);
 			if (r == -1) {
 				if (errno != EINTR) { /* we have a sighandler for this */
 					printf("select(): %s\n", strerror(errno));
 					goto fatal;
+				}
+				else {
+					continue;
 				}
 			}
 			/* read input from our side, and buffer it */
@@ -1002,7 +1008,7 @@ static int relay_io(int stdout_logfd)
 					}
 					if (stdout_logfd != -1) {
 						if (logwrite(stdout_logfd, rbuf, r)) {
-							return -1;
+							goto fatal;
 						}
 					}
 				}
@@ -1249,7 +1255,7 @@ static int trace_fork(char **argv)
 	}
 	close(ipc[0]);
 	close(ipc[1]);
-	g_newpid = p;
+	g_initpid = p;
 	return 0;
 }
 
@@ -1261,8 +1267,8 @@ int main(int argc, char *argv[])
 	g_ruid = getuid();
 	g_rgid = getgid();
 	g_ptym = -1;
-	g_newpid = 0;
 	g_daemon = 0;
+	g_initpid = 0;
 	g_podflags = 0;
 	g_logoutput = 0;
 	stdout_logfd = -1;
@@ -1422,9 +1428,9 @@ int main(int argc, char *argv[])
 	}
 	else {
 		argv[0] = g_pid1name;
-		g_newpid = jettison_program(g_executable_path, argv, g_stacksize,
+		g_initpid = jettison_program(g_executable_path, argv, g_stacksize,
 					    g_podflags, NULL, NULL);
-		if (g_newpid == -1) {
+		if (g_initpid == -1) {
 			printf("jettison failure\n");
 			usleep(200000);
 			return -1;
