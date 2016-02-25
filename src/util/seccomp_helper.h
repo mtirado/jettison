@@ -68,8 +68,5 @@ unsigned int syscall_gethighest();
 /* returns total number of systemcall entries in sc_translate table */
 unsigned int syscall_tablesize();
 
-/* print every time process or ancestors make systemcall not permitted on whitelist */
-int seccomp_run_trace(pid_t p);
-
 
 #endif

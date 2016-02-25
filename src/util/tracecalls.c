@@ -84,13 +84,13 @@ static int sc_cmplt(struct sc_info *lhs, struct sc_info *rhs)
  * prints systemcall stats sorted by frequency
  * also generates a configuration file ./podtemplate.pod
  */
-void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
+void print_stats(struct sc_info *info, unsigned int count, int podfile)
 {
 	unsigned int i, z;
 	struct sc_info tmp;
 	int fstatus = 0;
 
-	for (i = 0; i < numbers; ++i)
+	for (i = 0; i < count; ++i)
 	{
 		/* only one seccomp filter installed, so this should not happen */
 		if (info[i].sigsys[1] > 0 || info[i].sigsys[0] > 0) {
@@ -107,7 +107,7 @@ void print_stats(struct sc_info *info, unsigned int numbers, int podfile)
 	}
 
 	/* sort high to low */
-	for (i = 0; i < numbers-1; ++i)
+	for (i = 0; i < count-1; ++i)
 	{
 		for (z = 0; z < count - i - 1; ++z)
 		{
