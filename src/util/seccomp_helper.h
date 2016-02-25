@@ -9,8 +9,9 @@
 #define NUM_OF_CAPS 64
 
 /* SECCOMP_RET_DATA values,
- * these are only reliable if new process is unable to add
- * additional seccomp filters, through seccomp logic or other means
+ * these are only reliable if new process is unable to install
+ * additional seccomp filters using SECCOPT_BLOCKNEW. another
+ * idea is a prctl like NO_NEW_PRIVS, NO_NEW_SECCOMP ?
  */
 #define SECCRET_DENIED 0xF0FF
 
