@@ -285,21 +285,30 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 int pod_enter()
 {
 	int r;
-	char pathbuff[MAX_SYSTEMPATH];
+	char pathbuf[MAX_SYSTEMPATH];
 	unsigned long flags = MS_NOSUID
 			    | MS_NOEXEC
 			    | MS_NODEV
 			    | MS_RDONLY;
-	/* proc cannot be mounted MS_UNBINDABLE (3.10) */
 
+	snprintf(pathbuf, sizeof(pathbuf), "%s/proc", g_chroot_path);
 	if ((g_podflags & (1 << OPTION_NOPROC)) == 0) {
-		memset(pathbuff, 0, sizeof(pathbuff));
-		strncpy(pathbuff, g_chroot_path, sizeof(pathbuff)-7);
-		strncat(pathbuff, "/proc", 5);
-		mkdir(pathbuff, 0755);
-		if (mount(0, pathbuff, "proc", flags, 0) < 0) {
-			printf("couldn't mount proc(%s): %s\n",pathbuff,strerror(errno));
+		mkdir(pathbuf, 0755);
+		if (mount(0, pathbuf, "proc", flags, 0) < 0) {
+			printf("couldn't mount proc(%s): %s\n",pathbuf,strerror(errno));
 			goto err_free;
+		}
+	}
+	else {
+		r = eslib_file_exists(pathbuf);
+		if (r == 1) {
+			if (rmdir(pathbuf)) {
+				printf("proc rmdir failed: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+		else if (r == -1) {
+			return -1;
 		}
 	}
 
@@ -953,7 +962,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* caller is responsible for hooking these up */
 	case OPTION_NEWNET:
+	case OPTION_NOPROC:
 	case OPTION_SLOG:
+
 		break;
 
 	/* give pod it's own pseudo terminal instance */

@@ -232,13 +232,8 @@ static int change_environ()
 }
 
 /* called from within new thread */
-int jettison_initiate(unsigned int podflags)
+int jettison_initiate()
 {
-	int retval;
-	int noproc = (podflags & (1 << OPTION_NOPROC));
-	struct stat st;
-
-
 	/* filter callback, for closing fd's and whatnot */
 	if (g_filter && g_filter(g_filterdata)) {
 		printf("clone filter failed\n");
@@ -246,24 +241,10 @@ int jettison_initiate(unsigned int podflags)
 	}
 
 	/* enter pod environment */
-	if ((retval = pod_enter()) < 0) {
-		printf("pod_enter failure: %d\n", retval);
-		return -2;
+	if (pod_enter()) {
+		printf("pod_enter failure\n");
+		return -1;
 	}
-
-
-	memset(&st, 0, sizeof(st));
-	retval = stat("/proc", &st);
-	if (noproc && retval != -1 && S_ISDIR(st.st_mode)) {
-		if (umount("/proc")) {
-			printf("could not unmount /proc\n");
-			return -3;
-		}
-	}
-	else if (retval == -1) {
-		printf("/proc is missing, or is not a directory.\n");
-	}
-
 
 	return 0;
 }
@@ -304,7 +285,7 @@ int jettison_clone_func(void *data)
 	}
 	close(g_pty_notify[1]);
 	/* enter pod environment */
-	if (jettison_initiate(g_podflags) < 0) {
+	if (jettison_initiate()) {
 		return -1;
 	}
 
@@ -639,6 +620,8 @@ void exit_func()
 	kill(g_initpid, SIGTERM);
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
+	printf("jettison_exit\n");
+	usleep(200000);
 }
 
 /* terminal resize message */
