@@ -125,7 +125,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size);
 static char keywords[KWCOUNT][KWLEN] =
 {
 	{ "rootpidns"	},  /* don't create a new pid namespace */
-	{ "newnetns"	},  /* create new network namespace TODO how to */
+	{ "newnet"	},  /* create new network namespace TODO how to */
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
 	{ "slog"	},  /* pod wants to write to system log */
@@ -951,8 +951,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	switch (option)
 	{
 
+	/* caller is responsible for hooking these up */
+	case OPTION_NEWNET:
 	case OPTION_SLOG:
-		/* caller is responsible for hooking this up */
 		break;
 
 	/* give pod it's own pseudo terminal instance */

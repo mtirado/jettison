@@ -78,6 +78,10 @@ use cap_bset to specify which file capabilities should be added to bounding set
 `cap_bset CAP_NET_RAW`  or any non-blacklisted cap from \<linux/capablilitiy.h\>
 
 
+##newnet
+create a new network namespace, which effectively disables networking
+
+
 ##bugs
 
 currently hardcoded for AUDIT_ARCH_I386, you will have to change
