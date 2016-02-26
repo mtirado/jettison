@@ -81,6 +81,8 @@ use cap_bset to specify which file capabilities should be added to bounding set
 ##newnet
 create a new network namespace, which effectively disables networking
 
+##noproc
+disable /proc filesystem
 
 ##bugs
 
