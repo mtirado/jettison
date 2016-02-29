@@ -84,6 +84,10 @@ create a new network namespace, which effectively disables networking
 ##noproc
 disable /proc filesystem
 
+##home_exec
+if $HOME is not whitelisted /podhome is remounted as an empty node with r/w flags
+using home_exec will add the execution flag
+
 ##bugs
 
 currently hardcoded for AUDIT_ARCH_I386, you will have to change
