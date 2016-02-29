@@ -72,8 +72,9 @@ static char *g_blacklist_paths[] =
 #define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
 
 /* node flags */
-#define NODE_HOME  1 /* node created using home option */
-#define NODE_EMPTY 2 /* mounted on itself (dest/dest) instead of (src/dest) */
+#define NODE_HOME     1 /* node created using home option */
+#define NODE_EMPTY    2 /* mounted on itself (dest/dest) instead of (src/dest) */
+#define NODE_HOMEROOT 4 /* home root is a special case that must be sorted */
 
 /* bind mount data */
 struct path_node
@@ -117,6 +118,9 @@ char g_chroot_path[MAX_SYSTEMPATH];
 
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
+
+/* home root is a special case since eslib considers / to be an invalid path */
+struct path_node *g_homeroot;
 
 /*
  * This keyword array is in sync with the option enum in pod.h
@@ -190,6 +194,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	g_syscall_idx = 0;
 	g_blkcall_idx = 0;
+	g_homeroot = NULL;
 
 	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
 	{
@@ -373,51 +378,6 @@ static int do_chroot_setup()
 }
 
 
-/*
- * get $HOME string from environment, could make this optional to read
- * from /etc/passwd instead of letting user set it from environment.
- */
-extern char **environ;
-char *gethome()
-{
-	char **env = environ;
-	char *r;
-	ino_t root_ino;
-	ino_t file_ino;
-	unsigned int len;
-	if (env == NULL) {
-		printf("no environ??\n");
-		return NULL;
-	}
-	while(*env)
-	{
-		if (strncmp(*env, "HOME=", 5) == 0) {
-			r = &(*env)[5];
-			len = strnlen(r, MAX_SYSTEMPATH);
-			if (len >= MAX_SYSTEMPATH || len == 0)
-				return NULL;
-			if (eslib_file_path_check(r))
-				return NULL;
-			root_ino = eslib_file_getino("/");
-			file_ino = eslib_file_getino(r);
-			if (root_ino == 0 || file_ino == 0) {
-				return NULL;
-			}
-			if (root_ino == file_ino) {
-				printf("home cannot be \"/\" (root inode)\n");
-				return NULL;
-			}
-			if (chop_trailing(r, len+1, '/')) {
-				return NULL;
-			}
-			return r;
-		}
-		++env;
-	}
-	printf("could not find $HOME environment variable\n");
-	return NULL;
-}
-
 /* returns -1 on error
  * 1 if path starts with blacklisted path string
  * 0 no match
@@ -491,6 +451,79 @@ esrch:
 	return -1;
 }
 
+/*
+ * get $HOME string from environment, could make this optional to read
+ * from /etc/passwd instead of letting user set it from environment.
+ */
+extern char **environ;
+char *gethome()
+{
+	char **env = environ;
+	char *path = NULL;
+	int r;
+	ino_t root_ino;
+	ino_t file_ino;
+	unsigned int len;
+	uid_t fuid;
+
+	if (env == NULL) {
+		printf("no environ??\n");
+		return NULL;
+	}
+	while(*env)
+	{
+		if (strncmp(*env, "HOME=", 5) == 0) {
+			path = &(*env)[5];
+			len = strnlen(path, MAX_SYSTEMPATH);
+			if (len >= MAX_SYSTEMPATH || len == 0)
+				goto bad_path;
+			if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+				goto bad_path;
+			if (eslib_file_path_check(path))
+				goto bad_path;
+			r = eslib_file_exists(path);
+			if (r == -1 || r == 0)
+				goto bad_path;
+
+			root_ino = eslib_file_getino("/");
+			file_ino = eslib_file_getino(path);
+			if (root_ino == 0 || file_ino == 0) {
+				printf("inode error\n");
+				return NULL;
+			}
+			if (root_ino == file_ino) {
+				printf("home(%s) cannot be a root inode\n", path);
+				return NULL;
+			}
+			/* validate homepath */
+			if (check_blacklisted(path)) {
+				printf("$HOME is blacklisted: %s\n", path);
+				return NULL;
+			}
+			if (eslib_file_isdir(path) != 1) {
+				printf("$HOME is not a directory: %s\n", path);
+				return NULL;
+			}
+			fuid = eslib_file_getuid(path);
+			if (fuid == (uid_t)-1)
+				return NULL;
+			if (fuid != g_ruid) {
+				printf("$HOME permission denied: %s\n", path);
+				return NULL;
+			}
+			return path;
+		}
+		++env;
+	}
+	printf("could not find $HOME environment variable\n");
+	return NULL;
+
+bad_path:
+	printf("bad $HOME environment variable: %s\n", path);
+	return NULL;
+}
+
+
 static int prep_bind(struct path_node *node)
 {
 	int isdir, r;
@@ -507,10 +540,16 @@ static int prep_bind(struct path_node *node)
 	src = node->src;
 	dest = node->dest;
 
-	if (eslib_file_path_check(src) || eslib_file_path_check(dest))
+	if (node->nodeflags & NODE_HOMEROOT) {
+		if (node->nodeflags & NODE_HOME)
+			return -1;
+	} /* home root is special case and will fail path checks */
+	else if (eslib_file_path_check(src) || eslib_file_path_check(dest)) {
 		return -1;
-	if (strncmp(dest, g_chroot_path, strnlen(g_chroot_path, MAX_SYSTEMPATH)))
+	}
+	if (strncmp(dest, g_chroot_path, strnlen(g_chroot_path, MAX_SYSTEMPATH-1))) {
 		return -1; /* dest is not in pod root... */
+	}
 
 	isdir = eslib_file_isdir(src);
 	if (isdir == -1)
@@ -584,7 +623,32 @@ static int do_bind(struct path_node *node)
 	return 0;
 }
 
+static int create_homeroot(unsigned long mntflags, unsigned long nodeflags)
+{
+	struct path_node *node;
+	char *homepath;
 
+	if (g_homeroot) {
+		printf("duplicate home root\n");
+		return -1;
+	}
+	homepath = gethome();
+	if (homepath == NULL)
+		return -1;
+	node = malloc(sizeof(*node));
+	if (node == NULL)
+		return -1;
+
+	memset(node, 0, sizeof(*node));
+	snprintf(node->src, MAX_SYSTEMPATH, "%s", homepath);
+	snprintf(node->dest, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
+	node->srclen = strnlen(node->src, MAX_SYSTEMPATH-1);
+	node->destlen = strnlen(node->dest, MAX_SYSTEMPATH-1);
+	node->mntflags = mntflags;
+	node->nodeflags = nodeflags|NODE_HOMEROOT;
+	g_homeroot = node;
+	return 0;
+}
 
 int create_pathnode(char *params, size_t size, int home)
 {
@@ -593,10 +657,10 @@ int create_pathnode(char *params, size_t size, int home)
 	char *path;
 	char *homepath;
 	struct path_node *node;
-	uid_t fuid;
 	unsigned int i, len;
 	unsigned long remountflags;
 	char c;
+
 
 	if (params == NULL || size == 0)
 		goto bad_param;
@@ -664,10 +728,21 @@ int create_pathnode(char *params, size_t size, int home)
 		goto bad_param;
 
 	path = &params[i];
-	chop_trailing(path, MAX_SYSTEMPATH, '/');
-	if (eslib_file_path_check(path))
-		return -1;
 
+	if (path[1] != '\0') {
+		/* normal non "/" path */
+		if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+			return -1;
+		if (eslib_file_path_check(path))
+			return -1;
+	}
+	else if (!home) {
+		printf("cannot mount filesystem root directory\n");
+		return -1;
+	}
+	else {
+		return create_homeroot(remountflags, 0);
+	}
 	/* setup mount assuming / == /$HOME/user to be mounted in /podhome
 	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
 	 */
@@ -675,21 +750,6 @@ int create_pathnode(char *params, size_t size, int home)
 		homepath = gethome();
 		if (homepath == NULL)
 			return -1;
-		if (check_blacklisted(homepath)) {
-			printf("$HOME is blacklisted: %s\n", homepath);
-			return -1;
-		}
-		if (eslib_file_isdir(homepath) != 1) {
-			printf("$HOME is not a directory: %s\n", homepath);
-			return -1;
-		}
-		fuid = eslib_file_getuid(homepath);
-		if (fuid == (uid_t)-1)
-			return -1;
-		if (fuid != g_ruid) {
-			printf("$HOME permission denied: %s\n", homepath);
-			return -1;
-		}
 		snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
 		snprintf(dest, MAX_SYSTEMPATH-1, "%s/podhome%s", g_chroot_path, path);
 	}
@@ -942,11 +1002,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		/* file mount points need to be sorted after first pass */
 		if (option == OPTION_FILE) {
 			if (create_pathnode(params, size, 0)) {
+				printf("file :%s\n", params);
 				return -1;
 			}
 		}
 		else if (option == OPTION_HOME) {
 			if (create_pathnode(params, size, 1)) {
+				printf("home :%s\n", params);
 				return -1;
 			}
 		}
@@ -1088,9 +1150,7 @@ static int find_keyword(char *kwcmp, size_t kwlen)
 }
 
 
-/* final stage of pass 1, add things to config as needed
- * depending on user supplied option
- */
+/* final stage of pass 1, add things to config as needed */
 static int pass1_finalize()
 {
 	char opt[MAX_SYSTEMPATH];
@@ -1109,9 +1169,18 @@ static int pass1_finalize()
 		return -1;
 	}
 
+	/* remount /podhome as rdonly unless $HOME is already whitelisted */
+	if (g_homeroot == NULL) {
+		if (create_homeroot(MS_RDONLY|MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE,
+				    NODE_EMPTY)) {
+			return -1;
+		}
+	}
+	g_homeroot->next = g_mountpoints;
+	g_mountpoints = g_homeroot;
+
 	return 0;
 }
-
 
 #define STATE_NEWLINE  (1     ) /* on a fresh new line          */
 #define STATE_COMMENT  (1 << 1) /* comment line                 */
@@ -1347,6 +1416,8 @@ SINGLE_KEYWORD:		/* no parameters */
 			}
 			n = n->next;
 		}
+
+		/* chroot */
 		if (mount(g_chroot_path, g_chroot_path, "bind",
 					MS_BIND, NULL)) {
 			printf("could not bind mount: %s\n", strerror(errno));
