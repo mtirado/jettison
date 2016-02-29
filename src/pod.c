@@ -544,7 +544,7 @@ static int prep_bind(struct path_node *node)
 	if (node->nodeflags & NODE_HOMEROOT) {
 		if (node->nodeflags & NODE_HOME)
 			return -1;
-	} /* home root is special case and will fail path checks */
+	}
 	else if (eslib_file_path_check(src) || eslib_file_path_check(dest)) {
 		return -1;
 	}
@@ -661,7 +661,6 @@ int create_pathnode(char *params, size_t size, int home)
 	unsigned int i, len;
 	unsigned long remountflags;
 	char c;
-
 
 	if (params == NULL || size == 0)
 		goto bad_param;
@@ -1168,7 +1167,7 @@ static int pass1_finalize()
 		return -1;
 	}
 
-	/* remount /podhome as rdonly unless $HOME is already whitelisted */
+	/* remount /podhome as empty node unless $HOME is already whitelisted */
 	if (g_homeroot == NULL) {
 		unsigned long mntflags = MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE;
 		if (g_podflags & (1 << OPTION_HOME_EXEC)) {
