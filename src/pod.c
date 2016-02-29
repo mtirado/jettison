@@ -1171,7 +1171,7 @@ static int pass1_finalize()
 
 	/* remount /podhome as rdonly unless $HOME is already whitelisted */
 	if (g_homeroot == NULL) {
-		if (create_homeroot(MS_RDONLY|MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE,
+		if (create_homeroot(MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE,
 				    NODE_EMPTY)) {
 			return -1;
 		}
