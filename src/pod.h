@@ -18,6 +18,7 @@ enum
 	OPTION_NEWPTS,
 	OPTION_NOPROC,
 	OPTION_SLOG,
+	OPTION_HOME_EXEC,
 
 	/*
 	 * anything above here is a pod flag that caller

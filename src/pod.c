@@ -133,6 +133,7 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
 	{ "slog"	},  /* pod wants to write to system log */
+	{ "home_exec"	},  /* mount empty home dir with exec flag */
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
 	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
@@ -1026,6 +1027,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	case OPTION_NEWNET:
 	case OPTION_NOPROC:
 	case OPTION_SLOG:
+	case OPTION_HOME_EXEC:
 
 		break;
 
@@ -1135,15 +1137,12 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	return 0;
 }
 
-static int find_keyword(char *kwcmp, size_t kwlen)
+static int find_keyword(char *kwcmp)
 {
 	int i = 0;
-	if (kwlen >= KWLEN)
-		return -1;
-
 	for (; i < KWCOUNT; ++i)
 	{
-		if (strncmp(kwcmp, keywords[i], kwlen) == 0)
+		if (strncmp(kwcmp, keywords[i], KWLEN) == 0)
 			return i;
 	}
 	return -1;
@@ -1171,8 +1170,11 @@ static int pass1_finalize()
 
 	/* remount /podhome as rdonly unless $HOME is already whitelisted */
 	if (g_homeroot == NULL) {
-		if (create_homeroot(MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE,
-				    NODE_EMPTY)) {
+		unsigned long mntflags = MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE;
+		if (g_podflags & (1 << OPTION_HOME_EXEC)) {
+			mntflags &= ~MS_NOEXEC;
+		}
+		if (create_homeroot(mntflags, NODE_EMPTY)) {
 			return -1;
 		}
 	}
@@ -1292,9 +1294,8 @@ SCAN_PARAMS_READY:	/* got keyword with parameters, check keyword and
 			 * change to parameter scan state if valid.
 			 */
 			memset(kwcmp, 0, sizeof(kwcmp));
-			strncpy(kwcmp, keystart, --kwlen); /* kwlen includes space */
-
-			key = find_keyword(kwcmp, kwlen);
+			strncpy(kwcmp, keystart, kwlen-1); /* kwlen includes space */
+			key = find_keyword(kwcmp);
 			if (key == -1) {
 				printf("invalid keyword: [%s]\n", kwcmp);
 				return -1;
@@ -1307,9 +1308,8 @@ SCAN_PARAMS_READY:	/* got keyword with parameters, check keyword and
 
 SINGLE_KEYWORD:		/* no parameters */
 			memset(kwcmp, 0, sizeof(kwcmp));
-			strncpy(kwcmp, keystart, --kwlen);
-
-			key = find_keyword(kwcmp, kwlen);
+			strncpy(kwcmp, keystart, kwlen-1);
+			key = find_keyword(kwcmp);
 			if (key == -1) {
 				printf("could not find keyword: [%s]\n", kwcmp);
 				return -1;
