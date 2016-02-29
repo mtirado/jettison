@@ -56,20 +56,32 @@ there are additional options we can pass:
 
 #pod configuration
 
+
+
 ##file
 this option will make a private bind mount in pod's root.
+
 there are some mount flags we have to specify.
+
 (r)ead (w)rite e(x)ecute (s)uid (d)evice
+
+
 
 ##home
 home is the same as file, except that it will mount the file from current
 $HOME path, to <podroot>/podhome
 
+
+
 ##seccomp
 use --tracecalls to track every system call made and generate an optimized
+
 whitelist at ./podtemplate.pod  .  if you have a configuration file already
+
 with no systemcalls you can simply do `cat podtemplate.pod >> config.pod`
+
 to append the whitelist to the configuration file.
+
 
 
 ##capabilities
@@ -78,23 +90,33 @@ use cap_bset to specify which file capabilities should be added to bounding set
 `cap_bset CAP_NET_RAW`  or any non-blacklisted cap from \<linux/capablilitiy.h\>
 
 
+
 ##newnet
 create a new network namespace, which effectively disables networking
+
+
 
 ##noproc
 disable /proc filesystem
 
+
+
 ##home_exec
-if $HOME is not whitelisted /podhome is remounted as an empty node with r/w flags
-using home_exec will add the execution flag
+if $HOME is not whitelisted /podhome is remounted as an empty node with rw flags
+
+using home_exec will change this to rwx flags.
+
+
 
 ##bugs
 
 currently hardcoded for AUDIT_ARCH_I386, you will have to change
+
 this in jettison.c to use other architectures.
 
 ##other
 
 
 please send any feedback, suggestions, bugs, flames, etc
+
 to contact email listed in source files, or through github.
