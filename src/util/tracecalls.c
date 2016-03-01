@@ -150,7 +150,7 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 		return;
 	}
 
-	printf("\r\n");
+	/*printf("\r\n");
 	printf("A pod configuration file has been saved as podtemplate.pod\r\n");
 	printf("\r\n");
 	printf("Some names may be wrong. Below is a list of new systemcalls\r\n");
@@ -180,7 +180,7 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 	printf("\r\n");
 	printf("----------------------------------------------------\r\n");
 	printf(" __NR_ipc *not available yet  as of     kernel (4.3)\r\n");
-	printf("----------------------------------------------------\r\n");
+	printf("----------------------------------------------------\r\n");*/
 	/*printf("      __NR_shmget\r\n");
 	printf("      __NR_shmat\r\n");
 	printf("      __NR_shmdt\r\n");
