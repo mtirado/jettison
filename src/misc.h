@@ -21,15 +21,6 @@ int pty_create(int *fd_master, int master_flags,
 int switch_terminal(char *path, int hangup);
 
 
-
-/* logging TODO -- move into eslib... */
-void logmsg(char *ident, char *msg, char *info, int option, int facility, int lvl);
-void loginfo(const char *fmt, ...);
-void logerror(const char *fmt, ...);
-void logcrit(const char *fmt, ...);
-void logemerg(const char *fmt, ...);
-
-
 /* --------------  passwd help --------------- */
 enum {
 	/* passwd fields */
