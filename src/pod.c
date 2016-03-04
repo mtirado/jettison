@@ -630,6 +630,7 @@ static int do_bind(struct path_node *node)
 	return 0;
 }
 
+/* user is mounting entire $HOME to /podhome */
 static int create_homeroot(unsigned long mntflags, unsigned long nodeflags)
 {
 	struct path_node *node;
@@ -812,7 +813,7 @@ bad_param:
 
 /*
  * return -1 on error,
- * 1 if any path_nodes start with path
+ * 1 if any path_nodes *start with* path
  * 0 if could not match beginning of any path_node with path
  */
 static int match_pathnode(char *path)
@@ -836,7 +837,7 @@ static int match_pathnode(char *path)
 	return 0;
 }
 
-/* return exact matching node,
+/* return *exact* matching node,
  * return NULL on error,
  * ENOENT if not found
  * ENOTUNIQ if multiples found
@@ -878,9 +879,6 @@ static struct path_node *get_pathnode(char *path)
  * sort paths shortest to longest and check for duplicate entries.
  * sorting enables predictable hierarchical bind order
  * e.g. /usr always gets mounted before /usr/lib
- *
- * TODO
- * perhaps we should set rdonly paths as private instead of slave?
  */
 static int prepare_mountpoints()
 {
