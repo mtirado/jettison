@@ -290,6 +290,135 @@ char *passwd_getfield(char *line, unsigned int field)
 	return NULL;
 }
 
+/*
+ * shuffle data starting at index, swap with value located at idx+amount
+ * if amount is too high, wrap around to idx0+remainder
+ * uses bitmask to only swap masked bits: 0xff would swap the entire byte
+ */
+static int shuffle_bits(char *data, size_t size, size_t idx,
+			size_t amount, unsigned char bitmask)
+{
+	size_t dest = idx+amount;
+	unsigned char tmp;
+
+	if (!data)
+		return -1;
+
+	/* wrap around if too big */
+	while (idx >= size)
+		idx -= size;
+	while (dest >= size)
+		dest -= size;
+
+	tmp = data[dest];
+	data[dest] = (data[dest] & ~bitmask) | (data[idx] & bitmask);
+	data[idx]  = (data[idx]  & ~bitmask) | (tmp & bitmask);
+	return 0;
+}
+
+/*
+ *  missing machine-id causes failure on systems that have disabled dbus.
+ *  we need a way to create this file if absent, and program links dbus lib.
+ */
+int create_machineid(char *path, char *newid, unsigned int entropy)
+{
+	char idstr[33];
+	unsigned int i,c;
+	int fd;
+	errno = 0;
+
+	if (!path)
+		return -1;
+
+	if (!newid) {
+		char randx[16];
+		char randy[32];
+		char hecks[16] = {'9','8','7','6','5','4','3','2',
+				  '1','0','a','b','c','d','e','f'};
+		int urand = open("/dev/urandom", O_RDONLY);
+
+		if (urand == -1) {
+			printf("could not open /dev/urandom\n");
+			return -1;
+		}
+		while (1)
+		{
+			int r = read(urand, randx, sizeof(randx));
+			if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
+				continue;
+			}
+			else if (r == sizeof(randx)) {
+				break;
+			}
+			else {
+				printf("read: %s\n", strerror(errno));
+				close(urand);
+				return -1;
+			}
+		}
+		close(urand);
+		/* combine entropy sources */
+		for (i = 0; i < 16; ++i)
+		{
+			char e = ((char *)&entropy)[i%4];
+			randy[i] = randx[i] ^ e;
+		}
+		/* scramble bits */
+		for (i = 0; i < 16; ++i)
+		{
+			char e = ((char *)&entropy)[i%4];
+			for (c = 0; c < 16; ++c)
+			{
+				if (shuffle_bits(randy, 16, c, e&0xf0, e&0x0f)) {
+					return -1;
+				}
+			}
+		}
+		/* generate hex string */
+		for (i = 0, c = 0; i < 16; ++i)
+		{
+			unsigned long idx1,idx2;
+			idx1 = (randy[i] & 0x0f);
+			idx2 = (randy[i] & 0xf0) >> 4;
+			idstr[c++] = hecks[idx1];
+			idstr[c++] = hecks[idx2];
+		}
+		idstr[32] = '\0';
+		newid = idstr;
+	}
+
+	/* validate hex string */
+	for (i = 0; i < 32; ++i)
+	{
+		if (newid[i] >= '0' && newid[i] <= '9') {
+			continue;
+		}
+		else if (newid[i] >= 'a' && newid[i] <= 'f') {
+			continue;
+		}
+		else {
+			printf("invalid hex char");
+			return -1;
+		}
+	}
+	printf("newid: %s\n", idstr);
+
+	/* create new file */
+	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0750);
+	if (fd == -1) {
+		printf("open: %s\n", strerror(errno));
+		return -1;
+	}
+	if (write(fd, newid, 32) != 32) {
+		printf("machine-id write error: %s\n", strerror(errno));
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
+
+
 
 
 

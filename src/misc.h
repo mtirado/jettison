@@ -39,7 +39,12 @@ char *passwd_fetchline(uid_t uid);
 /* get specific passwd field, destroys line by inserting null terminator */
 char *passwd_getfield(char *line, unsigned int field);
 
-
+/* create a new machine-id file
+ * path is machine-id file path
+ * newid is 32 hexadecimal characters.
+ * if newid is null, a random string is generated.
+ */
+int create_machineid(char *path, char *newid, unsigned int entropy);
 
 #endif
 
