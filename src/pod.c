@@ -146,7 +146,16 @@ static char keywords[KWCOUNT][KWLEN] =
 
 };
 
-
+static void free_pathnodes()
+{
+	struct path_node *tmp;
+	while (g_mountpoints)
+	{
+		tmp = g_mountpoints->next;
+		free(g_mountpoints);
+		g_mountpoints = tmp;
+	}
+}
 
 /* if anything fails between pod_prepare or on pod_enter */
 int pod_free()
@@ -156,6 +165,7 @@ int pod_free()
 		free(g_filedata);
 		g_filedata = NULL;
 	}
+	free_pathnodes();
 	return 0;
 }
 
@@ -1419,7 +1429,6 @@ SINGLE_KEYWORD:		/* no parameters */
 			}
 			n = n->next;
 		}
-
 		/* chroot */
 		if (mount(g_chroot_path, g_chroot_path, "bind",
 					MS_BIND, NULL)) {
