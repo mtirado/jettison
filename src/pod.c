@@ -137,14 +137,11 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
-	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
+	{ "seccomp_allow" },/* add a syscall to seccomp whitelist.
 				if nothing is added, everything is allowed. */
-	{ "seccomp_block" }, /* block syscall without sigkill if using --strict */
+	{ "seccomp_block" },/* block syscall without sigkill if using --strict */
 	{ "file"        },  /* bind mount file with options w,r,x,d,s */
 	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
-
-	/* TODO make configuration file read string instead of number, like seccomp does
-	 * also add a switch to disable capabilities (always set NO_NEW_PRIVS) */
 	{ "cap_bset"	},  /* allow file capability in bounding set */
 
 };
