@@ -25,6 +25,7 @@ JETTISON_SRCS :=					\
 		./src/eslib/eslib_file.c		\
 		./src/eslib/eslib_sock.c		\
 		./src/eslib/eslib_proc.c		\
+		./src/eslib/eslib_log.c			\
 		./src/util/tracecalls.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 

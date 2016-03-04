@@ -182,7 +182,7 @@ static int downgrade_relay()
 	g_syscalls[++i] = syscall_getnum("__NR_exit_group");
 	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
 	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	g_syscalls[++i] = syscall_getnum("__NR_nanosleep"); /* on log write blocked */
+	g_syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
 	if (jail_process(g_nullspace, g_syscalls, 0)) {
 		printf("jail_process failed\n");

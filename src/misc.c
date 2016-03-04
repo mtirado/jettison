@@ -11,7 +11,6 @@
 #include <unistd.h>
 #include <termios.h>
 #include <memory.h>
-#include <syslog.h>
 #include "misc.h"
 #include "eslib/eslib.h"
 
@@ -173,51 +172,6 @@ int chop_trailing(char *string, unsigned int size, const char match)
 			return 0;
 	}
 	return -1;
-}
-
-
-void loginfo(const char *fmt, ...)
-{
-	va_list va_alist;
-	va_start(va_alist, fmt);
-	vsyslog(LOG_INFO, fmt, va_alist);
-	printf("loginfo - ");
-	vprintf(fmt, va_alist);
-	printf("\n");
-	va_end(va_alist);
-}
-
-void logerror(const char *fmt, ...)
-{
-	va_list va_alist;
-	va_start(va_alist, fmt);
-	vsyslog(LOG_ERR, fmt, va_alist);
-	printf("logerror - ");
-	vprintf(fmt, va_alist);
-	printf("\n");
-	va_end(va_alist);
-}
-
-void logcrit(const char *fmt, ...)
-{
-	va_list va_alist;
-	va_start(va_alist, fmt);
-	vsyslog(LOG_CRIT, fmt, va_alist);
-	printf("logcrit - ");
-	vprintf(fmt, va_alist);
-	printf("\n");
-	va_end(va_alist);
-}
-
-void logemerg(const char *fmt, ...)
-{
-	va_list va_alist;
-	va_start(va_alist, fmt);
-	vsyslog(LOG_EMERG, fmt, va_alist);
-	printf("logemerg - ");
-	vprintf(fmt, va_alist);
-	printf("\n");
-	va_end(va_alist);
 }
 
 

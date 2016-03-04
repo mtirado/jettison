@@ -115,6 +115,7 @@ int g_blkcalls[MAX_SYSCALLS];
 unsigned int  g_syscall_idx;
 unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
+char g_errbuf[ESLIB_LOG_MAXMSG];
 
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
@@ -566,21 +567,29 @@ static int prep_bind(struct path_node *node)
 		if (isdir == 1) {
 			r = eslib_file_isdir(dest);
 			if (r == 0) {
-				logerror("bind destination not a directory: %s", dest);
+				snprintf(g_errbuf, sizeof(g_errbuf),
+					"prep_bind dest is not a directory: %s", dest);
+				eslib_logerror("jettison", g_errbuf);
 				return -1;
-			} else if (r == -1)
+			}
+			else if (r == -1) {
 				return -1;
+			}
 		}
 	}
 	else { /* did not exist */
 		if (isdir == 1) {
 			if (eslib_file_mkdirpath(dest, 0755, 0)  == -1) {
-				logerror("pod_prepare bind, mkdir failed: %s", dest);
+				snprintf(g_errbuf, sizeof(g_errbuf),
+					"prep_bind mkdir failed: %s", dest);
+				eslib_logerror("jettison", g_errbuf);
 				return -1;
 			}
 		}
 		else if (eslib_file_mkfile(dest, 0755, 0) == -1) {
-			logerror("pod_prepare  bind, mkfile failed: %s", dest);
+			snprintf(g_errbuf, sizeof(g_errbuf),
+				"prep_bind mkfile failed: %s", dest);
+			eslib_logerror("jettison", g_errbuf);
 			return -1;
 		}
 	}
