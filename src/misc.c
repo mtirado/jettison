@@ -333,32 +333,25 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		unsigned char randx[16];
 		char hecks[16] = {'0','1','2','3','4','5','6','7',
 				  '8','9','a','b','c','d','e','f'};
-
-		unsigned char h1 = entropy+hecks[entropy%15];
+		unsigned char h1;
+		entropy += 99;
+	        h1 = entropy+hecks[entropy%15];
 		for (i = 0; i < 16; i += 4)
 		{
 			memcpy(&randx[i], &entropy, sizeof(entropy));
-			/*randx[i]   = 0xf0;
-			randx[i+1] = 0x60;
-			randx[i+2] = 0x0f;
-			randx[i+3] = 0xf6;
-			this still isn't a great rng, but it's good enough
-			if not using below code, first char repeats
-		        */
 			randx[i+1] += randx[i] + h1;
 			randx[i+2] += randx[i+1] + randx[i];
 			randx[i+3] += randx[i+2] + randx[i+1];
 			h1 = randx[i+3];
 		}
 		/* scramble bits */
-		for (i = 0; i < 1024 ; ++i)
+		for (i = 0; i < 1111 ; ++i)
 		{
 			unsigned char e = entropy+i;
-			unsigned char e2= randx[i%15]+e;
-			if (shuffle_bits(randx, 16, 0, e, e2)) {
+			unsigned char e2= randx[entropy%15]+i;
+			if (shuffle_bits(randx, 16, entropy, e, e2)) {
 					return -1;
 			}
-			/*printf("iter1: %d\n", randx[0]);*/
 		}
 		/* generate hex string */
 		for (i = 0, c = 0; i < 16; ++i)
@@ -387,7 +380,6 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 			return -1;
 		}
 	}
-	printf("newid: %s\n", idstr);
 
 	/* create new file */
 	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0750);
