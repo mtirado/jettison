@@ -295,21 +295,20 @@ char *passwd_getfield(char *line, unsigned int field)
  * if amount is too high, wrap around to idx0+remainder
  * uses bitmask to only swap masked bits: 0xff would swap the entire byte
  */
-static int shuffle_bits(char *data, size_t size, size_t idx,
+static int shuffle_bits(unsigned char *data, size_t size, size_t idx,
 			size_t amount, unsigned char bitmask)
 {
-	size_t dest = idx+amount;
+	size_t dest;
 	unsigned char tmp;
 
 	if (!data)
 		return -1;
+	if (size < 2)
+		return -1;
 
 	/* wrap around if too big */
-	while (idx >= size)
-		idx -= size;
-	while (dest >= size)
-		dest -= size;
-
+	idx %= size;
+	dest = (idx + amount) % size;
 	tmp = data[dest];
 	data[dest] = (data[dest] & ~bitmask) | (data[idx] & bitmask);
 	data[idx]  = (data[idx]  & ~bitmask) | (tmp & bitmask);
@@ -331,55 +330,42 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		return -1;
 
 	if (!newid) {
-		char randx[16];
-		char randy[32];
-		char hecks[16] = {'9','8','7','6','5','4','3','2',
-				  '1','0','a','b','c','d','e','f'};
-		int urand = open("/dev/urandom", O_RDONLY);
+		unsigned char randx[16];
+		char hecks[16] = {'0','1','2','3','4','5','6','7',
+				  '8','9','a','b','c','d','e','f'};
 
-		if (urand == -1) {
-			printf("could not open /dev/urandom\n");
-			return -1;
-		}
-		while (1)
+		unsigned char h1 = entropy+hecks[entropy%15];
+		for (i = 0; i < 16; i += 4)
 		{
-			int r = read(urand, randx, sizeof(randx));
-			if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
-				continue;
-			}
-			else if (r == sizeof(randx)) {
-				break;
-			}
-			else {
-				printf("read: %s\n", strerror(errno));
-				close(urand);
-				return -1;
-			}
-		}
-		close(urand);
-		/* combine entropy sources */
-		for (i = 0; i < 16; ++i)
-		{
-			char e = ((char *)&entropy)[i%4];
-			randy[i] = randx[i] ^ e;
+			memcpy(&randx[i], &entropy, sizeof(entropy));
+			/*randx[i]   = 0xf0;
+			randx[i+1] = 0x60;
+			randx[i+2] = 0x0f;
+			randx[i+3] = 0xf6;
+			this still isn't a great rng, but it's good enough
+			if not using below code, first char repeats
+		        */
+			randx[i+1] += randx[i] + h1;
+			randx[i+2] += randx[i+1] + randx[i];
+			randx[i+3] += randx[i+2] + randx[i+1];
+			h1 = randx[i+3];
 		}
 		/* scramble bits */
-		for (i = 0; i < 16; ++i)
+		for (i = 0; i < 1024 ; ++i)
 		{
-			char e = ((char *)&entropy)[i%4];
-			for (c = 0; c < 16; ++c)
-			{
-				if (shuffle_bits(randy, 16, c, e&0xf0, e&0x0f)) {
+			unsigned char e = entropy+i;
+			unsigned char e2= randx[i%15]+e;
+			if (shuffle_bits(randx, 16, 0, e, e2)) {
 					return -1;
-				}
 			}
+			/*printf("iter1: %d\n", randx[0]);*/
 		}
 		/* generate hex string */
 		for (i = 0, c = 0; i < 16; ++i)
 		{
 			unsigned long idx1,idx2;
-			idx1 = (randy[i] & 0x0f);
-			idx2 = (randy[i] & 0xf0) >> 4;
+			idx1 = (randx[i] & 0x0f);
+			idx2 = (randx[i] & 0xf0) >> 4;
 			idstr[c++] = hecks[idx1];
 			idstr[c++] = hecks[idx2];
 		}
