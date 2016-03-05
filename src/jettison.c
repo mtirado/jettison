@@ -1278,6 +1278,10 @@ int main(int argc, char *argv[])
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 
 
+	if (process_arguments(argc, argv)) {
+		return -1;
+	}
+
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
 
@@ -1304,9 +1308,6 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (process_arguments(argc, argv)) {
-		return -1;
-	}
 	if (g_stacksize == 0)
 		g_stacksize = DEFAULT_STACKSIZE;
 
