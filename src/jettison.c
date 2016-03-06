@@ -433,6 +433,9 @@ int process_arguments(int argc, char *argv[])
 	g_allow_ptrace = 0;
 	g_strict = 0;
 
+	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
+	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
+
 	for (i = 1; i < argc; ++i)
 	{
 		switch(i)
@@ -1281,9 +1284,6 @@ int main(int argc, char *argv[])
 	if (process_arguments(argc, argv)) {
 		return -1;
 	}
-
-	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
-	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
 
 #ifndef USE_FILE_CAPS
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
