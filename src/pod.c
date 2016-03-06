@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <fcntl.h>
+#include <time.h>
 #include "pod.h"
 #include "misc.h"
 #include "util/seccomp_helper.h"
@@ -138,12 +139,12 @@ static char keywords[KWCOUNT][KWLEN] =
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
 	{ "seccomp_allow" },/* add a syscall to seccomp whitelist.
-				if nothing is added, everything is allowed. */
+			       if nothing is added, everything is allowed. */
 	{ "seccomp_block" },/* block syscall without sigkill if using --strict */
 	{ "file"        },  /* bind mount file with options w,r,x,d,s */
 	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
 	{ "cap_bset"	},  /* allow file capability in bounding set */
-
+	{ "machine-id"	},  /* specify or generate a /etc/machine-id string */
 };
 
 static void free_pathnodes()
@@ -1141,6 +1142,24 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		printf("file capabilities are disabled\n");
 		return -1;
 #endif
+
+	case OPTION_MACHINEID:
+		snprintf(path, sizeof(path), "%s/etc/machine-id", g_chroot_path);
+		if (params == NULL) {
+			struct timespec t;
+			clock_gettime(CLOCK_REALTIME, &t);
+			if (create_machineid(path, NULL, (unsigned int)t.tv_nsec
+							+(unsigned int)getpid())) {
+				printf("wat create_machineid()\n");
+				return -1;
+			}
+			return 0;
+		}
+		else if (create_machineid(path, params, 0)) {
+			printf("create_machineid()\n");
+			return -1;
+		}
+		break;
 
 	default:
 		printf("unknown option\n");

@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -350,7 +351,7 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 			unsigned char e = entropy+i;
 			unsigned char e2= randx[entropy%15]+i;
 			if (shuffle_bits(randx, 16, entropy, e, e2)) {
-					return -1;
+				return -1;
 			}
 		}
 		/* generate hex string */
@@ -362,8 +363,13 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 			idstr[c++] = hecks[idx1];
 			idstr[c++] = hecks[idx2];
 		}
-		idstr[32] = '\0';
 		newid = idstr;
+	}
+	else {
+		if (strnlen(newid, 33) != 32) {
+			printf("machine-id is not 32 characters\n");
+			return -1;
+		}
 	}
 
 	/* validate hex string */
@@ -376,13 +382,13 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 			continue;
 		}
 		else {
-			printf("invalid hex char");
+			printf("invalid hex char\n");
 			return -1;
 		}
 	}
-
+	newid[32] = '\0';
 	/* create new file */
-	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0750);
+	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0755);
 	if (fd == -1) {
 		printf("open: %s\n", strerror(errno));
 		return -1;
@@ -393,6 +399,10 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		return -1;
 	}
 	close(fd);
+	if (chmod(path, 0755)) {
+		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
 	return 0;
 }
 
