@@ -29,9 +29,14 @@ JETTISON_SRCS :=					\
 		./src/util/tracecalls.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
+DESTRUCT_SRCS :=					\
+		./src/misc.c				\
+		./src/destruct.c
+DESTRUCT_OBJS := $(DESTRUCT_SRCS:.c=.o)
 
-INIT_SRCS :=	./src/jettison_init.c		\
-		./src/eslib/eslib_file.c	\
+
+INIT_SRCS :=	./src/jettison_init.c			\
+		./src/eslib/eslib_file.c		\
 		./src/eslib/eslib_proc.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
@@ -40,6 +45,7 @@ INIT_OBJS := $(INIT_SRCS:.c=.o)
 #	PROGRAM FILENAMES
 ########################################
 JETTISON		:= jettison
+DESTRUCT		:= jettison_destruct
 INIT	  		:= jettison_init
 UTIL_PRELOAD		:= jettison_preload.so
 
@@ -49,6 +55,7 @@ UTIL_PRELOAD		:= jettison_preload.so
 
 all:				\
 	$(JETTISON)		\
+	$(DESTRUCT)		\
 	$(UTIL_SECCOMP_ENUM)	\
 	$(UTIL_PRELOAD)		\
 	$(INIT)
@@ -63,6 +70,15 @@ $(JETTISON):		$(JETTISON_OBJS)
 			@echo "x------------------x"
 			@echo "| jettison      OK |"
 			@echo "x------------------x"
+			@echo ""
+
+$(DESTRUCT):		$(DESTRUCT_OBJS)
+			$(CC) $(LDFLAGS) $(DESTRUCT_OBJS) -o $@
+			@echo ""
+			@echo "x--------------------x"
+			@echo "| destruct        OK |"
+			@echo "x--------------------x"
+			@echo ""
 
 $(INIT):		$(INIT_OBJS)
 			$(CC) $(LDFLAGS) $(INIT_OBJS) -o $@
@@ -71,6 +87,7 @@ $(INIT):		$(INIT_OBJS)
 			@echo "| util: init      OK |"
 			@echo "x--------------------x"
 			@echo ""
+
 $(UTIL_PRELOAD):
 			@echo ""
 			$(CC) $(CFLAGS) -shared -o $@ -fPIC 		\
@@ -81,15 +98,16 @@ $(UTIL_PRELOAD):
 			@echo "x--------------------x"
 			@echo ""
 
-
 ########################################
 #	CLEAN UP THE MESS
 ########################################
 clean:
 	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(DESTRUCT_OBJS), rm -fv $(obj);)
 	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)
 
 	@-rm -fv ./$(JETTISON)
+	@-rm -fv ./$(DESTRUCT)
 	@-rm -fv ./$(UTIL_PRELOAD)
 	@-rm -fv ./$(INIT)
 	@echo cleaned.

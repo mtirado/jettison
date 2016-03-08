@@ -420,7 +420,6 @@ int process_arguments(int argc, char *argv[])
 	int i;
 	int argidx = 3;
 	int argnew;
-	char *err;
 
 	/* must have executable path, and pod config file present */
 	if (argc < 3)
@@ -438,6 +437,7 @@ int process_arguments(int argc, char *argv[])
 
 	for (i = 1; i < argc; ++i)
 	{
+		char *err = NULL;
 		switch(i)
 		{
 
@@ -472,7 +472,7 @@ int process_arguments(int argc, char *argv[])
 				errno = 0;
 				++i;
 				g_stacksize = strtol(argv[i], &err, 10);
-				if (*err || errno)
+				if (err == NULL || *err || errno)
 					goto bad_opt;
 				g_stacksize *= 1024; /* kilobytes to bytes */
 				if (g_stacksize >= MAX_SYSTEMSTACK)

@@ -245,7 +245,7 @@ char *passwd_fetchline(uid_t uid)
 		uidstr[len] = '\0';
 		errno = 0;
 		checkuid = strtol(uidstr, &err, 10);
-		if (errno || *err) {
+		if (errno || err == NULL || *err) {
 			printf("error converting string to long int\n");
 			goto err_return;
 		}

@@ -433,7 +433,7 @@ int main(int argc, char *argv[])
 {
 	long pid;
 	int errno;
-	char *err;
+	char *err = NULL;
 	if (argc < 2) {
 		printf("missing pid argument\n");
 		return -1;
@@ -441,7 +441,7 @@ int main(int argc, char *argv[])
 
 	errno = 0;
 	pid = strtol(argv[1], &err, 10);
-	if (*err || errno) {
+	if (err == NULL || *err || errno) {
 		printf("allow_cap not an integer\n");
 		return -1;
 	}

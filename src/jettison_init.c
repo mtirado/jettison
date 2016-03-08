@@ -143,7 +143,7 @@ int main(int argc, char *argv[])
 		errno = 0;
 		printf("traceline: %s\n", traceline);
 		ipc = strtol(traceline, &err, 10);
-		if (*err || errno) {
+		if (err == NULL || *err || errno) {
 			printf("strtol error\n");
 			return -1;
 		}
