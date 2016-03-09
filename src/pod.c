@@ -1147,7 +1147,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		snprintf(path, sizeof(path), "%s/etc/machine-id", g_chroot_path);
 		if (params == NULL) {
 			struct timespec t;
-			clock_gettime(CLOCK_REALTIME, &t);
+			clock_gettime(CLOCK_MONOTONIC_RAW, &t);
 			if (create_machineid(path, NULL, (unsigned int)t.tv_nsec
 							+(unsigned int)getpid())) {
 				printf("wat create_machineid()\n");
