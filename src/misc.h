@@ -11,7 +11,8 @@
  */
 int chop_trailing(char *string, unsigned int size, const char match);
 
-
+/* return -1 on error, c is output */
+int getch(char *c);
 
 /* tty/console */
 int console_setup();
@@ -45,6 +46,8 @@ char *passwd_getfield(char *line, unsigned int field);
  * if newid is null, a random string is generated.
  */
 int create_machineid(char *path, char *newid, unsigned int entropy);
+int shuffle_bits(unsigned char *data, size_t size, size_t idx,
+			size_t amount, unsigned char bitmask);
 
 #endif
 

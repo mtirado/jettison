@@ -16,13 +16,14 @@
 #include <unistd.h>
 #include <time.h>
 #include "misc.h"
+#include "eslib/eslib.h"
 
 /* leaf node actions for recurse function */
 #define ACTION_RM     1 /* unlink file */
 #define ACTION_ZERO   2 /* zero file */
 #define ACTION_NUKE   3 /* destroy */
 
-#define DEBUG_RAND 1
+#define DEBUG_RAND 0
 
 int          g_dbgfile;
 uid_t        g_ruid;
@@ -146,11 +147,106 @@ static int process_arguments(int argc, char *argv[])
 	return 0;
 }
 
+
+static int proc_checkmounts(char *path)
+{
+	char *fbuf;
+	off_t fsize;
+	off_t cur, start, end;
+	unsigned int len, pathlen;
+	errno = 0;
+	fsize = eslib_procfs_readfile("/proc/mounts", &fbuf);
+	if (fsize == -1) {
+		printf("error reading /proc/mounts\n");
+		errno = EIO;
+		return -1;
+	}
+	else if (fsize == 0 || fbuf == NULL) {
+		printf("/proc/mounts is empty\n");
+		errno = ESRCH;
+		return -1;
+	}
+	pathlen = strnlen(path, MAX_SYSTEMPATH);
+	if (pathlen >= MAX_SYSTEMPATH) {
+		printf("path too long\n");
+		errno = EINVAL;
+		return -1;
+	}
+
+	cur = 0;
+	while (1)
+	{
+		start = cur;
+		/* seek to separator */
+		while (fbuf[start] != ' ' && fbuf[start] != '\t')
+		{
+			if (++start >= fsize) {
+				printf("/proc/mounts error1\n");
+				goto failure;
+			}
+		}
+		/* handle potentially  repeating separator */
+		while (fbuf[start] == ' ' || fbuf[start] == '\t')
+		{
+			if (++start >= fsize) {
+				printf("/proc/mounts error2\n");
+				goto failure;
+			}
+		}
+		/* get end of field 2 */
+		end = start;
+		while (fbuf[end] != ' ' && fbuf[end] != '\t')
+		{
+			if (++end >= fsize) {
+				printf("/proc/mounts error3\n");
+				goto failure;
+			}
+		}
+		len = end-start;
+		if (len >= MAX_SYSTEMPATH-1) {
+			printf("mountpoint path is too long\n");
+			goto failure;
+		}
+
+		/* match anything that starts with path */
+		if (strncmp(path, &fbuf[start], pathlen) == 0) {
+			fbuf[end] = '\0';
+			printf("mountpoint detected in pod: %s\n", &fbuf[start]);
+			free(fbuf);
+			errno = EEXIST;
+			return -1;
+		}
+		/* go to next line */
+		while(fbuf[end] != '\n')
+		{
+			if (++end >= fsize) {
+				goto not_found;
+			}
+		}
+		/* consume trailing newlines */
+		while(fbuf[end] == '\n')
+		{
+			if (++end >= fsize) {
+				goto not_found;
+			}
+		}
+		cur = end;
+	}
+
+failure:
+	free(fbuf);
+	errno = EIO;
+	return -1;
+
+not_found:
+	free(fbuf);
+	return 0;
+}
+
+
 static int unlink_file(char *path)
 {
-	return 0;
-	printf("unlink: %s\n", path);
-	/* TODO  XXX XXX XXX */
+	printf("unlinking: %s\n", path);
 	if (unlink(path)) {
 		printf("unlink(%s): %s\n", path, strerror(errno));
 		return -1;
@@ -158,19 +254,18 @@ static int unlink_file(char *path)
 	return 0;
 }
 
-unsigned char wbuf[4096 * 10];
+unsigned char wbuf[512 * 8]; /* 4096 */
 static int overwrite(char *path, unsigned int leaf_action)
 {
 	int testfd, r;
-	blksize_t bksize;
 	blkcnt_t  blocks, i;
 	struct stat st;
 	struct timespec t;
-	unsigned int block_total;
+	static unsigned int block_total = 0;
 	unsigned int e1 = 0;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-
+	e1 = t.tv_nsec;
 	memset(&st, 0, sizeof(st));
 	r = stat(path, &st);
 	if (r == -1) {
@@ -178,14 +273,10 @@ static int overwrite(char *path, unsigned int leaf_action)
 		return -1;
 	}
 
-	if (st.st_blocks <= 0) {
-		st.st_blocks = 1;
-	}
-
-	testfd = open("./testfile", O_RDWR|O_CREAT|O_TRUNC, 0750);
+	testfd = open(path, O_RDWR, 0750);
 	if (testfd == -1) {
-		printf("open: %s\n", strerror(errno));
-		return -1;
+		printf("overwrite open(%s): %s\n", path, strerror(errno));
+		return 0;
 	}
 
 	if (lseek(testfd, SEEK_SET, 0)) {
@@ -194,44 +285,51 @@ static int overwrite(char *path, unsigned int leaf_action)
 		return -1;
 	}
 
-	blocks = st.st_blocks;
-	bksize = st.st_blksize;
-	if ((size_t)bksize > sizeof(wbuf)) {
-		bksize = sizeof(wbuf);
-	}
+	/* convert blocks to 4096 byte chunks */
+	blocks = st.st_blocks; /* 512 byte blocks */
+	if (blocks <= 0) /* always write a chunk */
+		blocks = 8;
+	if (blocks % 8) /* cover remainder */
+		blocks += 8 - (blocks%8);
+	blocks = blocks/8;
 
-#if DEBUG_RAND
-	printf("writing %lu blocks, blocksize: %lu\n", blocks, bksize);
-#endif
-	block_total = 0;
+	if (leaf_action == ACTION_NUKE)
+		printf("nuking %lu blocks, blocksize: %d\n", blocks, sizeof(wbuf));
+	else
+		printf("zeroing %lu blocks, blocksize: %d\n", blocks, sizeof(wbuf));
+
 	for (i = 0; i < blocks; ++i)
 	{
 		if (leaf_action == ACTION_NUKE) {
-			unsigned int z;
-			for (z = 0; z < (unsigned int)bksize; ++z)
+			unsigned int z, x;
+			for (z = 0; z < sizeof(wbuf); ++z)
 			{
 				++block_total;
-				e1 ^= block_total;
+				e1 += block_total;
 				wbuf[z] += e1;
+				for (x = 1; x <= 2; ++x)
+				{
+					shuffle_bits(wbuf, sizeof(wbuf), z, x, e1);
+				}
 			}
 		}
 do_wrover:
-		r = write(testfd, wbuf, bksize);
+		r = write(testfd, wbuf, sizeof(wbuf));
 		if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
 			goto do_wrover;
 		}
-		else if (r != bksize) {
+		else if (r != sizeof(wbuf)) {
 			printf("write(%d,%d): %s\n", r, (int)i, strerror(errno));
 			close(testfd);
 			return -1;
 		}
 #if DEBUG_RAND
 do_dbgwrover:
-		r = write(g_dbgfile, wbuf, bksize);
+		r = write(g_dbgfile, wbuf, sizeof(wbuf));
 		if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
 			goto do_dbgwrover;
 		}
-		else if (r != bksize) {
+		else if (r != sizeof(wbuf)) {
 			printf("write(%d,%d): %s\n", r, (int)i, strerror(errno));
 			close(testfd);
 			return -1;
@@ -259,6 +357,7 @@ static int action(char *path, unsigned int leaf_action)
 	return -1;
 }
 
+/* traverse directory tree */
 int recurse(char *path, unsigned int leaf_action)
 {
 	char next_path[MAX_SYSTEMPATH];
@@ -294,8 +393,13 @@ int recurse(char *path, unsigned int leaf_action)
 		/* recurse through directories */
 		if (dent->d_type == DT_DIR) {
 			recurse(next_path, leaf_action);
-			rmdir(next_path);
-			continue;
+			if (leaf_action == ACTION_RM) {
+				printf("rmdir(%s): %s\n", next_path, strerror(errno));
+				continue;
+				if (rmdir(next_path)) {
+					printf("rmdir failed: %s\n", strerror(errno));
+				}
+			}
 		}
 		else if (dent->d_type == DT_REG) {
 			if(action(next_path, leaf_action)) {
@@ -312,6 +416,7 @@ int main(int argc, char *argv[])
 {
 	unsigned int i;
 	struct timespec t;
+	char ch;
 
 	if (downgrade())
 		return -1;
@@ -323,12 +428,22 @@ int main(int argc, char *argv[])
 	}
 #endif
 	g_ruid = getuid();
-	printf("destruct uid: %d\n", g_ruid);
 
 	if (process_arguments(argc, argv))
 		return -1;
 
+	printf("\ntarget: %s\n", g_path);
+	printf("DESTROY? (y/n)\n");
+	if (getch(&ch)) {
+		printf("getch error\n");
+		return -1;
+	}
+	if (ch != 'y' && ch != 'Y') {
+		printf("aborted\n");
+		return 0;
+	}
 
+	/* note: rng assumes overflows are not saturated! */
 	if (g_opts == ACTION_NUKE) {
 		unsigned int z;
 		unsigned char init[]={'v','2','g','i','B','D','e','h','X','W','3','U'};
@@ -348,21 +463,27 @@ int main(int argc, char *argv[])
 		for (i = 0; i < sizeof(wbuf); ++i)
 		{
 			if (wbuf[i] != 0) {
-				/* XXX does this actually happen? */
+				/* does this actually happen? */
 				printf("memset was optimized out?\n");
 				return -1;
 			}
 		}
 	}
 
-	for (i = 0; i < g_iter; ++i)
+	 /* make sure no mounts are in pod path */
+	if (proc_checkmounts(g_path)) {
+		printf("you must unmount before we can continue.\n");
+		return -1;
+	}
+
+	for (i = 1; i <= g_iter; ++i)
 	{
 		printf("----------------- pass %d -----------------\n", i);
 		if (recurse(g_path, g_opts)) {
 			printf("recurse error, try manual cleanup\n");
 			return -1;
 		}
-		sync();
+		sync(); /* flush cache to device */
 	}
 
 	/* unlink files */

@@ -296,7 +296,7 @@ char *passwd_getfield(char *line, unsigned int field)
  * if amount is too high, wrap around to idx0+remainder
  * uses bitmask to only swap masked bits: 0xff would swap the entire byte
  */
-static int shuffle_bits(unsigned char *data, size_t size, size_t idx,
+int shuffle_bits(unsigned char *data, size_t size, size_t idx,
 			size_t amount, unsigned char bitmask)
 {
 	size_t dest;
@@ -337,6 +337,7 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		unsigned char h1;
 		entropy += 99;
 	        h1 = entropy+hecks[entropy%15];
+		/* assumes overflows are not saturated */
 		for (i = 0; i < 16; i += 4)
 		{
 			memcpy(&randx[i], &entropy, sizeof(entropy));
@@ -410,6 +411,29 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 
 
 
+int getch(char *c)
+{
+	struct termios orig, tmp;
+
+	if (tcgetattr(STDIN_FILENO, &orig))
+		return -1;
+	memcpy(&tmp, &orig, sizeof(tmp));
+	tmp.c_lflag &= ~(ICANON|ECHO);
+
+	if (tcsetattr(STDIN_FILENO, TCSANOW, &tmp))
+		return -1;
+
+	if (read(STDIN_FILENO, c, 1) != 1) {
+		printf("getch: %s\n", strerror(errno));
+		return -1;
+	}
+
+	if (tcsetattr(STDIN_FILENO, TCSANOW, &orig))
+		return -1;
+
+
+	return 0;
+}
 
 
 
