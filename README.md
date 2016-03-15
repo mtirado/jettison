@@ -12,15 +12,17 @@ other arch's at all yet, so you may have to change this in jettison.c
 
 building + installation:
 ```
-git submodule update --init --recursive
+git submodule update --init --recursive (pull eslib)
 
 make
 
 su root
 
-cp ./{jettison,jettison_init,jettison_preload.so} /usr/local/bin/
+cp ./{jettison,jettison_init,jettison_preload.so,jettison_destruct} /usr/local/bin/
 
 chmod u+s /usr/local/bin/jettison (setuid bit)
+
+chmod g+s /usr/local/bin/jettison_destruct (setgid bit)
 
 mkdir /opt/pods
 ```
@@ -53,6 +55,10 @@ there are additional options we can pass:
 `--daemon` orphan process without a tty
 
 `--logoutput` write stdio to logfile, daemon stdio will use a pipe
+
+
+use jettison_destruct to clean up pods since your user will lack permission.
+
 
 #pod configuration
 
@@ -89,12 +95,10 @@ if $HOME is not whitelisted /podhome is remounted as an empty node
 with rw flags. using home_exec will change this to rwx flags.
 
 ##bugs
+currently only tested using i386.
 
-currently hardcoded for AUDIT_ARCH_I386, you will have to change
-this in jettison.c to use other architectures.
 
 ##other
-
 
 please send any feedback, suggestions, bugs, flames, etc
 to contact email listed in source files, or through github.
