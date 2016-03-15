@@ -414,6 +414,8 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 int getch(char *c)
 {
 	struct termios orig, tmp;
+	if (c == NULL)
+		return -1;
 
 	if (tcgetattr(STDIN_FILENO, &orig))
 		return -1;

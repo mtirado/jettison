@@ -308,7 +308,7 @@ int pod_enter()
 
 	snprintf(pathbuf, sizeof(pathbuf), "%s/proc", g_chroot_path);
 	if ((g_podflags & (1 << OPTION_NOPROC)) == 0) {
-		mkdir(pathbuf, 0755);
+		mkdir(pathbuf, 0775);
 		if (mount(0, pathbuf, "proc", flags, 0) < 0) {
 			printf("couldn't mount proc(%s): %s\n",pathbuf,strerror(errno));
 			goto err_free;
@@ -361,7 +361,7 @@ static int do_chroot_setup()
 	if (r == -1)
 		return -1;
 	if (r == 0) { /* did not exist */
-		if (eslib_file_mkdirpath(g_chroot_path, 0755, 0)) {
+		if (eslib_file_mkdirpath(g_chroot_path, 0775, 0)) {
 			printf("couldn't mkdir(%s); %s\n",
 					g_chroot_path, strerror(errno));
 			return -1;
@@ -587,18 +587,24 @@ static int prep_bind(struct path_node *node)
 	}
 	else { /* did not exist */
 		if (isdir == 1) {
-			if (eslib_file_mkdirpath(dest, 0755, 0)  == -1) {
+			if (eslib_file_mkdirpath(dest, 0775, 0)  == -1) {
 				snprintf(g_errbuf, sizeof(g_errbuf),
 					"prep_bind mkdir failed: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
 				return -1;
 			}
 		}
-		else if (eslib_file_mkfile(dest, 0755, 0) == -1) {
-			snprintf(g_errbuf, sizeof(g_errbuf),
-				"prep_bind mkfile failed: %s", dest);
-			eslib_logerror("jettison", g_errbuf);
-			return -1;
+		else {
+			if (eslib_file_mkfile(dest, 0775, 0) == -1) {
+				snprintf(g_errbuf, sizeof(g_errbuf),
+					"prep_bind mkfile failed: %s", dest);
+				eslib_logerror("jettison", g_errbuf);
+				return -1;
+			}
+			if (chmod(dest, 0770)) {
+				printf("chmod: %s\n", strerror(errno));
+				return -1;
+			}
 		}
 	}
 
@@ -1048,7 +1054,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	/* give pod it's own pseudo terminal instance */
 	case OPTION_NEWPTS:
 		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
-		if (mkdir(dest, 0755) && errno != EEXIST)
+		if (mkdir(dest, 0775) && errno != EEXIST)
 			return -1;
 		if (mount(0, dest, "devpts", 0, "newinstance") < 0)
 			return -1;

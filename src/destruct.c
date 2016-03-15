@@ -394,8 +394,7 @@ int recurse(char *path, unsigned int leaf_action)
 		if (dent->d_type == DT_DIR) {
 			recurse(next_path, leaf_action);
 			if (leaf_action == ACTION_RM) {
-				printf("rmdir(%s): %s\n", next_path, strerror(errno));
-				continue;
+				printf("rmdir(%s)\n", next_path);
 				if (rmdir(next_path)) {
 					printf("rmdir failed: %s\n", strerror(errno));
 				}
@@ -493,6 +492,12 @@ int main(int argc, char *argv[])
 			printf("recurse error, try manual cleanup\n");
 			return -1;
 		}
+	}
+
+	/* remove pod dir */
+	if (rmdir(g_path)) {
+		printf("rmdir: %s\n", strerror(errno));
+		return -1;
 	}
 	return 0;
 }
