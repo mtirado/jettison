@@ -1,7 +1,8 @@
 /* (c) 2015 Michael R. Tirado -- GPLv3, GNU General Public License, version 3.
  * contact: mtirado418@gmail.com
  *
- * pod directories are root owned we, need root privileges for cleanup.
+ * pod directories are root owned to prevent ld_preload type shenanigans on
+ * programs using file caps. so we need root group for cleanup(chmod g+s).
  */
 
 #define _GNU_SOURCE
@@ -47,11 +48,6 @@ static void usage()
 	printf("\n");
 	printf("\n");
 	_exit(-1);
-}
-
-static int downgrade()
-{
-	return 0;
 }
 
 static int locate_podpath(char *file)
@@ -417,8 +413,17 @@ int main(int argc, char *argv[])
 	struct timespec t;
 	char ch;
 
-	if (downgrade())
-		return -1;
+	/* protects against a very edgy case when root bind mounts system path
+	 * after this program runs proc_checkmounts. as long as these system
+	 * files lack group write permission and uid is not 0, they should
+	 * be safe. this is why if you noticed, pod files all have 770
+	 * or 775 permission.
+	 */
+	if (getuid() == 0 || geteuid() == 0) {
+	       printf("do not run this program with uid=0\n");
+	       return -1;
+	}
+
 #if DEBUG_RAND
 	g_dbgfile = open("./randout", O_RDWR|O_TRUNC|O_CREAT, 0750);
 	if (g_dbgfile == -1) {
@@ -482,7 +487,7 @@ int main(int argc, char *argv[])
 			printf("recurse error, try manual cleanup\n");
 			return -1;
 		}
-		sync(); /* flush cache to device */
+		sync();
 	}
 
 	/* unlink files */
