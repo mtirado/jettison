@@ -57,7 +57,8 @@ there are additional options we can pass:
 `--logoutput` write stdio to logfile, daemon stdio will use a pipe
 
 
-use jettison_destruct to clean up pods since your user will lack permission.
+use jettison_destruct to clean up pods. since they are root owned
+we will need group write permission. (setgid bit)
 
 
 #pod configuration
