@@ -1075,8 +1075,8 @@ static int X11_hookup()
 				break;
 			}
 		}
-		if (xau->number_length == dlen
-				&&strncmp(xau->number, displaynum, dlen) == 0) {
+		else if (xau->number_length == dlen
+				&& strncmp(xau->number, displaynum, dlen) == 0) {
 			if (XauWriteAuth(fout, xau) != 1) {
 				printf("XauWriteAuth failed\n");
 				goto fail_close;
