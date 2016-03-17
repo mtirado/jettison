@@ -74,26 +74,25 @@ main_entry g_entry;
  * or just make strong note that they should do this
  * immediately in main_entry, also be aware there is
  * a memory leak that should be handled, see pod_free().
- * this has no serious effect on standalone jettison.
  */
 filter_func g_filter;
 void *g_filterdata;
 
 char *g_progpath;
-char g_procname[MAX_PROCNAME];
+char g_procname[MAX_PROCNAME]; /* --procname */
 char g_pid1name[MAX_PROCNAME];
 int  g_initpid; /* jettison_init process */
 
-int g_daemon;
-int g_logoutput;
+int g_daemon; /* --daemon */
+int g_logoutput; /* --logoutput */
 int g_stdout_logfd;
-int g_daemon_pipe[2];
+int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
 
 /* seccomp */
 long g_retaction;
-int  g_strict;
-int  g_blocknew;
-int  g_allow_ptrace;
+int  g_strict; /* --strict */
+int  g_blocknew; /* --block-new-filters */
+int  g_allow_ptrace; /* --allow-ptrace */
 
 /* pod tty i/o */
 int g_pty_notify[2];
@@ -101,7 +100,7 @@ int g_ptym;
 
 /* for stopping/resuming jettison_init before exec */
 int g_traceipc[2];
-int g_tracecalls;
+int g_tracecalls; /* --tracecalls */
 
 /* users real uid/gid */
 uid_t g_ruid;

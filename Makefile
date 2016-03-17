@@ -7,6 +7,10 @@ DEFINES := 							\
 	-DINIT_PATH=\"/usr/local/bin/jettison_init\"		\
 	-DPRELOAD_PATH=\"/usr/local/bin/jettison_preload.so\"
 
+#for X11 auth support
+DEFINES += -DX11OPT
+JETTISON_LIBS := -lXau
+
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 #-rdynamic: backtrace names
 #LDFLAGS := -rdynamic
@@ -66,7 +70,7 @@ all:				\
 #	BUILD TARGETS
 ########################################
 $(JETTISON):		$(JETTISON_OBJS)
-		  	$(CC) $(LDFLAGS) $(JETTISON_OBJS) -o $@
+			$(CC) $(LDFLAGS) $(JETTISON_LIBS) $(JETTISON_OBJS) -o $@
 			@echo ""
 			@echo "x------------------x"
 			@echo "| jettison      OK |"

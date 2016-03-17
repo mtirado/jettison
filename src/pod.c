@@ -27,6 +27,9 @@
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
+#ifdef X11OPT
+	#include <X11/Xauth.h>
+#endif
 /*
  *  prevent these exact paths from being mounted without MS_RDONLY.
  *  you can mount writable directories after these locations.
@@ -136,6 +139,9 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "noproc"	},  /* do not mount /proc */
 	{ "slog"	},  /* pod wants to write to system log */
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
+#ifdef X11OPT
+	{ "X11"         },  /* bind mount X11 socket and generate auth file */
+#endif
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
 	{ "seccomp_allow" },/* add a syscall to seccomp whitelist.
@@ -994,6 +1000,122 @@ static int prepare_mountpoints()
 	return 0;
 }
 
+#ifdef X11OPT
+static int X11_hookup()
+{
+	char newpath[MAX_SYSTEMPATH];
+	struct path_node xsock;
+	char displaynum[24];
+	char *start = NULL;
+	char *end = NULL;
+	Xauth *xau = NULL;
+	FILE *fin, *fout;
+	char *xauth_file = eslib_proc_getenv("XAUTHORITY");
+	char *display = eslib_proc_getenv("DISPLAY");
+	int dlen;
+	int found = 0;
+	setuid(g_ruid);
+
+	if (xauth_file == NULL) {
+		printf("missing XAUTHORITY env var\n");
+		return -1;
+	}
+	if (display == NULL) {
+		printf("missing DISPLAY env var\n");
+		return -1;
+	}
+	if (eslib_file_path_check(xauth_file)) {
+		printf("XAUTHORITY bad path\n");
+		return -1;
+	}
+	/* extract xauth display number from env var */
+	start = display;
+	if (*start != ':')
+		goto disp_err;
+	end = ++start;
+	while(1)
+	{
+		if (*end == '\0')
+			goto disp_err;
+		if (*end == '.')
+			break;
+		++end;
+	}
+	dlen = end - start;
+	if (dlen <= 0)
+		goto disp_err;
+	else if (dlen >= (int)sizeof(displaynum) - 1)
+		goto disp_err;
+	strncpy(displaynum, start, dlen);
+	displaynum[dlen] = '\0';
+
+	snprintf(newpath, sizeof(newpath),
+			"%s/podhome/.Xauthority", g_chroot_path);
+	fin = fopen(xauth_file, "r");
+	if (fin == NULL) {
+		printf("fopen(%s): %s\n", xauth_file, strerror(errno));
+		return -1;
+	}
+	fout = fopen(newpath, "w+");
+	if (fout == NULL) {
+		printf("fopen(%s): %s\n", newpath, strerror(errno));
+		goto fail_close;
+	}
+
+	/* copy auth info for current display */
+	while(1)
+	{
+		xau = XauReadAuth(fin);
+		if (xau == NULL) {
+			if (!found) {
+				printf("xauth entry for display not found\n");
+				goto fail_close;
+			}
+			else {
+				break;
+			}
+		}
+		if (strncmp(xau->number, displaynum, dlen) == 0) {
+			if (XauWriteAuth(fout, xau) != 1) {
+				printf("XauWriteAuth failed\n");
+				goto fail_close;
+			}
+			found = 1;
+		}
+		XauDisposeAuth(xau);
+
+	}
+	fclose(fin);
+	fclose(fout);
+
+	memset(&xsock, 0, sizeof(xsock));
+	/* bind mount X11 socket into pod */
+	snprintf(xsock.src, MAX_SYSTEMPATH,
+			"/tmp/.X11-unix/X%s", displaynum);
+	snprintf(xsock.dest, MAX_SYSTEMPATH,
+			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
+	xsock.mntflags = MS_UNBINDABLE;
+	if (prep_bind(&xsock)) {
+		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	setuid(0);
+	if (do_bind(&xsock)) {
+		printf("do_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	return 0;
+
+disp_err:
+	printf("DISPLAY env error\n");
+	return -1;
+
+fail_close:
+	fclose(fin);
+	fclose(fout);
+	return -1;
+}
+#endif
 /* returns negative on error,
  *  0 if ok,
  *  1 when first pass chroot was found
@@ -1166,7 +1288,14 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		break;
-
+#ifdef X11OPT
+	case OPTION_X11:
+			if (X11_hookup()) {
+				printf("X11 hookup failed\n");
+				return -1;
+			}
+		break;
+#endif
 	default:
 		printf("unknown option\n");
 		return -1;
@@ -1190,19 +1319,19 @@ static int find_keyword(char *kwcmp)
 /* final stage of pass 1, add things to config as needed */
 static int pass1_finalize()
 {
-	char opt[MAX_SYSTEMPATH];
+	char pathbuf[MAX_SYSTEMPATH];
 
 	/* whitelist jettison init program */
-	snprintf(opt, sizeof(opt), "rx %s", INIT_PATH);
-	if (create_pathnode(opt, sizeof(opt), 0)) {
-		printf("couldn't create rdonly path(%s)\n", opt);
+	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
+	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
+		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
 
 	/* whitelist jettison preload */
-	snprintf(opt, sizeof(opt), "rx %s", PRELOAD_PATH);
-	if (create_pathnode(opt, sizeof(opt), 0)) {
-		printf("couldn't create rdonly path(%s)\n", opt);
+	snprintf(pathbuf, sizeof(pathbuf), "rx %s", PRELOAD_PATH);
+	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
+		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
 
@@ -1219,6 +1348,10 @@ static int pass1_finalize()
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
 
+	/* make tmp dir */
+	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
+	mkdir(pathbuf, 0750);
+	chown(pathbuf, g_ruid, g_rgid);
 	return 0;
 }
 
@@ -1492,8 +1625,6 @@ SINGLE_KEYWORD:		/* no parameters */
 			return -1;
 		}
 
-		mkdir("/tmp", 0750);
-		chown("/tmp", g_ruid, g_rgid);
 
 	}
 	return 0;
