@@ -71,6 +71,7 @@ static char *g_blacklist_paths[] =
 	"/boot",
 	"/proc",
 	"/sys",
+	"/.Xauthority",
 	POD_PATH
 };
 #define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
@@ -760,10 +761,8 @@ int create_pathnode(char *params, size_t size, int home)
 	path = &params[i];
 
 	if (path[1] != '\0') {
-		/* normal non "/" path */
+		/* eslib doesn't want trailing slashes */
 		if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
-			return -1;
-		if (eslib_file_path_check(path))
 			return -1;
 	}
 	else if (!home) {
@@ -773,6 +772,16 @@ int create_pathnode(char *params, size_t size, int home)
 	else {
 		return create_homeroot(remountflags, 0);
 	}
+
+	if (eslib_file_path_check(path)) {
+		printf("bad path\n");
+		return -1;
+	}
+	if (check_blacklisted(path)) {
+		printf("path blacklisted: %s\n", path);
+		return -1;
+	}
+
 	/* setup mount assuming / == /$HOME/user to be mounted in /podhome
 	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
 	 */
@@ -785,9 +794,6 @@ int create_pathnode(char *params, size_t size, int home)
 	}
 	else { /* setup mount normally */
 		strncpy(src , path, MAX_SYSTEMPATH-1);
-		if (check_blacklisted(src)) {
-			return -1;
-		}
 		snprintf(dest, MAX_SYSTEMPATH-1, "%s%s", g_chroot_path, src);
 	}
 	src[MAX_SYSTEMPATH-1]  = '\0';
