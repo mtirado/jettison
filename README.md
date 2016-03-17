@@ -1,9 +1,10 @@
 # jettison
-launch programs into a whitelist environment. however, X11 does not support
-this type of compartmentalization. window contents/titles, keystrokes,
-and whatnot are not be protected on the same X server. if you know of any
-other common pieces of software that completely break application sandboxing
-on linux, please let me know so i can update this notice.
+launch programs into a whitelist environment. however, X11 users must take
+extra care to adequately compartmentalize a pod. You should start a new X11
+session for applications that can not be trusted with sharing keystrokes
+and screen contents, possible window control, etc...
+this can be accomplished by simply running startx in a getty virtual terminal.
+switch between sessions using ctrl-alt f7,f8,f9 and so forth.
 
 see configs directory for example pod configuration files.
 
@@ -87,6 +88,7 @@ use cap_bset to specify which file capabilities should be added to bounding set
 
 ##newnet
 create a new network namespace, which effectively disables networking
+and creates new abstract socket namespace.
 
 ##noproc
 disable /proc filesystem
@@ -95,8 +97,15 @@ disable /proc filesystem
 if $HOME is not whitelisted /podhome is remounted as an empty node
 with rw flags. using home_exec will change this to rwx flags.
 
+##X11
+X11 option indicates the user will be connecting to X11, copies current display
+auth data to /podhome/.Xauthority. also bind mounts display socket to /tmp
+for best separation combine with newnet or tell your xserver to NOT listen
+in abstract socket namespace.
+
 ##bugs
 currently only tested using i386.
+
 
 
 ##other
