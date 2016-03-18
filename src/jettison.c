@@ -1420,6 +1420,7 @@ int main(int argc, char *argv[])
 		g_initpid = jettison_program(g_executable_path, argv, g_stacksize,
 					    g_podflags, NULL, NULL);
 		if (g_initpid == -1) {
+			g_initpid = 0;
 			printf("jettison failure\n");
 			usleep(200000);
 			return -1;
