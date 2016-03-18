@@ -452,10 +452,32 @@ int process_arguments(int argc, char *argv[])
 				printf("executable path too long\n");
 				return -1;
 			}
-			if (i == 1)
+			/* executable path argument */
+			if (i == 1) {
+				int r;
 				strncpy(g_executable_path, argv[i], len);
-			else if (i == 2)
+				/* must be full path, and an existing regular file */
+				if (eslib_file_path_check(g_executable_path)) {
+					printf("bad exec path: %s\n", g_executable_path);
+					return -1;
+				}
+				r = eslib_file_isfile(g_executable_path);
+				if (r == -1) {
+					printf("bad exec path: %s\n", g_executable_path);
+					return -1;
+				}
+				else if (r == 0) {
+					printf("not a file: %s\n", g_executable_path);
+					return -1;
+				}
+
+			}
+			else if (i == 2) {
 				strncpy(g_podconfig_path, argv[i], len);
+			}
+			else {
+				return -1;
+			}
 
 			break;
 
