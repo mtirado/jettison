@@ -389,7 +389,7 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 	}
 	newid[32] = '\0';
 	/* create new file */
-	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0755);
+	fd = open(path, O_TRUNC|O_CREAT|O_RDWR, 0775);
 	if (fd == -1) {
 		printf("open: %s\n", strerror(errno));
 		return -1;
@@ -400,7 +400,7 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		return -1;
 	}
 	close(fd);
-	if (chmod(path, 0755)) {
+	if (chmod(path, 0775)) {
 		printf("chmod: %s\n", strerror(errno));
 		return -1;
 	}

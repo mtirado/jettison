@@ -81,7 +81,7 @@ void *g_filterdata;
 char *g_progpath;
 char g_procname[MAX_PROCNAME]; /* --procname */
 char g_pid1name[MAX_PROCNAME];
-int  g_initpid; /* jettison_init process */
+pid_t  g_initpid; /* jettison_init process */
 
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
@@ -105,7 +105,7 @@ int g_tracecalls; /* --tracecalls */
 /* users real uid/gid */
 uid_t g_ruid;
 gid_t g_rgid;
-
+pid_t g_mainpid;
 
 char g_newroot[MAX_SYSTEMPATH];
 char g_pty_slavepath[MAX_SYSTEMPATH];
@@ -1279,6 +1279,7 @@ int main(int argc, char *argv[])
 
 	g_ruid = getuid();
 	g_rgid = getgid();
+	g_mainpid = getpid();
 	g_ptym = -1;
 	g_daemon = 0;
 	g_initpid = 0;

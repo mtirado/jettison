@@ -102,7 +102,7 @@ extern char g_pty_slavepath[MAX_SYSTEMPATH];
 extern gid_t g_rgid;
 extern uid_t g_ruid;
 extern int g_tracecalls;
-
+extern pid_t g_mainpid;
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
 char g_params[MAX_PARAM];
 
@@ -1136,6 +1136,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char path[MAX_SYSTEMPATH];
 	char syscall_buf[MAX_SYSCALL_DEFLEN];
 	int  syscall_nr;
+	int  r;
 #ifdef USE_FILE_CAPS
 	int  cap_nr;
 	char cap_buf[MAX_CAP_DEFLEN];
@@ -1280,11 +1281,28 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	case OPTION_MACHINEID:
 		snprintf(path, sizeof(path), "%s/etc/machine-id", g_chroot_path);
+		r = eslib_file_exists(path);
+		if (r == -1) {
+			printf("path error\n");
+			return -1;
+		}
+		else if (r == 0) {
+			if (eslib_file_mkfile(path, 0775, 0)) {
+				printf("error creating: %s\n", path);
+				return -1;
+			}
+		}
+		if (chmod(path, 0775)) {
+			printf("chmod: %s\n", strerror(errno));
+			return -1;
+		}
 		if (params == NULL) {
 			struct timespec t;
 			clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-			if (create_machineid(path, NULL, (unsigned int)t.tv_nsec
-							+(unsigned int)getpid())) {
+			/* assumes overflows are not saturated */
+			if (create_machineid(path, NULL, (int)t.tv_nsec
+							+(int)t.tv_sec
+							+(unsigned int)g_mainpid)) {
 				printf("wat create_machineid()\n");
 				return -1;
 			}
