@@ -1303,7 +1303,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			if (create_machineid(path, NULL, (int)t.tv_nsec
 							+(int)t.tv_sec
 							+(unsigned int)g_mainpid)) {
-				printf("wat create_machineid()\n");
+				printf("create_machineid(NULL)\n");
 				return -1;
 			}
 			return 0;
