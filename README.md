@@ -2,9 +2,13 @@
 launch programs into a whitelist environment. however, X11 users must take
 extra care to adequately compartmentalize a pod. You should start a new X11
 session for applications that can not be trusted with sharing keystrokes
-and screen contents, possible window control, etc...
-this can be accomplished by simply running startx in a getty virtual terminal.
-switch between sessions using ctrl-alt f7,f8,f9 and so forth.
+and screen contents, possible window control, inject input, etc...
+this can be accomplished by simply running startx in a new getty virtual terminal.
+switch between sessions using ctrl-alt f7,f8,f9 and so forth. any pods that wish
+to connect to X11 must specify the X11 option to copy auth data and /tmp socket,
+for the current $DISPLAY environ var. `startx -- -nolisten local -nolisten tcp`
+will tell X to not listen in abstract socket namespace, or tcp socket. which is
+ideal to prevent a hostile pod from even attempting to cross X11 sessions.
 
 see configs directory for example pod configuration files.
 
