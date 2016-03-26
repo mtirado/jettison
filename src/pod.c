@@ -344,7 +344,11 @@ int pod_enter()
 		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
 		goto err_free;
 	}
-	if (chown("/tmp", g_ruid, g_rgid)) {
+	if (chmod("/tmp", 0777)) {
+		printf("chmod(/tmp): %s\n", strerror(errno));
+		return -1;
+	}
+	if (chown("/tmp", 0, 0)) {
 		printf("chown(/tmp): %s\n", strerror(errno));
 		return -1;
 	}
@@ -1357,6 +1361,7 @@ static int find_keyword(char *kwcmp)
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
+	struct path_node tnode;
 
 	/* whitelist jettison init program */
 	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
@@ -1387,9 +1392,16 @@ static int pass1_finalize()
 
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
-	mkdir(pathbuf, 0750);
-	if (chown(pathbuf, g_ruid, g_rgid)) {
-		printf("chown, %s\n", strerror(errno));
+	mkdir(pathbuf, 0770);
+	chmod(pathbuf, 0777);
+
+	/* remount tmp as an "empty" node */
+	memset(&tnode, 0, sizeof(tnode));
+	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
+	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
+	tnode.nodeflags = NODE_EMPTY;
+	if (do_bind(&tnode)) {
+		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
 		return -1;
 	}
 	return 0;
