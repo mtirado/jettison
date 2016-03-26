@@ -282,15 +282,19 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	}
 	g_firstpass = 0;
 
-	/* protect user owned pods directory */
+	/* set ownership/permissions on user directory */
 	snprintf(buf, MAX_SYSTEMPATH, "%s/%s", POD_PATH, pwuser);
 	setuid(g_ruid);
-	if (chmod(buf, 0750)) {
+	if (chmod(buf, 0770)) {
 		printf("chmod(%s): %s\n", buf, strerror(errno));
 		pod_free();
 		return -1;
 	}
 	setuid(0);
+	if (chown(buf, g_ruid, 0)) {
+		printf("chown: %s\n", strerror(errno));
+		return -1;
+	}
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
 	outpath[MAX_SYSTEMPATH-1] = '\0';
@@ -339,6 +343,10 @@ int pod_enter()
 	if (r < 0) {
 		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
 		goto err_free;
+	}
+	if (chown("/tmp", g_ruid, g_rgid)) {
+		printf("chown(/tmp): %s\n", strerror(errno));
+		return -1;
 	}
 	/* we're done here */
 	pod_free();
@@ -391,6 +399,10 @@ static int do_chroot_setup()
 	}
 	setuid(0);
 	setgid(0);
+	if (chmod(g_chroot_path, 0775)) {
+		printf("chmod %s: %s\n", g_chroot_path, strerror(errno));
+		return -1;
+	}
 	return 0;
 }
 
@@ -1102,11 +1114,11 @@ static int X11_hookup()
 	snprintf(xsock.dest, MAX_SYSTEMPATH,
 			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
 	xsock.mntflags = MS_UNBINDABLE;
+	setuid(0);
 	if (prep_bind(&xsock)) {
 		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
 	}
-	setuid(0);
 	if (do_bind(&xsock)) {
 		printf("do_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
@@ -1376,7 +1388,10 @@ static int pass1_finalize()
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
 	mkdir(pathbuf, 0750);
-	chown(pathbuf, g_ruid, g_rgid);
+	if (chown(pathbuf, g_ruid, g_rgid)) {
+		printf("chown, %s\n", strerror(errno));
+		return -1;
+	}
 	return 0;
 }
 
@@ -1566,6 +1581,10 @@ SINGLE_KEYWORD:		/* no parameters */
 
 
 	if (g_firstpass) {
+		if (do_chroot_setup()) {
+			printf("do_chroot_setup()\n");
+			return -1;
+		}
 		/* additional options to add?*/
 		if (pass1_finalize()) {
 			printf("pass1_finalize()\n");
@@ -1577,8 +1596,7 @@ SINGLE_KEYWORD:		/* no parameters */
 			printf("prepare_mountpoints()\n");
 			return -1;
 		}
-		/* make sure chroot path is intact */
-		return do_chroot_setup();
+		return 0;
 	}
 	else {  /* second pass finished, do binds and chroot */
 		struct path_node *n;
