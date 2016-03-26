@@ -305,62 +305,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 
 
 
-/*
- * set up the pods envionment and chroot.
- */
-int pod_enter()
-{
-	int r;
-	char pathbuf[MAX_SYSTEMPATH];
-	unsigned long flags = MS_NOSUID
-			    | MS_NOEXEC
-			    | MS_NODEV
-			    | MS_RDONLY;
-
-	snprintf(pathbuf, sizeof(pathbuf), "%s/proc", g_chroot_path);
-	if ((g_podflags & (1 << OPTION_NOPROC)) == 0) {
-		mkdir(pathbuf, 0775);
-		if (mount(0, pathbuf, "proc", flags, 0) < 0) {
-			printf("couldn't mount proc(%s): %s\n",pathbuf,strerror(errno));
-			goto err_free;
-		}
-	}
-	else {
-		r = eslib_file_exists(pathbuf);
-		if (r == 1) {
-			if (rmdir(pathbuf)) {
-				printf("proc rmdir failed: %s\n", strerror(errno));
-				return -1;
-			}
-		}
-		else if (r == -1) {
-			return -1;
-		}
-	}
-
-	/* do the actual pod configuration now */
-	r = pod_load_config(g_filedata, g_filesize);
-	if (r < 0) {
-		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
-		goto err_free;
-	}
-	if (chmod("/tmp", 0777)) {
-		printf("chmod(/tmp): %s\n", strerror(errno));
-		return -1;
-	}
-	if (chown("/tmp", 0, 0)) {
-		printf("chown(/tmp): %s\n", strerror(errno));
-		return -1;
-	}
-	/* we're done here */
-	pod_free();
-	return 0;
-
-err_free:
-	pod_free();
-	return -1;
-}
-
 
 
 static int do_chroot_setup()
@@ -647,7 +591,7 @@ static int do_bind(struct path_node *node)
 	if (node->nodeflags & NODE_EMPTY) {
 		printf("do_empty(%s, %s)\n", node->src, node->dest);
 		if (mount(node->dest, node->dest, NULL, MS_BIND, NULL)) {
-			printf("home mount failed: %s\n", strerror(errno));
+			printf("home or empty mount failed: %s\n", strerror(errno));
 			return -1;
 		}
 	}
@@ -1361,7 +1305,6 @@ static int find_keyword(char *kwcmp)
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
-	struct path_node tnode;
 
 	/* whitelist jettison init program */
 	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
@@ -1395,15 +1338,6 @@ static int pass1_finalize()
 	mkdir(pathbuf, 0770);
 	chmod(pathbuf, 0777);
 
-	/* remount tmp as an "empty" node */
-	memset(&tnode, 0, sizeof(tnode));
-	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
-	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
-	tnode.nodeflags = NODE_EMPTY;
-	if (do_bind(&tnode)) {
-		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
-		return -1;
-	}
 	return 0;
 }
 
@@ -1685,6 +1619,74 @@ SINGLE_KEYWORD:		/* no parameters */
 	return 0;
 }
 
+
+/*
+ * set up the pods envionment and chroot.
+ */
+int pod_enter()
+{
+	int r;
+	struct path_node tnode;
+	char pathbuf[MAX_SYSTEMPATH];
+	unsigned long flags = MS_NOSUID
+			    | MS_NOEXEC
+			    | MS_NODEV
+			    | MS_RDONLY;
+
+	snprintf(pathbuf, sizeof(pathbuf), "%s/proc", g_chroot_path);
+	if ((g_podflags & (1 << OPTION_NOPROC)) == 0) {
+		mkdir(pathbuf, 0775);
+		if (mount(0, pathbuf, "proc", flags, 0) < 0) {
+			printf("couldn't mount proc(%s): %s\n",pathbuf,strerror(errno));
+			goto err_free;
+		}
+	}
+	else {
+		r = eslib_file_exists(pathbuf);
+		if (r == 1) {
+			if (rmdir(pathbuf)) {
+				printf("proc rmdir failed: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+		else if (r == -1) {
+			return -1;
+		}
+	}
+
+	/* do the actual pod configuration now */
+	r = pod_load_config(g_filedata, g_filesize);
+	if (r < 0) {
+		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
+		goto err_free;
+	}
+	if (chmod("/tmp", 0777)) {
+		printf("chmod(/tmp): %s\n", strerror(errno));
+		return -1;
+	}
+	if (chown("/tmp", 0, 0)) {
+		printf("chown(/tmp): %s\n", strerror(errno));
+		return -1;
+	}
+
+	/* remount tmp as an "empty" node */
+	memset(&tnode, 0, sizeof(tnode));
+	snprintf(tnode.dest, MAX_SYSTEMPATH, "/tmp");
+	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
+	tnode.nodeflags = NODE_EMPTY;
+	if (do_bind(&tnode)) {
+		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
+		return -1;
+	}
+
+	/* we're done here */
+	pod_free();
+	return 0;
+
+err_free:
+	pod_free();
+	return -1;
+}
 
 
 
