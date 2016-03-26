@@ -28,6 +28,7 @@
 #include "eslib/eslib.h"
 
 #ifdef X11OPT
+	int g_x11_hookup;
 	#include <X11/Xauth.h>
 #endif
 /*
@@ -202,6 +203,9 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
+#ifdef X11OPT
+	g_x11_hookup = 0;
+#endif
 	g_allow_dev = 0;
 	g_podflags = 0;
 	g_firstpass = 1;
@@ -1062,13 +1066,17 @@ static int X11_hookup()
 	snprintf(xsock.dest, MAX_SYSTEMPATH,
 			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
 	xsock.mntflags = MS_UNBINDABLE;
-	setuid(0);
 	if (prep_bind(&xsock)) {
 		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
 	}
+	setuid(0);
 	if (do_bind(&xsock)) {
 		printf("do_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	if (chown(xsock.dest, g_ruid, g_rgid)) {
+		printf("error setting x11 socket group\n");
 		return -1;
 	}
 	return 0;
@@ -1275,10 +1283,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		break;
 #ifdef X11OPT
 	case OPTION_X11:
-			if (X11_hookup()) {
-				printf("X11 hookup failed\n");
-				return -1;
-			}
+		g_x11_hookup = 1;
 		break;
 #endif
 	default:
@@ -1338,6 +1343,29 @@ static int pass1_finalize()
 	mkdir(pathbuf, 0770);
 	chmod(pathbuf, 0777);
 
+	return 0;
+}
+
+static int pass2_finalize()
+{
+	struct path_node tnode;
+	/* remount tmp as an "empty" node */
+	memset(&tnode, 0, sizeof(tnode));
+	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
+	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
+	tnode.nodeflags = NODE_EMPTY;
+	if (do_bind(&tnode)) {
+		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
+		return -1;
+	}
+
+#ifdef X11OPT
+	/* hookup x11 */
+	if (g_x11_hookup && X11_hookup()) {
+		printf("X11 hookup failed\n");
+		return -1;
+	}
+#endif
 	return 0;
 }
 
@@ -1576,6 +1604,12 @@ SINGLE_KEYWORD:		/* no parameters */
 			}
 			n = n->next;
 		}
+
+		if (pass2_finalize()) {
+			printf("pass2_finalize()\n");
+			return -1;
+		}
+
 		/* chroot */
 		if (mount(g_chroot_path, g_chroot_path, "bind",
 					MS_BIND, NULL)) {
@@ -1626,7 +1660,6 @@ SINGLE_KEYWORD:		/* no parameters */
 int pod_enter()
 {
 	int r;
-	struct path_node tnode;
 	char pathbuf[MAX_SYSTEMPATH];
 	unsigned long flags = MS_NOSUID
 			    | MS_NOEXEC
@@ -1668,17 +1701,6 @@ int pod_enter()
 		printf("chown(/tmp): %s\n", strerror(errno));
 		return -1;
 	}
-
-	/* remount tmp as an "empty" node */
-	memset(&tnode, 0, sizeof(tnode));
-	snprintf(tnode.dest, MAX_SYSTEMPATH, "/tmp");
-	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
-	tnode.nodeflags = NODE_EMPTY;
-	if (do_bind(&tnode)) {
-		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
-		return -1;
-	}
-
 	/* we're done here */
 	pod_free();
 	return 0;
