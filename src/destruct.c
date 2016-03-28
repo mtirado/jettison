@@ -402,6 +402,12 @@ int recurse(char *path, unsigned int leaf_action)
 				_exit(-1);
 			}
 		}
+		else if (leaf_action == ACTION_RM) {
+			if(action(next_path, ACTION_RM)) {
+				closedir(dir);
+				_exit(-1);
+			}
+		}
 	}
 	closedir(dir);
 	return 0;
