@@ -1120,9 +1120,9 @@ static int parse_newnet(char *params, size_t size)
 	if (strncmp(type, "none", 5) == 0)
 		return 0;
 	else if (strncmp(type, "loop", 5) == 0)
-		return -1;
+		g_newnet.kind = RTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
-	else if (strncmp(type, "vethbr", 5) == 0)
+	else if (strncmp(type, "vethbr", 7) == 0)
 		g_newnet.kind = RTNL_KIND_VETHBR;
 #endif
 #ifdef NEWNET_IPVLAN
@@ -1196,6 +1196,8 @@ static int parse_newnet(char *params, size_t size)
 	case RTNL_KIND_VETHBR:
 		printf("todo...\n");
 		return -1;
+	case RTNL_KIND_LOOP:
+		break;
 	default:
 		printf("unknown type: %s\n", type);
 		return -1;

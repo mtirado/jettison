@@ -92,21 +92,6 @@ static int netns_enter_and_config(char *ifname, pid_t target)
 	pid_t p;
 	int status;
 	int r;
-	char *gateway;
-	char *dev;
-
-	dev = g_newnet.dev;
-	if (*dev == '\0')
-		return -1;
-
-	/* set gateway */
-	gateway = eslib_rtnetlink_getgateway(dev);
-	if (gateway == NULL) {
-		printf("couldn't get link gateway\n");
-		return -1;
-	}
-	memset(g_newnet.gateway, 0, sizeof(g_newnet.gateway));
-	strncpy(g_newnet.gateway, gateway, sizeof(g_newnet.gateway)-1);
 
 	p = fork();
 	if (p == -1) {
@@ -117,15 +102,24 @@ static int netns_enter_and_config(char *ifname, pid_t target)
 	{
 		char path[MAX_SYSTEMPATH];
 		int nsfd;
-
+		int retries = 10;
 		/* open target namespace */
 		setuid(g_ruid);
 		setgid(g_rgid);
 		snprintf(path, sizeof(path), "/proc/%d/ns/net", target);
-		nsfd = open(path, O_RDONLY);
-		if (nsfd == -1) {
-			printf("open(%s): %s\n", path, strerror(errno));
-			_exit(-1);
+		while (retries > 0)
+		{
+			nsfd = open(path, O_RDONLY);
+			if (nsfd == -1) {
+				if (--retries < 0) {
+					printf("open(%s): %s\n", path, strerror(errno));
+					_exit(-1);
+				}
+				usleep(100000);
+			}
+			else {
+				break;
+			}
 		}
 		setuid(0);
 		setgid(0);
@@ -147,7 +141,7 @@ static int netns_enter_and_config(char *ifname, pid_t target)
 			}
 			break;
 		case RTNL_KIND_IPVLAN:
-			if (netns_vlan_config(ifname, gateway)) {
+			if (netns_vlan_config(ifname, g_newnet.gateway)) {
 				printf("vlan config failed\n");
 				_exit(-1);
 			}
@@ -182,6 +176,8 @@ static int netns_enter_and_config(char *ifname, pid_t target)
 int netns_setup()
 {
 	char ifname[16];
+	char *gateway;
+	char *dev;
 	int r;
 
 	if (g_newnet.kind == RTNL_KIND_INVALID)
@@ -208,6 +204,20 @@ int netns_setup()
 			eslib_rtnetlink_linkdel(ifname);
 			return -1;
 		}
+
+		dev = g_newnet.dev;
+		if (*dev == '\0')
+			return -1;
+
+		/* set gateway */
+		gateway = eslib_rtnetlink_getgateway(dev);
+		if (gateway == NULL) {
+			printf("couldn't get link gateway\n");
+			return -1;
+		}
+		memset(g_newnet.gateway, 0, sizeof(g_newnet.gateway));
+		strncpy(g_newnet.gateway, gateway, sizeof(g_newnet.gateway)-1);
+
 		break;
 
 	case RTNL_KIND_VETHBR:

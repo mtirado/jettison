@@ -1449,8 +1449,10 @@ int main(int argc, char *argv[])
 	}
 
 	/* setup network namespace */
-	if(netns_setup())
+	if(netns_setup()) {
+		printf("netns setup failure\n");
 		return -1;
+	}
 
 	/* switch back to real user credentials */
 	if (setregid(g_rgid, g_rgid)) {
