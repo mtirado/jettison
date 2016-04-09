@@ -12,16 +12,14 @@ ideal to prevent a hostile pod from even attempting to cross X11 sessions.
 
 
 see configs directory for example pod configuration files.
-
-
 this has only been tested on x86 using AUDIT_ARCH_I386. i have not explored
-
 other arch's at all yet, so you may have to change this in jettison.c
 
 
 ##building + installation:
 ```
-git submodule update --init --recursive (pull eslib)
+#pull eslib
+git submodule update --init --recursive
 
 make
 
@@ -29,9 +27,11 @@ su root
 
 cp ./{jettison,jettison_init,jettison_preload.so,jettison_destruct} /usr/local/bin/
 
-chmod u+s /usr/local/bin/jettison (setuid bit)
+#setuid bit
+chmod u+s /usr/local/bin/jettison
 
-chmod g+s /usr/local/bin/jettison_destruct (setgid bit)
+#setgid bit
+chmod g+s /usr/local/bin/jettison_destruct
 
 mkdir /opt/pods
 ```
