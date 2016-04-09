@@ -407,10 +407,6 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 	return 0;
 }
 
-
-
-
-
 int getch(char *c)
 {
 	struct termios orig, tmp;
@@ -433,9 +429,5 @@ int getch(char *c)
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &orig))
 		return -1;
 
-
 	return 0;
 }
-
-
-

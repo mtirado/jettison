@@ -37,8 +37,8 @@
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 
-#define MAX_ARGV_LEN 1024 * 16 /* 16KB */
-#define IOBUFLEN 4096 * 8 /* 32KB */
+#define MAX_ARGV_LEN (1024 * 16) /* 16KB */
+#define IOBUFLEN (4096 * 8) /* 32KB */
 
 #define MAX_PROCNAME 17
 #define MAX_OPTLEN 32
@@ -55,13 +55,15 @@
 #endif
 
 extern char **environ;
-extern int tracecalls(pid_t p, int ipc, char *jailpath);
+extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
+extern int netns_setup(); /* netns_helper.c */
 
 /* pod.c globals */
 extern char g_fcaps[NUM_OF_CAPS];
 extern int  g_syscalls[MAX_SYSCALLS];
 extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
+extern struct newnet_param g_newnet;
 
 /* entry and  filter function type */
 typedef int (*main_entry)(void *);
@@ -70,10 +72,9 @@ typedef int (*filter_func)(void *);
 /* input to clone func */
 unsigned int g_podflags;
 main_entry g_entry;
-/* TODO, for C api users to close fd's after clone
- * or just make strong note that they should do this
- * immediately in main_entry, also be aware there is
- * a memory leak that should be handled, see pod_free().
+
+/* for closing fd's and whatnot if we
+ * forked directly from some other process
  */
 filter_func g_filter;
 void *g_filterdata;
@@ -81,7 +82,6 @@ void *g_filterdata;
 char *g_progpath;
 char g_procname[MAX_PROCNAME]; /* --procname */
 char g_pid1name[MAX_PROCNAME];
-pid_t  g_initpid; /* jettison_init process */
 
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
@@ -102,10 +102,10 @@ int g_ptym;
 int g_traceipc[2];
 int g_tracecalls; /* --tracecalls */
 
-/* users real uid/gid */
-uid_t g_ruid;
-gid_t g_rgid;
-pid_t g_mainpid;
+uid_t g_ruid;    /* real uid */
+gid_t g_rgid;    /* real gid */
+pid_t g_mainpid; /* jettison main process */
+pid_t g_initpid; /* jettison_init process */
 
 char g_newroot[MAX_SYSTEMPATH];
 char g_pty_slavepath[MAX_SYSTEMPATH];
@@ -364,17 +364,13 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 
 	/* new mount namespaces for every pod */
 	cloneflags = CLONE_NEWNS | CLONE_NEWPID;
-	if (podflags & (1 << OPTION_ROOTPID))
-		cloneflags &= ~CLONE_NEWPID;
+	/* TODO make this a command line argument
+	 * if (podflags & (1 << OPTION_ROOTPID))
+		cloneflags &= ~CLONE_NEWPID;*/
 
-	/* TODO actually test newnet.. isolates abstract socket namespace,
-	 * but also disables networking, unless we bridge it. though before
-	 * i do this, there will need to be config options to setup packet
-	 * filtering, and IP/domain whitelisting options/packet logging
-	 * option for metadata logging and/or content.
-	 */
-	if (podflags & (1 << OPTION_NEWNET))
+	if (podflags & (1 << OPTION_NEWNET)) {
 		cloneflags |= CLONE_NEWNET;
+	}
 
 	/* setup some extra parameters and create new thread */
 	g_progpath = progpath;
@@ -1449,6 +1445,11 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 	}
+
+	/* setup network namespace */
+	if(netns_setup())
+		return -1;
+
 	/* switch back to real user credentials */
 	if (setregid(g_rgid, g_rgid)) {
 		printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
@@ -1462,7 +1463,6 @@ int main(int argc, char *argv[])
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
 	close(g_daemon_pipe[1]);
-
 	relayio_sigsetup();
 	relay_io(stdout_logfd);
 	return 0;

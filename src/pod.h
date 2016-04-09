@@ -9,15 +9,22 @@
 #define POD_H__
 
 
+struct newnet_param {
+	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
+	char dev[16];      /* master device name */
+	char addr[19];     /* ip addr */
+	char gateway[16];  /* to net  */
+	unsigned char netmask; /* subnet mask, (prefix bits) */
+};
+
 /* put all podflag options near top, they are used as
  * bit flags, and we should keep their value as low as possible */
 enum
 {
-	OPTION_ROOTPID=0,
-	OPTION_NEWNET,
+	OPTION_NEWNET=0,
 	OPTION_NEWPTS,
 	OPTION_NOPROC,
-	OPTION_SLOG,
+	/*OPTION_SLOG,*/
 	OPTION_HOME_EXEC,
 #ifdef X11OPT
 	OPTION_X11,
@@ -33,8 +40,7 @@ enum
 	OPTION_FILE,
 	OPTION_HOME,
 
-	/*OPTION_CAP_PSET*/
-	OPTION_CAP_BSET,
+	OPTION_CAPABILITY,
 	OPTION_MACHINEID,
 	KWCOUNT
 };

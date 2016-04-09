@@ -11,10 +11,18 @@ DEFINES := 							\
 DEFINES += -DX11OPT
 JETTISON_LIBS := -lXau
 
+#newnet namespace device hookups. you may want to roll your own if
+#allowing random users to run jettison, some of these obtain new net
+#resources. ip address, mac address, ip forwarding on a bridge, etc.
+
+# XXX this is experimental right as there's no good way to get firewall
+# installed in new namespace yet, and we probably want to limit number of
+# network resources (ip/mac addr's) we hand out to user.
+#DEFINES += -DNEWNET_IPVLAN=1
+
+
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
-#-rdynamic: backtrace names
-#LDFLAGS := -rdynamic
-DEFLANG	:= -ansi
+DEFLANG := -ansi
 #DBG	:= -g
 
 #TODO strip debugging info from binaries
@@ -26,10 +34,12 @@ JETTISON_SRCS :=					\
 		./src/pod.c				\
 		./src/misc.c				\
 		./src/util/seccomp_helper.c		\
+		./src/util/netns_helper.c		\
 		./src/eslib/eslib_file.c		\
 		./src/eslib/eslib_sock.c		\
 		./src/eslib/eslib_proc.c		\
 		./src/eslib/eslib_log.c			\
+		./src/eslib/eslib_rtnetlink.c		\
 		./src/util/tracecalls.c
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 

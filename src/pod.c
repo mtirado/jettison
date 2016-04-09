@@ -26,6 +26,11 @@
 #include "misc.h"
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
+#include "eslib/eslib_rtnetlink.h"
+
+#ifndef DEFAULT_NETMASK_PREFIX
+	#define DEFAULT_NETMASK_PREFIX 24
+#endif
 
 #ifdef X11OPT
 	int g_x11_hookup;
@@ -123,6 +128,8 @@ unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
 
+struct newnet_param g_newnet;
+
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
 
@@ -135,11 +142,10 @@ struct path_node *g_homeroot;
 #define KWLEN  32 /* maximum string length */
 static char keywords[KWCOUNT][KWLEN] =
 {
-	{ "rootpidns"	},  /* don't create a new pid namespace */
 	{ "newnet"	},  /* create new network namespace TODO how to */
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
-	{ "slog"	},  /* pod wants to write to system log */
+	/*{ "slog"	},*//* pod wants to write to system log */
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
 #ifdef X11OPT
 	{ "X11"         },  /* bind mount X11 socket and generate auth file */
@@ -147,11 +153,11 @@ static char keywords[KWCOUNT][KWLEN] =
 	/* podflags cutoff, don't actually use this... */
 	{ "|||||||||||||" },
 	{ "seccomp_allow" },/* add a syscall to seccomp whitelist.
-			       if nothing is added, everything is allowed. */
-	{ "seccomp_block" },/* block syscall without sigkill if using --strict */
+			       otherwise, everything is allowed. */
+	{ "seccomp_block" },/* block syscall without sigkill (if using --strict) */
 	{ "file"        },  /* bind mount file with options w,r,x,d,s */
 	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
-	{ "cap_bset"	},  /* allow file capability in bounding set */
+	{ "capability"	},  /* allow file capability in bounding set */
 	{ "machine-id"	},  /* specify or generate a /etc/machine-id string */
 };
 
@@ -206,16 +212,17 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 #ifdef X11OPT
 	g_x11_hookup = 0;
 #endif
-	g_allow_dev = 0;
 	g_podflags = 0;
+	g_allow_dev = 0;
 	g_firstpass = 1;
-	g_filedata = NULL;
-	g_mountpoints = NULL;
-	memset(g_chroot_path, 0, sizeof(g_chroot_path));
-	memset(g_fcaps, 0, sizeof(g_fcaps));
 	g_syscall_idx = 0;
 	g_blkcall_idx = 0;
 	g_homeroot = NULL;
+	g_filedata = NULL;
+	g_mountpoints = NULL;
+	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(&g_newnet, 0, sizeof(g_newnet));
+	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 
 	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
 	{
@@ -304,12 +311,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	outpath[MAX_SYSTEMPATH-1] = '\0';
 	return 0;
 }
-
-
-
-
-
-
 
 static int do_chroot_setup()
 {
@@ -1091,6 +1092,116 @@ fail_close:
 	return -1;
 }
 #endif
+
+static int parse_newnet(char *params, size_t size)
+{
+	char type[32];
+	unsigned int typelen;
+	unsigned int devlen;
+	unsigned int addrlen;
+	size_t i, z;
+
+	if (size <= 1)
+		return -1;
+
+	memset(type, 0, sizeof(type));
+	memset(&g_newnet, 0, sizeof(g_newnet));
+	for (i = 0; i < size; ++i) /* space separated */
+		if (params[i] == ' ')
+			break;
+	typelen = i;
+	if (typelen+1 >= sizeof(type)) {
+		printf("newnet type too long\n");
+		return -1;
+	}
+	strncpy(type, params, typelen);
+
+	/* get kind */
+	if (strncmp(type, "none", 5) == 0)
+		return 0;
+	else if (strncmp(type, "loop", 5) == 0)
+		return -1;
+#ifdef NEWNET_VETHBR
+	else if (strncmp(type, "vethbr", 5) == 0)
+		g_newnet.kind = RTNL_KIND_VETHBR;
+#endif
+#ifdef NEWNET_IPVLAN
+	else if (strncmp(type, "ipvlan", 7) == 0)
+		g_newnet.kind = RTNL_KIND_IPVLAN;
+#endif
+#ifdef NEWNET_MACVLAN
+	else if (strncmp(type, "macvlan", 8) == 0)
+		return -1;
+#endif
+
+	switch (g_newnet.kind)
+	{
+	case RTNL_KIND_IPVLAN:
+		/* read device string */
+		z = ++i;
+		for (; i < size; ++i)
+			if (params[i] == ' ')
+				break;
+		if (i >= size) {
+			printf("bad parameter(no device?)\n");
+			return -1;
+		}
+		devlen = i - z;
+		if (devlen == 0 || devlen >= sizeof(g_newnet.dev)) {
+			printf("bad master devlen: %d\n", devlen);
+			return -1;
+		}
+		strncpy(g_newnet.dev, &params[z], devlen);
+
+		/* read addr string */
+		z = ++i;
+		for (; i < size; ++i)
+			if (params[i] == ' ' || params[i] == '\0')
+				break;
+		addrlen = i - z;
+		if (addrlen == 0 || addrlen >= sizeof(g_newnet.addr)) {
+			printf("bad addr: %d\n", addrlen);
+			return -1;
+		}
+		strncpy(g_newnet.addr, &params[z], addrlen);
+
+		/* does addr have subnet mask? */
+		for (i = 0; i < addrlen; ++i) {
+			if (g_newnet.addr[i] == '/') {
+				char *err = NULL;
+				long netmask;
+				g_newnet.addr[i] = '\0';
+				if (++i >= addrlen) { /* slash was last char */
+					printf("bad subnet mask\n");
+					return -1;
+				}
+				errno = 0;
+				netmask = strtol(&g_newnet.addr[i], &err, 10);
+				if (err == NULL || *err || errno) {
+					printf("bad subnet mask value\n");
+					return -1;
+				}
+				if (netmask < 0 || netmask > 32) {
+					printf("invalid netmask\n");
+					return -1;
+				}
+				g_newnet.netmask = netmask;
+				break;
+			}
+		}
+		if (i >= addrlen) {
+			g_newnet.netmask = DEFAULT_NETMASK_PREFIX;
+		}
+		break;
+	case RTNL_KIND_VETHBR:
+		printf("todo...\n");
+		return -1;
+	default:
+		printf("unknown type: %s\n", type);
+		return -1;
+	}
+	return 0;
+}
 /* returns negative on error,
  *  0 if ok,
  *  1 when first pass chroot was found
@@ -1112,7 +1223,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	if (option >= KWCOUNT)
 		return -1;
 
-	/* first pass only cares about getting config flags, and path nodes */
+	/* first pass happens before we clone */
 	if (g_firstpass == 1) {
 		if (option < OPTION_PODFLAG_CUTOFF) {
 			/* set flag if below cutoff */
@@ -1131,6 +1242,10 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 				return -1;
 			}
 		}
+		else if (option == OPTION_NEWNET) {
+			if (parse_newnet(params, size))
+				return -1;
+		}
 		return 0;
 	}
 
@@ -1142,10 +1257,10 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	{
 
 	/* caller is responsible for hooking these up */
-	case OPTION_NEWNET:
 	case OPTION_NOPROC:
-	case OPTION_SLOG:
+	/*case OPTION_SLOG:*/
 	case OPTION_HOME_EXEC:
+	case OPTION_NEWNET:
 
 		break;
 
@@ -1221,7 +1336,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		break;
 
 	/* change to bounding set */
-	case OPTION_CAP_BSET:
+	case OPTION_CAPABILITY:
 #ifdef USE_FILE_CAPS
 		if (params == NULL) {
 			printf("null parameter\n");
@@ -1245,6 +1360,11 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 #else
 		printf("file capabilities are disabled\n");
 		return -1;
+#endif
+#ifdef X11OPT
+	case OPTION_X11:
+		g_x11_hookup = 1;
+		break;
 #endif
 
 	case OPTION_MACHINEID:
@@ -1281,11 +1401,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		break;
-#ifdef X11OPT
-	case OPTION_X11:
-		g_x11_hookup = 1;
-		break;
-#endif
 	default:
 		printf("unknown option\n");
 		return -1;

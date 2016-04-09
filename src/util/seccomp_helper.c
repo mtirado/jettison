@@ -930,6 +930,7 @@ int downgrade_caps()
 		/* these are dropped later when exec is called */
 		if (i == CAP_SYS_CHROOT
 				|| i == CAP_SYS_ADMIN
+				|| i == CAP_NET_ADMIN
 				|| i == CAP_CHOWN
 				|| i == CAP_SETGID
 				|| i == CAP_SETPCAP) {
