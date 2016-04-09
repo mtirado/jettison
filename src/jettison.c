@@ -479,7 +479,7 @@ int process_arguments(int argc, char *argv[])
 
 		/* check additional options */
 		default:
-			len = strnlen(argv[i], MAX_OPTLEN);
+			len = strnlen(argv[i], MAX_OPTLEN) + 1;
 			if (len >= MAX_OPTLEN || len == 0)
 				goto err_usage;
 
@@ -496,7 +496,8 @@ int process_arguments(int argc, char *argv[])
 					goto bad_opt;
 				argidx += 2;
 			}
-			else if (strncmp(argv[i], "--procname", len) == 0) {
+			else if (strncmp(argv[i], "--procname", len) == 0
+					|| strncmp(argv[i], "-p", len) == 0) {
 				if (argc < i+1 || argv[i+1] == '\0')
 					goto missing_opt;
 				++i;
@@ -594,7 +595,8 @@ err_usage:
 	printf("\n");
 	printf("additional options:\n");
 	printf("\n");
-	printf("--procname <process name>\n");
+	printf("--procname <name>\n");
+	printf("        -p <name>\n");
 	printf("        set new process name\n");
 	printf("\n");
 	printf("--stacksize  <kilobytes>\n");
