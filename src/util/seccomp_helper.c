@@ -74,7 +74,7 @@ struct cap_translate cap_table[] = {
 {"CAP_SYSLOG", CAP_SYSLOG },
 {"CAP_WAKE_ALARM", CAP_WAKE_ALARM },
 {"CAP_BLOCK_SUSPEND", CAP_BLOCK_SUSPEND },
-{"CAP_AUDIT_READ", CAP_AUDIT_READ },
+/*{"CAP_AUDIT_READ", CAP_AUDIT_READ },*/
 };
 
 /* XXX
@@ -434,14 +434,14 @@ struct sc_translate sc_table[] = {
 /* 3.10 */
 
 /* 4.1 */
-{ "__NR_sched_setattr", __NR_sched_setattr },
+/*{ "__NR_sched_setattr", __NR_sched_setattr },
 { "__NR_sched_getattr", __NR_sched_getattr },
 { "__NR_renameat2", __NR_renameat2 },
 { "__NR_seccomp", __NR_seccomp },
 { "__NR_getrandom", __NR_getrandom },
 { "__NR_memfd_create", __NR_memfd_create },
 { "__NR_bpf", __NR_bpf },
-{ "__NR_execveat", __NR_execveat },
+{ "__NR_execveat", __NR_execveat },*/
 
 /* 4.3 socket calls, huray!*/
 /*{ "__NR_socket", __NR_socket },

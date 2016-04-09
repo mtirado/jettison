@@ -37,7 +37,7 @@ mkdir /opt/pods
 two arguments must be included. first is the program path which must be
 an absolute path,  second is the pod configuration file.
 the config file name is used as the chroot directory at /opt/pods/user/cfg.pod
-all files here are root owned, except for /podhome and /tmp
+all files here are root owned, except for /podhome
 
 
 usage:
@@ -45,7 +45,7 @@ usage:
 
 there are additional options we can pass:
 
-`--procname <name>` set process name (argv[0])
+`--procname, -p <name>` set process name (argv[0])
 
 `--stacksize <size>` set program stack max
 
@@ -85,14 +85,15 @@ to append the whitelist to the configuration file.
 
 
 ##capabilities
-use cap_bset to specify which file capabilities should be added to bounding set
+use capability to specify which file capabilities should be added to bounding set
 
-`cap_bset CAP_NET_RAW`  or any non-blacklisted cap from \<linux/capablilitiy.h\>
+`capability CAP_NET_RAW`  or any non-blacklisted cap from \<linux/capablilitiy.h\>
+a program will need (s)uid option to gain capability
 
-
-##newnet
-create a new network namespace, which effectively disables networking
-and creates new abstract socket namespace.
+##netns
+`netns none` empty network namespace
+`netns loop` empty with loopback set up
+`netns ipvlan <device> <addr>` create new ipvlan from master device and static address
 
 ##noproc
 disable /proc filesystem
@@ -109,6 +110,10 @@ in abstract socket namespace.
 
 ##bugs
 currently only tested using i386.
+
+syscall and cap table can be found in src/util/seccomp_helper.c
+depending on your kernel you may need to add/remove entries.
+if you see a ton of compiler errors, this is likely the culprit.
 
 
 
