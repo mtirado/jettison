@@ -36,6 +36,7 @@
 #include "misc.h"
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
+#include "eslib/eslib_rtnetlink.h"
 
 #define MAX_ARGV_LEN (1024 * 16) /* 16KB */
 #define IOBUFLEN (4096 * 8) /* 32KB */
@@ -1242,7 +1243,10 @@ static int trace_fork(char **argv)
 			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
 			return -1;
 		}
-
+		if (clear_caps()) {
+			printf("clear_caps()\n");
+			return -1;
+		}
 		if (do_trace(p)) {
 			printf("do_trace error\n");
 			exit_func();
@@ -1449,9 +1453,11 @@ int main(int argc, char *argv[])
 	}
 
 	/* setup network namespace */
-	if(netns_setup()) {
-		printf("netns setup failure\n");
-		return -1;
+	if(g_newnet.kind != RTNL_KIND_INVALID) {
+		if (netns_setup()) {
+			printf("netns setup failure\n");
+			return -1;
+		}
 	}
 
 	/* switch back to real user credentials */

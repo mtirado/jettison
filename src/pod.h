@@ -8,12 +8,17 @@
 #ifndef POD_H__
 #define POD_H__
 
+#ifndef FIREWALL_MAXFILTER
+	#define FIREWALL_MAXFILTER (1024 * 32)
+#endif
 
 struct newnet_param {
-	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
-	char dev[16];      /* master device name */
+	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
+	int  filtersize;
 	char addr[19];     /* ip addr */
+	char dev[16];      /* master device name */
 	char gateway[16];  /* to net  */
+	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
 	unsigned char netmask; /* subnet mask, (prefix bits) */
 };
 

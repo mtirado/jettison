@@ -861,14 +861,21 @@ int clear_caps()
 
 	memset(&hdr, 0, sizeof(hdr));
 	memset(data, 0, sizeof(data));
-
 	hdr.pid = syscall(__NR_gettid);
 	hdr.version = _LINUX_CAPABILITY_VERSION_3;
 
+	if (prctl(PR_SET_SECUREBITS,
+			SECBIT_KEEP_CAPS_LOCKED		|
+			SECBIT_NO_SETUID_FIXUP		|
+			SECBIT_NO_SETUID_FIXUP_LOCKED	|
+			SECBIT_NOROOT			|
+			SECBIT_NOROOT_LOCKED)) {
+		printf("prctl(): %s\n", strerror(errno));
+		return -1;
+	}
 	/* clear bounding set */
 	for(i = 0; i < NUM_OF_CAPS; ++i)
 	{
-		/* allow requested file caps if not blacklisted */
 		if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
 			if (i > CAP_LAST_CAP)
 				break;
@@ -911,7 +918,8 @@ int print_caps()
 }
 
 /*
- * remove all capabilities this program does not require.
+ * remove all capabilities this program does not require,
+ * setuid defensive measure, just in case.
  * returns 0,  -1 on error.
  */
 int downgrade_caps()
@@ -938,13 +946,11 @@ int downgrade_caps()
 			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
 		}
 	}
-	/* don't grant privileges, except for file capabilities */
+	/* don't grant caps on uid change */
 	if (prctl(PR_SET_SECUREBITS,
 			SECBIT_KEEP_CAPS_LOCKED		|
 			SECBIT_NO_SETUID_FIXUP		|
-			SECBIT_NO_SETUID_FIXUP_LOCKED	|
-			SECBIT_NOROOT			|
-			SECBIT_NOROOT_LOCKED)) {
+			SECBIT_NO_SETUID_FIXUP_LOCKED)) {
 		printf("prctl(): %s\n", strerror(errno));
 		return -1;
 	}
@@ -992,6 +998,17 @@ int capbset_drop(char fcaps[NUM_OF_CAPS])
 			printf("no new privs failed\n");
 			return -1;
 		}
+	}
+
+	/* lock down caps for the program exec */
+	if (prctl(PR_SET_SECUREBITS,
+			 SECBIT_KEEP_CAPS_LOCKED
+			|SECBIT_NO_SETUID_FIXUP
+			|SECBIT_NO_SETUID_FIXUP_LOCKED
+			|SECBIT_NOROOT
+			|SECBIT_NOROOT_LOCKED)) {
+		printf("prctl(): %s\n", strerror(errno));
+		return -1;
 	}
 	return 0;
 }
