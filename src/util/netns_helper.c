@@ -715,6 +715,7 @@ int netns_setup()
 			return -1;
 		if (count >= TEST_IPVLAN_LIMIT) {
 			printf("ipvlan limit(%d) reached\n", TEST_IPVLAN_LIMIT);
+			close(lockfd);
 			return -1;
 		}
 		/* create ipvlan device */
