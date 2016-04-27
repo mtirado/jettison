@@ -563,6 +563,7 @@ int netns_count_ipvlan_devices(int *lockfd)
 	main_netns = open(path, O_RDONLY|O_CLOEXEC);
 	if (main_netns == -1) {
 		printf("main netns open: %s\n", strerror(errno));
+		close(fd);
 		return -1;
 	}
 
@@ -573,6 +574,7 @@ int netns_count_ipvlan_devices(int *lockfd)
 	dir = opendir("/proc");
 	if (dir == NULL) {
 		printf("error opening /proc: %s\n", strerror(errno));
+		close(fd);
 		close(main_netns);
 		return -1;
 	}
@@ -685,7 +687,6 @@ free_err:
 		nsnode_list = n;
 	}
 	return -1;
-
 }
 
 int netns_setup()
