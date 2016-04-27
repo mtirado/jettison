@@ -639,12 +639,12 @@ err_usage:
 struct termios g_origterm;
 void exit_func()
 {
+	usleep(300000);
 	/* send pid1 sigterm to propagate to new namespace */
 	kill(g_initpid, SIGTERM);
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 	printf("jettison_exit\n");
-	usleep(200000);
 }
 
 /* terminal resize message */
