@@ -63,7 +63,7 @@ int netns_save_firewall(char *buf, int size);
 static int netns_lo_config()
 {
 	int r;
-	r = eslib_rtnetlink_linkset("lo", ESRTNL_LINKUP);
+	r = eslib_rtnetlink_linksetup("lo");
 	if (r) {
 		printf("couldn't set lo up\n");
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
@@ -82,7 +82,7 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	}
 
 	/* set loopback up */
-	r = eslib_rtnetlink_linkset("lo", ESRTNL_LINKUP);
+	r = eslib_rtnetlink_linksetup("lo");
 	if (r) {
 		printf("couldn't set lo up\n");
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
@@ -96,7 +96,7 @@ static int netns_vlan_config(char *ifname, char *gateway)
 		return -1;
 	}
 	/* set up */
-	r = eslib_rtnetlink_linkset(dev, ESRTNL_LINKUP);
+	r = eslib_rtnetlink_linksetup(dev);
 	if (r) {
 		printf("couldn't set %s up\n", ifname);
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
