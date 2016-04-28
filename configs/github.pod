@@ -1,5 +1,4 @@
 # simple development environment i used to push this to github
-
 file rx	/lib
 file rx /bin
 
@@ -10,6 +9,10 @@ file rx /usr/bin
 file rx /usr/libexec/git-core
 file rx /usr/libexec/gcc
 
+# /etc
+file r	/etc/passwd
+file r	/etc/resolv.conf
+
 # /dev
 file rwd /dev/null
 file rd  /dev/random
@@ -17,11 +20,87 @@ file rd  /dev/urandom
 # git uses this for password entry
 file rwd /dev/tty
 
-# /etc
-file r	/etc/passwd
-file r	/etc/resolv.conf
-
 # $HOME
 home r  /.bashrc
 home r  /.vimrc
 
+seccomp_allow __NR_gettimeofday
+seccomp_allow __NR__newselect
+seccomp_allow __NR_stat64
+seccomp_allow __NR_read
+seccomp_allow __NR_rt_sigprocmask
+seccomp_allow __NR_write
+seccomp_allow __NR_open
+seccomp_allow __NR_close
+seccomp_allow __NR_mmap2
+seccomp_allow __NR_rt_sigaction
+seccomp_allow __NR_fstat64
+seccomp_allow __NR_access
+seccomp_allow __NR_brk
+seccomp_allow __NR_munmap
+seccomp_allow __NR_lstat64
+seccomp_allow __NR_ioctl
+seccomp_allow __NR_getcwd
+seccomp_allow __NR_clock_gettime
+seccomp_allow __NR_time
+seccomp_allow __NR_mprotect
+seccomp_allow __NR_getuid32
+seccomp_allow __NR_geteuid32
+seccomp_allow __NR_getgid32
+seccomp_allow __NR_getegid32
+seccomp_allow __NR_lseek
+seccomp_allow __NR_chdir
+seccomp_allow __NR_fcntl64
+seccomp_allow __NR_waitpid
+seccomp_allow __NR_getdents64
+seccomp_allow __NR_openat
+seccomp_allow __NR_clone
+seccomp_allow __NR_vfork
+seccomp_allow __NR_dup2
+seccomp_allow __NR__llseek
+seccomp_allow __NR_pipe
+seccomp_allow __NR_getxattr
+seccomp_allow __NR_poll
+seccomp_allow __NR_execve
+seccomp_allow __NR_socketcall
+seccomp_allow __NR_set_thread_area
+seccomp_allow __NR_set_robust_list
+seccomp_allow __NR_exit_group
+seccomp_allow __NR_uname
+seccomp_allow __NR_ugetrlimit
+seccomp_allow __NR_set_tid_address
+seccomp_allow __NR_sigreturn
+seccomp_allow __NR_fchdir
+seccomp_allow __NR_unlink
+seccomp_allow __NR_capget
+seccomp_allow __NR_setpgid
+seccomp_allow __NR_fsync
+seccomp_allow __NR_readlink
+seccomp_allow __NR_unlinkat
+seccomp_allow __NR_mkdir
+seccomp_allow __NR_link
+seccomp_allow __NR_rename
+seccomp_allow __NR_alarm
+seccomp_allow __NR_chmod
+seccomp_allow __NR_futex
+seccomp_allow __NR_fstatat64
+seccomp_allow __NR_setitimer
+seccomp_allow __NR_fchown32
+seccomp_allow __NR_dup
+seccomp_allow __NR_getpid
+seccomp_allow __NR_setxattr
+seccomp_allow __NR_utime
+seccomp_allow __NR_prlimit64
+seccomp_allow __NR_getppid
+seccomp_allow __NR_getpgrp
+seccomp_allow __NR_umask
+seccomp_allow __NR_madvise
+seccomp_allow __NR_sysinfo
+seccomp_allow __NR_sigaltstack
+seccomp_allow __NR_exit
+seccomp_allow __NR_fadvise64_64
+seccomp_allow __NR_symlink
+seccomp_allow __NR_fchmod
+seccomp_allow __NR_kill
+seccomp_allow __NR_rmdir
+seccomp_allow __NR_tgkill
