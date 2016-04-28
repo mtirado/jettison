@@ -15,10 +15,10 @@ JETTISON_LIBS := -lXau
 #allowing random users to run jettison, some of these obtain new net
 #resources. ip address, mac address, ip forwarding on a bridge, etc.
 
-# XXX this is experimental right as there's no good way to get firewall
-# installed in new namespace yet, and we probably want to limit number of
+# XXX this is experimental right now until we can manage
 # network resources (ip/mac addr's) we hand out to user.
-#DEFINES += -DNEWNET_IPVLAN=1
+#DEFINES += -DNEWNET_IPVLAN
+#DEFINES += -DNEWNET_MACVLAN
 
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)

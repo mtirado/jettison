@@ -1453,7 +1453,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* setup network namespace */
-	if(g_newnet.kind != RTNL_KIND_INVALID) {
+	if(g_newnet.kind != ESRTNL_KIND_INVALID) {
 		if (netns_setup()) {
 			printf("netns setup failure\n");
 			return -1;

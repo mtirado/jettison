@@ -1120,23 +1120,24 @@ static int parse_newnet(char *params, size_t size)
 	if (strncmp(type, "none", 5) == 0)
 		return 0;
 	else if (strncmp(type, "loop", 5) == 0)
-		g_newnet.kind = RTNL_KIND_LOOP;
+		g_newnet.kind = ESRTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
 	else if (strncmp(type, "vethbr", 7) == 0)
-		g_newnet.kind = RTNL_KIND_VETHBR;
+		g_newnet.kind = ESRTNL_KIND_VETHBR;
 #endif
 #ifdef NEWNET_IPVLAN
 	else if (strncmp(type, "ipvlan", 7) == 0)
-		g_newnet.kind = RTNL_KIND_IPVLAN;
+		g_newnet.kind = ESRTNL_KIND_IPVLAN;
 #endif
 #ifdef NEWNET_MACVLAN
 	else if (strncmp(type, "macvlan", 8) == 0)
-		return -1;
+		g_newnet.kind = ESRTNL_KIND_MACVLAN;
 #endif
 
 	switch (g_newnet.kind)
 	{
-	case RTNL_KIND_IPVLAN:
+	case ESRTNL_KIND_IPVLAN:
+	case ESRTNL_KIND_MACVLAN:
 		/* read device string */
 		z = ++i;
 		for (; i < size; ++i)
@@ -1193,10 +1194,10 @@ static int parse_newnet(char *params, size_t size)
 			g_newnet.netmask = DEFAULT_NETMASK_PREFIX;
 		}
 		break;
-	case RTNL_KIND_VETHBR:
+	case ESRTNL_KIND_VETHBR:
 		printf("todo...\n");
 		return -1;
-	case RTNL_KIND_LOOP:
+	case ESRTNL_KIND_LOOP:
 		break;
 	default:
 		printf("unknown type: %s\n", type);

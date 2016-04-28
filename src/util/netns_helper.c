@@ -63,10 +63,10 @@ int netns_save_firewall(char *buf, int size);
 static int netns_lo_config()
 {
 	int r;
-	r = eslib_rtnetlink_linkset("lo", RTNL_LINKUP);
+	r = eslib_rtnetlink_linkset("lo", ESRTNL_LINKUP);
 	if (r) {
 		printf("couldn't set lo up\n");
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		return -1;
 	}
 	return 0;
@@ -82,24 +82,24 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	}
 
 	/* set loopback up */
-	r = eslib_rtnetlink_linkset("lo", RTNL_LINKUP);
+	r = eslib_rtnetlink_linkset("lo", ESRTNL_LINKUP);
 	if (r) {
 		printf("couldn't set lo up\n");
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		return -1;
 	}
 	/* rename device in new namespace to match rootns name */
 	r = eslib_rtnetlink_linksetname(ifname, dev);
 	if (r) {
 		printf("couldn't set interface name\n");
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		return -1;
 	}
 	/* set up */
-	r = eslib_rtnetlink_linkset(dev, RTNL_LINKUP);
+	r = eslib_rtnetlink_linkset(dev, ESRTNL_LINKUP);
 	if (r) {
 		printf("couldn't set %s up\n", ifname);
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		eslib_rtnetlink_linkdel(ifname);
 		return -1;
 	}
@@ -108,7 +108,7 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	if (r) {
 		printf("couldn't add address(%s/%d) to iface %s\n",
 				g_newnet.addr, g_newnet.netmask, dev);
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		eslib_rtnetlink_linkdel(ifname);
 		return -1;
 	}
@@ -119,7 +119,7 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	r = eslib_rtnetlink_setgateway(dev, g_newnet.gateway);
 	if (r) {
 		printf("couldn't set gateway for iface %s\n", dev);
-		(r == 1) ? printf("nack\n") : printf("error\n");
+		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		eslib_rtnetlink_linkdel(ifname);
 		return -1;
 	}
@@ -299,13 +299,14 @@ static int netns_enter_and_config(char *ifname, char *targetpid)
 		setgid(0);
 		switch (g_newnet.kind)
 		{
-		case RTNL_KIND_LOOP:
+		case ESRTNL_KIND_LOOP:
 			if (netns_lo_config()) {
 				printf("loopback config failed\n");
 				_exit(-1);
 			}
 			break;
-		case RTNL_KIND_IPVLAN:
+		case ESRTNL_KIND_IPVLAN:
+		case ESRTNL_KIND_MACVLAN:
 			if (netns_vlan_config(ifname, g_newnet.gateway)) {
 				printf("vlan config failed\n");
 				_exit(-1);
@@ -506,6 +507,9 @@ int decode_count_ipvlan(struct rtnl_decode_io *dio, void *msg, unsigned int msgs
 			if (strncmp(kind, "ipvlan", RTA_PAYLOAD(infokind)) == 0) {
 				*((int *)dio->out) += 1;
 			}
+			else if (strncmp(kind, "macvlan", RTA_PAYLOAD(infokind)) == 0) {
+				*((int *)dio->out) += 1;
+			}
 		}
 	}
 
@@ -699,7 +703,7 @@ int netns_setup()
 	int lockfd = -1;
 	int count = 0;
 
-	if (g_newnet.kind == RTNL_KIND_INVALID)
+	if (g_newnet.kind == ESRTNL_KIND_INVALID)
 		return -1;
 
 	/* new name is t<pid>, renamed to match root device after namespace transit */
@@ -708,7 +712,8 @@ int netns_setup()
 	/* create new interface and move to new namespace */
 	switch (g_newnet.kind)
 	{
-	case RTNL_KIND_IPVLAN:
+	case ESRTNL_KIND_IPVLAN:
+	case ESRTNL_KIND_MACVLAN:
 
 		/* check ipvlan count */
 		count = netns_count_ipvlan_devices(&lockfd);
@@ -719,18 +724,21 @@ int netns_setup()
 			close(lockfd);
 			return -1;
 		}
-		/* create ipvlan device */
-		r = eslib_rtnetlink_linknew(ifname, "ipvlan", g_newnet.dev);
+		/* create ipvlan/macvlan device */
+		if (g_newnet.kind == ESRTNL_KIND_IPVLAN)
+			r = eslib_rtnetlink_linknew(ifname, "ipvlan", g_newnet.dev);
+		else
+			r = eslib_rtnetlink_linknew(ifname, "macvlan", g_newnet.dev);
 		if (r) {
-			printf("linknew(%s, ipvlan, %s)\n", ifname, g_newnet.dev);
-			(r == 1) ? printf("nack\n") : printf("error\n");
+			printf("linknew(%s, xxxvlan, %s)\n", ifname, g_newnet.dev);
+			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 			close(lockfd);
 			return -1;
 		}
 		r = eslib_rtnetlink_linksetns(ifname, g_initpid);
 		if (r) {
 			printf("temp link(%s) setns failed\n", ifname);
-			(r == 1) ? printf("nack\n") : printf("error\n");
+			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 			goto ipvlan_err;
 		}
 		dev = g_newnet.dev;
@@ -748,7 +756,7 @@ int netns_setup()
 		close(lockfd);
 		break;
 
-	case RTNL_KIND_VETHBR:
+	case ESRTNL_KIND_VETHBR:
 		printf("todo\n");
 		return -1;
 		break;
