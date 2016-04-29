@@ -1187,10 +1187,13 @@ static int parse_newnet(char *params, size_t size)
 					return -1;
 				}
 				g_newnet.netmask = netmask;
+				strncpy(g_newnet.prefix, &g_newnet.addr[i], 2);
+				g_newnet.prefix[2] = '\0';
 				break;
 			}
 		}
 		if (i >= addrlen) {
+			snprintf(g_newnet.prefix, 3, "%d", DEFAULT_NETMASK_PREFIX);
 			g_newnet.netmask = DEFAULT_NETMASK_PREFIX;
 		}
 		break;

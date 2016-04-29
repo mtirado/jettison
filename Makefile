@@ -17,8 +17,8 @@ JETTISON_LIBS := -lXau
 
 # XXX this is experimental right now until we can manage
 # network resources (ip/mac addr's) we hand out to user.
-#DEFINES += -DNEWNET_IPVLAN
-#DEFINES += -DNEWNET_MACVLAN
+DEFINES += -DNEWNET_IPVLAN
+DEFINES += -DNEWNET_MACVLAN
 
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)

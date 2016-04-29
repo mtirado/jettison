@@ -17,9 +17,11 @@
 #include <malloc.h>
 #include <linux/rtnetlink.h>
 #include <linux/if_link.h>
+#include <stdlib.h>
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
 #include "../pod.h"
+#include "../misc.h"
 
 /* reimplementing these in eslib would take quite a bit of time and
  * less flexible than using admin's program of choice, we can set pod
@@ -42,12 +44,11 @@
 #ifndef IPVLAN_COUNT_LOCKFILE
 	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
 #endif
-#ifndef JETTISON_NETPRIVS
-	#define JETTISON_NETPRIVS "/etc/jettison/net/users/"
-#endif
 
-/* TODO remove */
-#define TEST_IPVLAN_LIMIT 5
+/* hard limit number of ip/macvlan a user can create */
+#ifndef JETTISON_IPVLAN_LIMIT
+	#define JETTISON_IPVLAN_LIMIT 30
+#endif
 
 /* external globals in jettison.c */
 extern uid_t g_ruid;
@@ -693,6 +694,137 @@ free_err:
 	return -1;
 }
 
+#define MAX_PRIVLN 1024
+int check_ipvlan_permissions(unsigned int ipvlan_count)
+{
+	char *pwline;
+	char *pwuser;
+	char netuser_privs[MAX_SYSTEMPATH];
+	char privln[MAX_PRIVLN];
+	char netaddr[19];
+	unsigned int ipvlan_limit = 0;
+	unsigned int ipmatch = 0;
+	unsigned int lncount = 0;
+	FILE *file;
+
+	/* get username */
+	pwline = passwd_fetchline(g_ruid);
+	if (pwline == NULL) {
+		printf("passwd file error\n");
+		return -1;
+	}
+	pwuser = passwd_getfield(pwline, PASSWD_USER);
+	if (pwuser == NULL) {
+		printf("could not find username in passwd file\n");
+		return -1;
+	}
+
+	/* open users privilege file */
+	snprintf(netuser_privs, sizeof(netuser_privs), "%s/%s/net",
+			JETTISON_USERCFG, pwuser);
+	printf("netuser_privs: %s\n", netuser_privs);
+	file = fopen(netuser_privs, "r");
+	if (file == NULL) {
+		printf("couldn't open netuser privilege file(%s): %s\n",
+				netuser_privs, strerror(errno));
+		return -1;
+	}
+
+	/* re-attach prefix for string compare */
+	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
+	/*
+	 *  parse privilege file, read all ip's and iplimit
+	 *  iplimit <number>    - maximum number of ip's user can consume
+	 *  ip <address/prefix> - allow user to use this ip/prefix
+	 */
+	while (1)
+	{
+		/* read line */
+		memset(privln, 0, sizeof(privln));
+		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
+			break;
+		}
+		++lncount;
+
+		/* handle options */
+		if (strncmp(privln, "iplimit ", 8) == 0)  {
+			char *param = &privln[8];
+			char *err = NULL;
+			long lim;
+
+			if (ipvlan_limit) {
+				printf("duplicate limit entries\n");
+				goto print_errline;
+			}
+			if (chop_trailing(privln, sizeof(privln), '\n'))
+				goto print_errline;
+			errno = 0;
+			lim = strtol(param, &err, 10);
+			if (err == NULL || *err || errno || lim <= 0) {
+				printf("bad limit value\n");
+				goto print_errline;
+			}
+			ipvlan_limit = lim;
+		}
+		else if (strncmp(privln, "ip ", 3) == 0)  {
+			char ipstr[64];
+			char *param = &privln[3];
+			char *c = param;
+			unsigned int iplen = 0;
+
+			/* get string length, try to match ip */
+			while (1)
+			{
+				if (*c == EOF || *c == '\n') {
+					break;
+				}
+				if (++iplen >= sizeof(ipstr)) {
+					printf("iplen error\n");
+					goto print_errline;
+				}
+				++c;
+			}
+			if (iplen == 0) {
+				goto print_errline;
+			}
+
+			strncpy(ipstr, param, iplen);
+			ipstr[iplen] = '\0';
+			if (strncmp(ipstr, netaddr, sizeof(netaddr)) == 0) {
+				ipmatch = 1;
+			}
+		}
+		else {
+			printf("unknown option\n");
+			goto print_errline;
+		}
+	}
+	fclose(file);
+
+	/* check results */
+	if (ipvlan_limit == 0) {
+		printf("netuser privilege file does not contain limit entry\n");
+		return -1;
+	}
+	if (ipvlan_count >= ipvlan_limit) {
+		printf("ipvlan user limit(%d) has been reached\n", ipvlan_limit);
+		return -1;
+	}
+	if (!ipmatch)
+	{
+		printf("ip(%s/%s) not found in netuser privilege file\n",
+				g_newnet.addr, g_newnet.prefix);
+		return -1;
+	}
+
+	return 0;
+
+print_errline:
+	fclose(file);
+	printf("error in %s, line %d\n", netuser_privs, lncount);
+	return -1;
+}
+
 int netns_setup()
 {
 	char ifname[16];
@@ -719,8 +851,9 @@ int netns_setup()
 		count = netns_count_ipvlan_devices(&lockfd);
 		if (count < 0)
 			return -1;
-		if (count >= TEST_IPVLAN_LIMIT) {
-			printf("ipvlan limit(%d) reached\n", TEST_IPVLAN_LIMIT);
+		/* authorize ip/macvlan parameters */
+		if (check_ipvlan_permissions(count)) {
+			printf("ip/macvlan permission error\n");
 			close(lockfd);
 			return -1;
 		}
@@ -730,8 +863,12 @@ int netns_setup()
 		else
 			r = eslib_rtnetlink_linknew(ifname, "macvlan", g_newnet.dev);
 		if (r) {
-			printf("linknew(%s, xxxvlan, %s)\n", ifname, g_newnet.dev);
+			printf("linknew(%s, xxxvlan, %s)\r\n", ifname, g_newnet.dev);
 			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
+			if (r == EBUSY) {
+				printf("hint: vlan type must match for master device\n");
+				printf("try swapping macvlan <-> ipvlan option.\n");
+			}
 			close(lockfd);
 			return -1;
 		}

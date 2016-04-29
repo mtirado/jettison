@@ -7,7 +7,7 @@
 
 /* chop matching character from the end of string
  * returns 0 on first non matching character, -1 on error.
- * size is the maximum size the string could be
+ * size is the string array size (including null terminator)
  */
 int chop_trailing(char *string, unsigned int size, const char match);
 
@@ -35,7 +35,7 @@ enum {
 	PASSWD_FIELDS
 };
 
-/* return the first passwd entry that matches uid */
+/* return the first passwd entry that matches uid, points to static array */
 char *passwd_fetchline(uid_t uid);
 /* get specific passwd field, destroys line by inserting null terminator */
 char *passwd_getfield(char *line, unsigned int field);
