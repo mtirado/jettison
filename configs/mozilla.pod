@@ -2,6 +2,7 @@
 
 # manage x11 credentials
 X11
+machine-id
 
 # net namespace
 #newnet ipvlan eth0 192.168.1.8/24
@@ -19,7 +20,6 @@ file rx  /usr/bin
 file r	/etc/pango
 file r	/etc/fonts
 file r	/etc/resolv.conf
-file r	/etc/machine-id
 
 # devices
 file rwd /dev/null
