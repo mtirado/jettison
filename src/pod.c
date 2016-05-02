@@ -128,7 +128,9 @@ unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
 
+
 struct newnet_param g_newnet;
+extern struct user_privs g_privs;
 
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
@@ -142,7 +144,7 @@ struct path_node *g_homeroot;
 #define KWLEN  32 /* maximum string length */
 static char keywords[KWCOUNT][KWLEN] =
 {
-	{ "newnet"	},  /* create new network namespace TODO how to */
+	{ "newnet"	},  /* create new network namespace */
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
 	/*{ "slog"	},*//* pod wants to write to system log */
@@ -1206,6 +1208,35 @@ static int parse_newnet(char *params, size_t size)
 		printf("unknown type: %s\n", type);
 		return -1;
 	}
+
+	return 0;
+}
+
+/* some things need action on first pass. like setting flags, paths need to be
+ * enumerated for sorting, newnet is handled completely in main thread */
+static int pod_enact_option_pass1(unsigned int option, char *params, size_t size)
+{
+	if (option < OPTION_PODFLAG_CUTOFF) {
+		/* set flag if below cutoff */
+		g_podflags |= (1 << option);
+	}
+	/* file mount points need to be sorted after first pass */
+	if (option == OPTION_FILE) {
+		if (create_pathnode(params, size, 0)) {
+			printf("file :%s\n", params);
+			return -1;
+		}
+	}
+	else if (option == OPTION_HOME) {
+		if (create_pathnode(params, size, 1)) {
+			printf("home :%s\n", params);
+			return -1;
+		}
+	}
+	else if (option == OPTION_NEWNET) {
+		if (parse_newnet(params, size))
+			return -1;
+	}
 	return 0;
 }
 /* returns negative on error,
@@ -1231,30 +1262,10 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* first pass happens before we clone */
 	if (g_firstpass == 1) {
-		if (option < OPTION_PODFLAG_CUTOFF) {
-			/* set flag if below cutoff */
-			g_podflags |= (1 << option);
-		}
-		/* file mount points need to be sorted after first pass */
-		if (option == OPTION_FILE) {
-			if (create_pathnode(params, size, 0)) {
-				printf("file :%s\n", params);
-				return -1;
-			}
-		}
-		else if (option == OPTION_HOME) {
-			if (create_pathnode(params, size, 1)) {
-				printf("home :%s\n", params);
-				return -1;
-			}
-		}
-		else if (option == OPTION_NEWNET) {
-			if (parse_newnet(params, size))
-				return -1;
-		}
-		return 0;
+		return pod_enact_option_pass1(option, params, size);
 	}
 
+	/* 2'nd pass, we've been cloned */
 	memset(src,  0, sizeof(src));
 	memset(dest, 0, sizeof(dest));
 	memset(path, 0, sizeof(path));
@@ -1267,11 +1278,15 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	/*case OPTION_SLOG:*/
 	case OPTION_HOME_EXEC:
 	case OPTION_NEWNET:
-
 		break;
 
 	/* give pod it's own pseudo terminal instance */
 	case OPTION_NEWPTS:
+		if (g_privs.newpts == 0) {
+			printf("user is not authorized for newpts option\n");
+			printf("add newpts option to privilege file\n");
+			return -1;
+		}
 		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
 		if (mkdir(dest, 0775) && errno != EEXIST)
 			return -1;

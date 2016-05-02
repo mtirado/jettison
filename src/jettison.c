@@ -66,6 +66,9 @@ extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
 extern struct newnet_param g_newnet;
 
+/* user privilege data, stored in /etc/jettison/user by default */
+struct user_privs g_privs;
+
 /* entry and  filter function type */
 typedef int (*main_entry)(void *);
 typedef int (*filter_func)(void *);
@@ -103,6 +106,7 @@ int g_ptym;
 int g_traceipc[2];
 int g_tracecalls; /* --tracecalls */
 
+
 uid_t g_ruid;    /* real uid */
 gid_t g_rgid;    /* real gid */
 pid_t g_mainpid; /* jettison main process */
@@ -115,7 +119,6 @@ char g_executable_path[MAX_SYSTEMPATH];
 char g_podconfig_path[MAX_SYSTEMPATH];
 char g_cwd[MAX_SYSTEMPATH]; /* directory jettison was called from */
 size_t g_stacksize;
-
 
 /* must be called first to obtain podflags and chroot path. */
 int jettison_readconfig(char *cfg_path, unsigned int *outflags)
@@ -284,6 +287,7 @@ int jettison_clone_func(void *data)
 		}
 	}
 	close(g_pty_notify[1]);
+
 	/* enter pod environment */
 	if (jettison_initiate()) {
 		return -1;
@@ -368,10 +372,6 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	/* TODO make this a command line argument
 	 * if (podflags & (1 << OPTION_ROOTPID))
 		cloneflags &= ~CLONE_NEWPID;*/
-
-	if (podflags & (1 << OPTION_NEWNET)) {
-		cloneflags |= CLONE_NEWNET;
-	}
 
 	/* setup some extra parameters and create new thread */
 	g_progpath = progpath;
@@ -936,6 +936,7 @@ static int relay_io(int stdout_logfd)
 	}
 	close(g_pty_notify[0]);
 	close(g_pty_notify[1]);
+
 	/* normal pty io relay */
 	while(loop)
 	{
@@ -1274,6 +1275,146 @@ static int trace_fork(char **argv)
 	return 0;
 }
 
+/*
+ *  performs some checks here for pass1 privileges (newpts, net addresses, etc)
+ *  user_privs is filled out here.
+ */
+int process_user_permissions()
+{
+	char *pwline;
+	char *pwuser;
+	char path[MAX_SYSTEMPATH];
+	char privln[MAX_PRIVLN];
+	char netaddr[19];
+	unsigned int ipvlan_check = 0;
+	unsigned int ipvlan_limit = 0;
+	unsigned int ipmatch = 0;
+	unsigned int lncount = 0;
+	FILE *file;
+
+	memset(&g_privs, 0, sizeof(g_privs));
+	/* get username */
+	pwline = passwd_fetchline(g_ruid);
+	if (pwline == NULL) {
+		printf("passwd file error\n");
+		return -1;
+	}
+	pwuser = passwd_getfield(pwline, PASSWD_USER);
+	if (pwuser == NULL) {
+		printf("could not find username in passwd file\n");
+		return -1;
+	}
+
+	/* open users privilege file */
+	snprintf(path, sizeof(path), "%s/%s", JETTISON_USERCFG, pwuser);
+	file = fopen(path, "r");
+	if (file == NULL) {
+		printf("couldn't open user privilege file(%s): %s\n",
+				path, strerror(errno));
+		return -1;
+	}
+
+	/* ipvlan needs some constraints */
+	if (g_newnet.kind==ESRTNL_KIND_IPVLAN || g_newnet.kind==ESRTNL_KIND_MACVLAN) {
+		ipvlan_check = 1;
+	}
+	/* re-attach prefix for string compare */
+	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
+	/*
+	 *  parse privilege file, read all ip's and iplimit
+	 *  iplimit <number>    - maximum number of ip's user can consume
+	 *  ip <address/prefix> - allow user to use this ip/prefix
+	 *  newpts              - user may create new pts isntances
+	 */
+	while (1)
+	{
+		/* read line */
+		memset(privln, 0, MAX_PRIVLN);
+		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
+			break;
+		}
+		++lncount;
+
+		/* handle options */
+		if (ipvlan_check && strncmp(privln, "iplimit ", 8) == 0)  {
+			char *param = &privln[8];
+			char *err = NULL;
+			long lim;
+
+			if (ipvlan_limit) {
+				printf("duplicate limit entries\n");
+				goto print_errline;
+			}
+			if (chop_trailing(privln, sizeof(privln), '\n'))
+				goto print_errline;
+			errno = 0;
+			lim = strtol(param, &err, 10);
+			if (err == NULL || *err || errno || lim <= 0) {
+				printf("bad limit value\n");
+				goto print_errline;
+			}
+			ipvlan_limit = lim;
+		}
+		else if (ipvlan_check && strncmp(privln, "ip ", 3) == 0)  {
+			char ipstr[64];
+			char *param = &privln[3];
+			char *c = param;
+			unsigned int iplen = 0;
+
+			/* get string length, try to match ip */
+			while (1)
+			{
+				if (*c == '\0' || *c == '\n') {
+					break;
+				}
+				if (++iplen >= sizeof(ipstr)) {
+					printf("iplen error\n");
+					goto print_errline;
+				}
+				++c;
+			}
+			if (iplen == 0) {
+				goto print_errline;
+			}
+
+			strncpy(ipstr, param, iplen);
+			ipstr[iplen] = '\0';
+			if (strncmp(ipstr, netaddr, sizeof(netaddr)) == 0) {
+				ipmatch = 1;
+			}
+		}
+		else if (strncmp(privln, "newpts", 6) == 0) {
+			g_privs.newpts = 1;
+		}
+	}
+	fclose(file);
+
+	/* make sure there was a match */
+	if (ipvlan_check) {
+		if (ipvlan_limit == 0) {
+			printf("user privilege file does not contain limit entry\n");
+			return -1;
+		}
+		if (ipvlan_limit >= JETTISON_IPVLAN_LIMIT) {
+			printf("ipvlan hard limit: %d", JETTISON_IPVLAN_LIMIT);
+			return -1;
+		}
+		if (!ipmatch)
+		{
+			printf("ip(%s/%s) not found in user privilege file\n",
+					g_newnet.addr, g_newnet.prefix);
+			return -1;
+		}
+		g_privs.ipvlan_limit = ipvlan_limit;
+	}
+	return 0;
+
+print_errline:
+	fclose(file);
+	printf("error in %s, line %d\n", path, lncount);
+	return -1;
+}
+
 int main(int argc, char *argv[])
 {
 	struct termios tms;
@@ -1340,6 +1481,11 @@ int main(int argc, char *argv[])
 		return -1;
 
 	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
+		return -1;
+	}
+
+	/* fill out g_privs */
+	if (process_user_permissions()) {
 		return -1;
 	}
 
@@ -1434,6 +1580,13 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	/* setup network namespace */
+	if(g_newnet.kind != ESRTNL_KIND_INVALID) {
+		if (netns_setup()) {
+			return -1;
+		}
+	}
+
 	if (g_tracecalls) {
 		if (trace_fork(argv)) {
 			printf("error forking trace thread\n");
@@ -1448,14 +1601,6 @@ int main(int argc, char *argv[])
 			g_initpid = 0;
 			printf("jettison failure\n");
 			usleep(200000);
-			return -1;
-		}
-	}
-
-	/* setup network namespace */
-	if(g_newnet.kind != ESRTNL_KIND_INVALID) {
-		if (netns_setup()) {
-			printf("netns setup failure\n");
 			return -1;
 		}
 	}
@@ -1475,8 +1620,10 @@ int main(int argc, char *argv[])
 	close(g_daemon_pipe[1]);
 	relayio_sigsetup();
 	relay_io(stdout_logfd);
+
 	return 0;
 }
+
 
 
 

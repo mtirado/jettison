@@ -45,17 +45,11 @@
 	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
 #endif
 
-/* hard limit number of ip/macvlan a user can create */
-#ifndef JETTISON_IPVLAN_LIMIT
-	#define JETTISON_IPVLAN_LIMIT 30
-#endif
-
 /* external globals in jettison.c */
 extern uid_t g_ruid;
 extern gid_t g_rgid;
-extern pid_t g_initpid;
-extern pid_t g_mainpid;
-extern struct newnet_param g_newnet; /* setup by pod.c */
+extern struct newnet_param g_newnet; /* setup in pod.c */
+extern struct user_privs   g_privs;  /* setup in jettison.c */
 extern char **environ;
 
 int netns_restore_firewall(char *buf, int size);
@@ -232,20 +226,12 @@ static int do_exec(char *path, char *argv[], int *std_io, char *inbuf, int bufsi
 	return -1;
 }
 
-static int netns_enter(char *pid)
+static int netns_enter_proc(char *pid)
 {
 	char path[MAX_SYSTEMPATH];
 	int nsfd;
 	int retries = 15;
-	char buf[64];
-	int r;
 	snprintf(path, sizeof(path), "/proc/%s/ns/net", pid);
-	memset(buf, 0, sizeof(buf));
-	r = readlink(path, buf, sizeof(buf)-1);
-	if (r >= (int)sizeof(buf)-1 || r <= 0) {
-		printf("readlink: %s\n", strerror(errno));
-		return -1;
-	}
 	while (1)
 	{
 		nsfd = open(path, O_RDONLY);
@@ -272,10 +258,8 @@ static int netns_enter(char *pid)
 /*
  * enter new namespace and configure using g_newnet global
  */
-static int netns_enter_and_config(char *ifname, char *targetpid)
+static int netns_enter_and_config(char *ifname)
 {
-	pid_t p;
-	int status;
 	int r;
 
 	/* save current firewall for new net namespace */
@@ -285,69 +269,43 @@ static int netns_enter_and_config(char *ifname, char *targetpid)
 		return -1;
 	}
 	g_newnet.filtersize = r;
-	p = fork();
-	if (p == -1) {
-		printf("fork\n");
+
+	/* enter new namespace */
+	if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
+		printf("set new_ns: %s\n", strerror(errno));
 		return -1;
 	}
-	else if (p == 0) /* new process */
+
+	/* setup type specific devices */
+	switch (g_newnet.kind)
 	{
-		setuid(g_ruid);
-		setgid(g_rgid);
-		if (netns_enter(targetpid))
-			_exit(-1);
-		setuid(0);
-		setgid(0);
-		switch (g_newnet.kind)
-		{
-		case ESRTNL_KIND_LOOP:
-			if (netns_lo_config()) {
-				printf("loopback config failed\n");
-				_exit(-1);
-			}
-			break;
-		case ESRTNL_KIND_IPVLAN:
-		case ESRTNL_KIND_MACVLAN:
-			if (netns_vlan_config(ifname, g_newnet.gateway)) {
-				printf("vlan config failed\n");
-				_exit(-1);
-			}
-			break;
-		default:
-			printf("net interface kind: %d\n", g_newnet.kind);
-			_exit(-1);
-			break;
+	case ESRTNL_KIND_LOOP:
+		if (netns_lo_config()) {
+			printf("loopback config failed\n");
+			return -1;
 		}
-
-		/* restore firewall */
-		if (g_newnet.filtersize) {
-			if (netns_restore_firewall(g_newnet.netfilter,
-						   g_newnet.filtersize)) {
-				printf("couldn't install netfilter\n");
-				return -1;
-			}
+		break;
+	case ESRTNL_KIND_IPVLAN:
+	case ESRTNL_KIND_MACVLAN:
+		if (netns_vlan_config(ifname, g_newnet.gateway)) {
+			printf("vlan config failed\n");
+			return -1;
 		}
-
-		_exit(0);
+		break;
+	default:
+		printf("net interface kind: %d\n", g_newnet.kind);
+		return -1;
+		break;
 	}
-	while (1) /* wait for new netns process */
-	{
-		r = waitpid(p, &status, 0);
-		if (r == -1 && errno == EINTR) {
-			continue;
-		}
-		else if (r == p) {
-			break;
-		}
-		else {
-			printf("waitpid(%d) error: %s\n", p, strerror(errno));
+
+	/* restore firewall */
+	if (g_newnet.filtersize) {
+		if (netns_restore_firewall(g_newnet.netfilter, g_newnet.filtersize)) {
+			printf("couldn't install netfilter\n");
 			return -1;
 		}
 	}
-	if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-		return 0;
-
-	return -1;
+	return 0;
 }
 
 /*
@@ -545,7 +503,6 @@ int netns_count_ipvlan_devices(int *lockfd)
 	DIR *dir;
 	unsigned int count_ret = 0;
 	int fd;
-	int main_netns;
 
 	if (lockfd == NULL)
 		return -1;
@@ -563,24 +520,10 @@ int netns_count_ipvlan_devices(int *lockfd)
 			break;
 	}
 
-	/* hold on to main net namespace */
-	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
-	main_netns = open(path, O_RDONLY|O_CLOEXEC);
-	if (main_netns == -1) {
-		printf("main netns open: %s\n", strerror(errno));
-		close(fd);
-		return -1;
-	}
-
-	/* only access users namespaces */
-	setuid(g_ruid);
-	setgid(g_rgid);
-
 	dir = opendir("/proc");
 	if (dir == NULL) {
 		printf("error opening /proc: %s\n", strerror(errno));
 		close(fd);
-		close(main_netns);
 		return -1;
 	}
 	/* count ipvlan devices in all of users /proc net namespaces */
@@ -642,7 +585,7 @@ int netns_count_ipvlan_devices(int *lockfd)
 			continue;
 
 		/* enter namespace, and count interfaces */
-		if (netns_enter(dent->d_name)) {
+		if (netns_enter_proc(dent->d_name)) {
 			printf("netns_enter(%s): %s\n", dent->d_name, strerror(errno));
 			goto free_err;
 		}
@@ -664,8 +607,8 @@ int netns_count_ipvlan_devices(int *lockfd)
 	}
 
 	/* return to original netns */
-	if (setns(main_netns, CLONE_NEWNET)) {
-		printf("netns_enter(%s): %s\n", path, strerror(errno));
+	if (setns(g_newnet.root_ns, CLONE_NEWNET)) {
+		printf("setns(root_ns): %s\n", strerror(errno));
 		goto free_err;
 	}
 	while (nsnode_list)
@@ -674,7 +617,6 @@ int netns_count_ipvlan_devices(int *lockfd)
 		free(nsnode_list);
 		nsnode_list = n;
 	}
-	close(main_netns);
 	closedir(dir);
 	setuid(0);
 	setgid(0);
@@ -682,7 +624,6 @@ int netns_count_ipvlan_devices(int *lockfd)
 	return count_ret;
 
 free_err:
-	close(main_netns);
 	closedir(dir);
 	close(fd);
 	while (nsnode_list)
@@ -694,141 +635,10 @@ free_err:
 	return -1;
 }
 
-#define MAX_PRIVLN 1024
-int check_ipvlan_permissions(unsigned int ipvlan_count)
-{
-	char *pwline;
-	char *pwuser;
-	char netuser_privs[MAX_SYSTEMPATH];
-	char privln[MAX_PRIVLN];
-	char netaddr[19];
-	unsigned int ipvlan_limit = 0;
-	unsigned int ipmatch = 0;
-	unsigned int lncount = 0;
-	FILE *file;
-
-	/* get username */
-	pwline = passwd_fetchline(g_ruid);
-	if (pwline == NULL) {
-		printf("passwd file error\n");
-		return -1;
-	}
-	pwuser = passwd_getfield(pwline, PASSWD_USER);
-	if (pwuser == NULL) {
-		printf("could not find username in passwd file\n");
-		return -1;
-	}
-
-	/* open users privilege file */
-	snprintf(netuser_privs, sizeof(netuser_privs), "%s/%s/net",
-			JETTISON_USERCFG, pwuser);
-	printf("netuser_privs: %s\n", netuser_privs);
-	file = fopen(netuser_privs, "r");
-	if (file == NULL) {
-		printf("couldn't open netuser privilege file(%s): %s\n",
-				netuser_privs, strerror(errno));
-		return -1;
-	}
-
-	/* re-attach prefix for string compare */
-	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
-	/*
-	 *  parse privilege file, read all ip's and iplimit
-	 *  iplimit <number>    - maximum number of ip's user can consume
-	 *  ip <address/prefix> - allow user to use this ip/prefix
-	 */
-	while (1)
-	{
-		/* read line */
-		memset(privln, 0, sizeof(privln));
-		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
-			break;
-		}
-		++lncount;
-
-		/* handle options */
-		if (strncmp(privln, "iplimit ", 8) == 0)  {
-			char *param = &privln[8];
-			char *err = NULL;
-			long lim;
-
-			if (ipvlan_limit) {
-				printf("duplicate limit entries\n");
-				goto print_errline;
-			}
-			if (chop_trailing(privln, sizeof(privln), '\n'))
-				goto print_errline;
-			errno = 0;
-			lim = strtol(param, &err, 10);
-			if (err == NULL || *err || errno || lim <= 0) {
-				printf("bad limit value\n");
-				goto print_errline;
-			}
-			ipvlan_limit = lim;
-		}
-		else if (strncmp(privln, "ip ", 3) == 0)  {
-			char ipstr[64];
-			char *param = &privln[3];
-			char *c = param;
-			unsigned int iplen = 0;
-
-			/* get string length, try to match ip */
-			while (1)
-			{
-				if (*c == EOF || *c == '\n') {
-					break;
-				}
-				if (++iplen >= sizeof(ipstr)) {
-					printf("iplen error\n");
-					goto print_errline;
-				}
-				++c;
-			}
-			if (iplen == 0) {
-				goto print_errline;
-			}
-
-			strncpy(ipstr, param, iplen);
-			ipstr[iplen] = '\0';
-			if (strncmp(ipstr, netaddr, sizeof(netaddr)) == 0) {
-				ipmatch = 1;
-			}
-		}
-		else {
-			printf("unknown option\n");
-			goto print_errline;
-		}
-	}
-	fclose(file);
-
-	/* check results */
-	if (ipvlan_limit == 0) {
-		printf("netuser privilege file does not contain limit entry\n");
-		return -1;
-	}
-	if (ipvlan_count >= ipvlan_limit) {
-		printf("ipvlan user limit(%d) has been reached\n", ipvlan_limit);
-		return -1;
-	}
-	if (!ipmatch)
-	{
-		printf("ip(%s/%s) not found in netuser privilege file\n",
-				g_newnet.addr, g_newnet.prefix);
-		return -1;
-	}
-
-	return 0;
-
-print_errline:
-	fclose(file);
-	printf("error in %s, line %d\n", netuser_privs, lncount);
-	return -1;
-}
-
 int netns_setup()
 {
+	char path[MAX_SYSTEMPATH];
 	char ifname[16];
-	char targetpid[32];
 	char *gateway;
 	char *dev;
 	int r;
@@ -838,9 +648,30 @@ int netns_setup()
 	if (g_newnet.kind == ESRTNL_KIND_INVALID)
 		return -1;
 
+	/* open root namespace fd */
+	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
+	g_newnet.root_ns = open(path, O_RDONLY|O_CLOEXEC);
+	if (g_newnet.root_ns == -1) {
+		printf("root netns fd open: %s\n", strerror(errno));
+		return -1;
+	}
+	/* create new namespace */
+	if (unshare(CLONE_NEWNET)) {
+		printf("unshare(CLONE_NEWNET): %s\n", strerror(errno));
+		return -1;
+	}
+	/* open new namespace fd */
+	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
+	g_newnet.new_ns = open(path, O_RDONLY|O_CLOEXEC);
+	if (g_newnet.new_ns == -1) {
+		printf("root netns fd open: %s\n", strerror(errno));
+		return -1;
+	}
+
 	/* new name is t<pid>, renamed to match root device after namespace transit */
 	snprintf(ifname, sizeof(ifname), "t%d", getpid());
 
+	/* TODO setup netlogger */
 	/* create new interface and move to new namespace */
 	switch (g_newnet.kind)
 	{
@@ -849,10 +680,16 @@ int netns_setup()
 
 		/* check ipvlan count */
 		count = netns_count_ipvlan_devices(&lockfd);
-		if (count < 0)
+		if (count < 0) {
 			return -1;
+		}
 		/* authorize ip/macvlan parameters */
-		if (check_ipvlan_permissions(count)) {
+		if ((unsigned int)count >= g_privs.ipvlan_limit) {
+			printf("user reached ipvlan limit(%d)\n", g_privs.ipvlan_limit);
+			close(lockfd);
+			return -1;
+		}
+		else if (g_privs.ipvlan_limit == 0) {
 			printf("ip/macvlan permission error\n");
 			close(lockfd);
 			return -1;
@@ -872,7 +709,7 @@ int netns_setup()
 			close(lockfd);
 			return -1;
 		}
-		r = eslib_rtnetlink_linksetns(ifname, g_initpid);
+		r = eslib_rtnetlink_linksetns(ifname, g_newnet.new_ns, 0);
 		if (r) {
 			printf("temp link(%s) setns failed\n", ifname);
 			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
@@ -900,14 +737,20 @@ int netns_setup()
 	default:
 		break;
 	}
-	snprintf(targetpid, sizeof(targetpid), "%d", g_initpid);
-	if (netns_enter_and_config(ifname, targetpid)) {
+	if (netns_enter_and_config(ifname)) {
 		printf("could not configure new net namespace\n");
 		return -1;
 	}
+
+	/* we don't want to hold on to these */
+	close(g_newnet.root_ns);
+	close(g_newnet.new_ns);
+
 	return 0;
 
 ipvlan_err:
+	close(g_newnet.root_ns);
+	close(g_newnet.new_ns);
 	eslib_rtnetlink_linkdel(ifname);
 	close(lockfd);
 	return -1;

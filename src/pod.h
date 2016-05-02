@@ -8,24 +8,6 @@
 #ifndef POD_H__
 #define POD_H__
 
-#ifndef FIREWALL_MAXFILTER
-	#define FIREWALL_MAXFILTER (1024 * 32)
-#endif
-
-/* user config directory */
-#ifndef JETTISON_USERCFG
-	#define JETTISON_USERCFG "/etc/jettison/users"
-#endif
-struct newnet_param {
-	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
-	int  filtersize;
-	char addr[19];     /* ipv4 addr */
-	char prefix[3];    /* netmask prefix */
-	char dev[16];      /* master device name */
-	char gateway[16];  /* to net  */
-	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
-	unsigned char netmask; /* subnet mask, (prefix bits) */
-};
 
 /* put all podflag options near top, they are used as
  * bit flags, and we should keep their value as low as possible */

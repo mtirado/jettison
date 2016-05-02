@@ -4,7 +4,36 @@
 #ifndef MISC_H__
 #define MISC_H__
 
+#ifndef FIREWALL_MAXFILTER
+	#define FIREWALL_MAXFILTER (1024 * 32)
+#endif
+/* user config directory */
+#ifndef JETTISON_USERCFG
+	#define JETTISON_USERCFG "/etc/jettison/users"
+#endif
+/* hard limit number of ip/macvlan a user can create */
+#ifndef JETTISON_IPVLAN_LIMIT
+	#define JETTISON_IPVLAN_LIMIT 30
+#endif
 
+/* maximum line length for user privilege file */
+#define MAX_PRIVLN 1024
+struct newnet_param {
+	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
+	int  filtersize;
+	char addr[19];     /* ipv4 addr */
+	char prefix[3];    /* netmask prefix */
+	char dev[16];      /* master device name */
+	char gateway[16];  /* to net  */
+	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
+	unsigned char netmask; /* subnet mask, (prefix bits) */
+	int root_ns;
+	int new_ns;
+};
+struct user_privs {
+	unsigned int newpts;        /* can create newpts instances */
+	unsigned int ipvlan_limit;  /* maximum number of ipvlan's */
+};
 /* chop matching character from the end of string
  * returns 0 on first non matching character, -1 on error.
  * size is the string array size (including null terminator)
