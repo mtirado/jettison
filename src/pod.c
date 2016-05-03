@@ -33,7 +33,6 @@
 #endif
 
 #ifdef X11OPT
-	int g_x11_hookup;
 	#include <X11/Xauth.h>
 #endif
 /*
@@ -109,6 +108,8 @@ extern gid_t g_rgid;
 extern uid_t g_ruid;
 extern int g_tracecalls;
 extern pid_t g_mainpid;
+extern int g_daemon;
+
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
 char g_params[MAX_PARAM];
 
@@ -127,7 +128,6 @@ unsigned int  g_syscall_idx;
 unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
-
 
 struct newnet_param g_newnet;
 extern struct user_privs g_privs;
@@ -201,7 +201,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	char *filename;
 	char *pwline;
 	char *pwuser;
-	char buf[MAX_SYSTEMPATH];
+	struct stat st;
 
 	if (outpath == NULL || outflags == NULL)
 		return -1;
@@ -211,9 +211,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
-#ifdef X11OPT
-	g_x11_hookup = 0;
-#endif
 	g_podflags = 0;
 	g_allow_dev = 0;
 	g_firstpass = 1;
@@ -231,11 +228,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		g_syscalls[i] = -1;
 		g_blkcalls[i] = -1;
 	}
-	file = fopen(filepath, "r");
-	if (file == NULL) {
-		printf("could not read pod configuration file: %s\n", filepath);
-		return -1;
-	}
 
 	pwline = passwd_fetchline(g_ruid);
 	if (pwline == NULL) {
@@ -247,23 +239,54 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		printf("could not find your username in passwd file\n");
 		return -1;
 	}
-
 	filename = eslib_file_getname(filepath);
 	if (filename == NULL) {
 		printf("bad filename\n");
 		return -1;
 	}
+
+	/* check chroot path */
 	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
 	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
 		printf("chroot path too long: %s\n", g_chroot_path);
-		fclose(file);
 		return -1;
 	}
 	if (eslib_file_path_check(g_chroot_path)) {
 		printf("bad chroot path\n");
-		fclose(file);
 		return -1;
 	}
+	r = stat(g_chroot_path, &st);
+	if (r == 0) {
+		if (!S_ISDIR(st.st_mode)) {
+			printf("chroot path(%s) is not a directory\n", g_chroot_path);
+			return -1;
+		}
+		if (st.st_uid != 0 || st.st_gid != 0) {
+			printf("chroot path(%s) must be owned by root\n", g_chroot_path);
+			return -1;
+		}
+	}
+	else if (r == -1 && errno == ENOENT) {
+		if (mkdir(g_chroot_path, 0770)) {
+			printf("chroot path(%s) couldn't be created\n", g_chroot_path);
+			return -1;
+		}
+		if (chmod(g_chroot_path, 0770)) {
+			printf("chmod(%s): %s\n", g_chroot_path, strerror(errno));
+			return -1;
+		}
+	}
+	else {
+		printf("stat: %s\n", strerror(errno));
+		return -1;
+	}
+
+	file = fopen(filepath, "r");
+	if (file == NULL) {
+		printf("could not read pod configuration file: %s\n", filepath);
+		return -1;
+	}
+
 	printf("filename: %s\r\n", filename);
 	printf("chroot path: %s\r\n", g_chroot_path);
 
@@ -277,7 +300,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		fclose(file);
 		return -1;
 	}
-
 	if (fread(g_filedata, 1, g_filesize, file) != g_filesize){
 		fclose(file);
 		pod_free();
@@ -295,19 +317,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	}
 	g_firstpass = 0;
 
-	/* set ownership/permissions on user directory */
-	snprintf(buf, MAX_SYSTEMPATH, "%s/%s", POD_PATH, pwuser);
-	setuid(g_ruid);
-	if (chmod(buf, 0770)) {
-		printf("chmod(%s): %s\n", buf, strerror(errno));
-		pod_free();
-		return -1;
-	}
-	setuid(0);
-	if (chown(buf, g_ruid, 0)) {
-		printf("chown: %s\n", strerror(errno));
-		return -1;
-	}
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
 	outpath[MAX_SYSTEMPATH-1] = '\0';
@@ -347,7 +356,7 @@ static int do_chroot_setup()
 			return -1;
 	}
 	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
-	mkdir(podhome, 0750);
+	mkdir(podhome, 0770);
 	if (chown(g_chroot_path, 0, 0)) {
 		printf("chown %s failed\n", podhome);
 		return -1;
@@ -1278,27 +1287,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	/*case OPTION_SLOG:*/
 	case OPTION_HOME_EXEC:
 	case OPTION_NEWNET:
-		break;
-
-	/* give pod it's own pseudo terminal instance */
 	case OPTION_NEWPTS:
-		if (g_privs.newpts == 0) {
-			printf("user is not authorized for newpts option\n");
-			printf("add newpts option to privilege file\n");
-			return -1;
-		}
-		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
-		if (mkdir(dest, 0775) && errno != EEXIST)
-			return -1;
-		if (mount(0, dest, "devpts", 0, "newinstance") < 0)
-			return -1;
-		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/pts/ptmx", g_chroot_path);
-		if (chmod(src, 0666))
-			return -1;
-		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/ptmx", g_chroot_path);
-		printf("pts path: %s\n", src);
-		if (symlink("pts/ptmx", src) && errno != EEXIST)
-			return -1;
 		break;
 
 	/* add a systemcall to the whitelist */
@@ -1384,7 +1373,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 #endif
 #ifdef X11OPT
 	case OPTION_X11:
-		g_x11_hookup = 1;
 		break;
 #endif
 
@@ -1484,8 +1472,11 @@ static int pass1_finalize()
 
 static int pass2_finalize()
 {
+	char src[MAX_SYSTEMPATH];
+	char dest[MAX_SYSTEMPATH];
 	struct path_node tnode;
-	/* remount tmp as an "empty" node */
+
+	/* remount /tmp as an "empty" node */
 	memset(&tnode, 0, sizeof(tnode));
 	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
@@ -1495,13 +1486,75 @@ static int pass2_finalize()
 		return -1;
 	}
 
+	/* hookup new pts instance */
+	if (g_podflags & (1 << OPTION_NEWPTS)) {
+		if (g_privs.newpts == 0) {
+			printf("user is not authorized for newpts instance\n");
+			printf("add newpts option to privilege file\n");
+			return -1;
+		}
+#if 0
+		/* we might need to work around a glibc issue. it assumes /dev/pts
+		 * always exists, and trying to trick it is not easy. so for now
+		 * programs that use glibc for pty operations may not work right.
+		 * there is talk about a fix: https://github.com/lxc/lxd/issues/1724
+		 * what i suspect may be happening: /dev/pts is hardcoded in glibc as
+		 * the pty dir, but slave pty path points to real root /dev/pts, so
+		 * mounting that particular terminal in (seen below) can not work.
+		 * LD_PRELOAD hax maybe? :\
+		 */
+		if (!g_daemon) {
+			memset(&tnode, 0, sizeof(tnode));
+			snprintf(tnode.src, MAX_SYSTEMPATH, "%s", g_pty_slavepath);
+			snprintf(tnode.dest, MAX_SYSTEMPATH, "%s%s",
+					g_chroot_path, g_pty_slavepath);
+			tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID;
+
+			eslib_file_mkfile(tnode.dest, 0775, 0);
+			if (do_bind(&tnode)) {
+				printf("do_bind(%s,%s) failed\n", tnode.src, tnode.dest);
+				return -1;
+			}
+			if (chown(tnode.dest, g_ruid, g_rgid)) {
+				printf("pty link chown: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+#endif
+		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
+		if (mkdir(dest, 0755) && errno != EEXIST) {
+			printf("mkdir(%s): %s\n", dest, strerror(errno));
+			return -1;
+		}
+		if (chmod(dest, 0755)) {
+			printf("chmod: %s\n", strerror(errno));
+			return -1;
+		}
+		if (mount(0, dest, "devpts", 0, "newinstance") < 0)
+			return -1;
+		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/pts/ptmx", g_chroot_path);
+		if (chmod(src, 0666))
+			return -1;
+		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/ptmx", g_chroot_path);
+		if (symlink("pts/ptmx", src) && errno != EEXIST)
+			return -1;
+	}
+
 #ifdef X11OPT
 	/* hookup x11 */
-	if (g_x11_hookup && X11_hookup()) {
+	if ((g_podflags & (1 << OPTION_X11)) && X11_hookup()) {
 		printf("X11 hookup failed\n");
 		return -1;
 	}
 #endif
+
+	/* protect podhome from non-root group */
+	snprintf(dest,  MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
+	if (chown(dest, g_ruid, 0)) {
+		printf("podhome chown: %s\n", strerror(errno));
+		return -1;
+	}
+
 	return 0;
 }
 
