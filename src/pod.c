@@ -35,6 +35,7 @@
 #ifdef X11OPT
 	#include <X11/Xauth.h>
 #endif
+
 /*
  *  prevent these exact paths from being mounted without MS_RDONLY.
  *  you can mount writable directories after these locations.
@@ -46,7 +47,6 @@ static char *g_rdonly_dirs[] =
 	"/test",
 	"/etc",
 	"/sbin",
-	"/root",
 	"/home",
 	"/bin",
 	"/lib",
@@ -77,7 +77,9 @@ static char *g_blacklist_paths[] =
 	"/proc",
 	"/sys",
 	"/.Xauthority",
-	POD_PATH
+	"/root",
+	POD_PATH,
+	JETTISON_USERCFG
 };
 #define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
 
