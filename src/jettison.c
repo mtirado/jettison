@@ -659,6 +659,12 @@ err_usage:
 	printf("--logoutput\n");
 	printf("        write stdout/stderr to a timestamped log file in cwd\n");
 	printf("\n");
+	printf("--lognet <size> <count>\n");
+	printf("        dump .pcap file for ipvlan / macvlan traffic\n");
+	printf("        <size> is individual log file size in megabytes, if 0\n");
+	printf("        the log file will not be constrained. if >= 2 log will be\n");
+	printf("        rotated and numbered, with up to <count> file backlog\n");
+	printf("\n");
 	printf("\n");
 	return -1;
 }

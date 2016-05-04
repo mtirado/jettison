@@ -726,7 +726,8 @@ static pid_t setup_netlog()
 
 	snprintf(str_size, sizeof(str_size), "%d", g_newnet.log_filesize);
 	snprintf(str_count, sizeof(str_count), "%d", g_newnet.log_count);
-	snprintf(str_filename, sizeof(str_filename), "netlog");
+	/* TODO update usage info to include jail directory info, give a better name */
+	snprintf(str_filename, sizeof(str_filename), "pod-netlog.pcap");
 
 	if (g_newnet.log_filesize < 0)
 		return -1;
