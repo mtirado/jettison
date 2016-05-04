@@ -935,10 +935,11 @@ int downgrade_caps()
 
 	for(i = 0; i < NUM_OF_CAPS; ++i)
 	{
-		/* these are dropped later when exec is called */
+		/* we need to temporarily hold on to these caps */
 		if (i == CAP_SYS_CHROOT
 				|| i == CAP_SYS_ADMIN
 				|| i == CAP_NET_ADMIN
+				|| i == CAP_NET_RAW
 				|| i == CAP_CHOWN
 				|| i == CAP_SETGID
 				|| i == CAP_SETPCAP) {

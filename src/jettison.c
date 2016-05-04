@@ -64,7 +64,7 @@ extern char g_fcaps[NUM_OF_CAPS];
 extern int  g_syscalls[MAX_SYSCALLS];
 extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
-extern struct newnet_param g_newnet;
+struct newnet_param g_newnet;
 
 /* user privilege data, stored in /etc/jettison/user by default */
 struct user_privs g_privs;
@@ -89,6 +89,7 @@ char g_pid1name[MAX_PROCNAME];
 
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
+int g_lognet; /* --lognet */
 int g_stdout_logfd;
 int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
 
@@ -105,7 +106,6 @@ int g_ptym;
 /* for stopping/resuming jettison_init before exec */
 int g_traceipc[2];
 int g_tracecalls; /* --tracecalls */
-
 
 uid_t g_ruid;    /* real uid */
 gid_t g_rgid;    /* real gid */
@@ -543,6 +543,39 @@ int process_arguments(int argc, char *argv[])
 				g_logoutput = 1;
 				argidx  += 1;
 			}
+			else if (strncmp(argv[i], "--lognet", len) == 0) {
+				/*
+				 * arg 1 - log filesize
+				 *         0 count is ignored, single huge file.
+				 *       >=1 file is limited
+				 * arg 2 - number of log rotation files
+				 *       >=2 log is rotated (truncated)
+				 */
+				if (argc < i+2 || argv[i+1] == '\0' || argv[i+2] == 0) {
+					printf("--lognet requires size & count args\n");
+					goto missing_opt;
+				}
+				/* read log file size */
+				errno = 0;
+				++i;
+				g_newnet.log_filesize = strtol(argv[i], &err, 10);
+				if (err == NULL || *err || errno)
+					goto bad_opt;
+				if (g_newnet.log_filesize < 0) {
+					goto bad_opt;
+				}
+				/* read rotation count */
+				errno = 0;
+				++i;
+				g_newnet.log_count = strtol(argv[i], &err, 10);
+				if (err == NULL || *err || errno)
+					goto bad_opt;
+				if (g_newnet.log_filesize > 0 && g_newnet.log_count < 2)
+					goto bad_opt;
+
+				g_lognet = 1;
+				argidx  += 3;
+			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -641,7 +674,9 @@ void exit_func()
 {
 	usleep(300000);
 	/* send pid1 sigterm to propagate to new namespace */
-	kill(g_initpid, SIGTERM);
+	if (g_initpid > 0)
+		kill(g_initpid, SIGTERM);
+	kill(0, SIGTERM);
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 	printf("jettison_exit\n");
@@ -675,7 +710,8 @@ static void relayio_sighand(int signum)
 	case SIGUSR1:
 	case SIGUSR2:
 	case SIGQUIT:
-		kill(g_initpid, signum);
+		if (g_initpid > 0)
+			kill(g_initpid, signum);
 		break;
 	default:
 		exit_func();
@@ -687,9 +723,7 @@ static void relayio_sighand(int signum)
 /* catch everything short of a sigkill */
 static void relayio_sigsetup()
 {
-	signal(SIGTERM,   relayio_sighand);
 	signal(SIGINT,    relayio_sighand);
-	signal(SIGQUIT,   relayio_sighand);
 	signal(SIGILL,    relayio_sighand);
 	signal(SIGABRT,   relayio_sighand);
 	signal(SIGFPE,    relayio_sighand);
@@ -710,9 +744,11 @@ static void relayio_sigsetup()
 	signal(SIGTRAP,   relayio_sighand);
 
 	/* forward these */
+	signal(SIGTERM,   relayio_sighand);
 	signal(SIGHUP,    relayio_sighand);
 	signal(SIGUSR1,   relayio_sighand);
 	signal(SIGUSR2,   relayio_sighand);
+	signal(SIGQUIT,   relayio_sighand);
 
 	if (!g_daemon) {
 		signal(SIGWINCH, relayio_sighand);
@@ -844,8 +880,8 @@ static int relay_io(int stdout_logfd)
 	struct timeval tmr;
 	struct timeval instant;
 	int ours, theirs;
-	int loop = 1;
 	int status;
+	int canwrite = 1;
 
 	ours = STDIN_FILENO;
 	theirs = g_ptym;
@@ -937,17 +973,32 @@ static int relay_io(int stdout_logfd)
 	close(g_pty_notify[0]);
 	close(g_pty_notify[1]);
 
+	canwrite = 1;
 	/* normal pty io relay */
-	while(loop)
+	while(1)
 	{
+		pid_t p;
 		tmr.tv_usec = 0;
 		tmr.tv_sec = 10;
 
-		if (waitpid(g_initpid, &status, WNOHANG) == g_initpid) {
+
+		p = waitpid(-1, &status, WNOHANG);
+		if (p == g_initpid) {
 			wbytes = 0;
+			canwrite = 0;
+		}
+		else if (p == g_newnet.log_pid) {
+			if (g_initpid > 0) {
+				/* netlogger was interrupted */
+				if (kill(g_initpid, SIGTERM)) {
+					printf("kill %d %s\n",g_initpid,strerror(errno));
+					return -1;
+				}
+				g_initpid = -1;
+			}
 		}
 		/* waiting on them to consume wbuf */
-		if (wbytes) {
+		if (wbytes && canwrite) {
 			FD_ZERO(&wrs);
 			FD_SET(theirs, &wrs);
 			r = select(theirs+1, NULL, &wrs, NULL, &instant);
@@ -1011,12 +1062,10 @@ static int relay_io(int stdout_logfd)
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
 				if (r == -1) {
-					/*printf("fillbuf_theirs: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				else if (r > 0) {
 					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1) {
-						/*printf("pushbuf_stdout: %s\n", strerror(errno));*/
 						goto fatal;
 					}
 					if (stdout_logfd != -1) {
@@ -1425,7 +1474,7 @@ int main(int argc, char *argv[])
 	g_mainpid = getpid();
 	g_ptym = -1;
 	g_daemon = 0;
-	g_initpid = 0;
+	g_initpid = -1;
 	g_podflags = 0;
 	g_logoutput = 0;
 	stdout_logfd = -1;
@@ -1437,6 +1486,7 @@ int main(int argc, char *argv[])
 	g_daemon_pipe[1] = -1;
 	memset(g_cwd, 0, sizeof(g_cwd));
 	memset(g_fcaps, 0, NUM_OF_CAPS);
+	memset(&g_newnet, 0, sizeof(g_newnet));
 	memset(g_newroot, 0, sizeof(g_newroot));
 	memset(g_procname, 0, sizeof(g_procname));
 	memset(g_pid1name, 0, sizeof(g_pid1name));
@@ -1445,6 +1495,7 @@ int main(int argc, char *argv[])
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 
+	g_newnet.log_pid = -1;
 
 	if (process_arguments(argc, argv)) {
 		return -1;
@@ -1476,7 +1527,7 @@ int main(int argc, char *argv[])
 	if (g_stacksize == 0)
 		g_stacksize = DEFAULT_STACKSIZE;
 
-
+	/* temporary namespace to jail ourselves in */
 	if (create_nullspace())
 		return -1;
 
@@ -1487,6 +1538,14 @@ int main(int argc, char *argv[])
 	/* fill out g_privs */
 	if (process_user_permissions()) {
 		return -1;
+	}
+
+	if (g_lognet) {
+		if (g_newnet.kind != ESRTNL_KIND_IPVLAN
+				&& g_newnet.kind != ESRTNL_KIND_MACVLAN) {
+			printf("--lognet requires use of newnet ipvlan or macvlan\n");
+			return -1;
+		}
 	}
 
 	/* backup original termios */
@@ -1598,9 +1657,7 @@ int main(int argc, char *argv[])
 		g_initpid = jettison_program(g_executable_path, argv, g_stacksize,
 					    g_podflags, NULL, NULL);
 		if (g_initpid == -1) {
-			g_initpid = 0;
 			printf("jettison failure\n");
-			usleep(200000);
 			return -1;
 		}
 	}

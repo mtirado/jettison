@@ -20,15 +20,18 @@
 #define MAX_PRIVLN 1024
 struct newnet_param {
 	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
-	int  filtersize;
-	char addr[19];     /* ipv4 addr */
-	char prefix[3];    /* netmask prefix */
-	char dev[16];      /* master device name */
-	char gateway[16];  /* to net  */
-	unsigned int kind; /* RTNL_KIND_ in eslib_rtnetlink.h */
-	unsigned char netmask; /* subnet mask, (prefix bits) */
-	int root_ns;
-	int new_ns;
+	char addr[19];         /* ipv4 addr */
+	char gateway[16];      /* to net  */
+	char dev[16];          /* master device name */
+	char prefix[3];        /* netmask prefix */
+	unsigned char netmask; /* subnet mask, prefix bits */
+	unsigned int  kind;    /* RTNL_KIND_ in eslib_rtnetlink.h */
+	pid_t log_pid;         /* logger process */
+	int log_filesize;      /* maximum individual file size */
+	int log_count;         /* number of rotation files */
+	int root_ns;           /* initial net namespace */
+	int new_ns;            /* new net namespace */
+	int filtersize;        /* firewall */
 };
 struct user_privs {
 	unsigned int newpts;        /* can create newpts instances */

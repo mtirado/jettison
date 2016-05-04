@@ -40,7 +40,10 @@
 #ifndef FIREWALL_PROG
 	#define FIREWALL_PROG "/usr/sbin/xtables-multi"
 #endif
-
+/* theres some hardcoded params going on to achieve log rotation */
+#ifndef NETLOG_PROG
+	#define NETLOG_PROG "/usr/sbin/tcpdump"
+#endif
 #ifndef IPVLAN_COUNT_LOCKFILE
 	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
 #endif
@@ -51,6 +54,7 @@ extern gid_t g_rgid;
 extern struct newnet_param g_newnet; /* setup in pod.c */
 extern struct user_privs   g_privs;  /* setup in jettison.c */
 extern char **environ;
+extern int g_lognet;
 
 int netns_restore_firewall(char *buf, int size);
 int netns_save_firewall(char *buf, int size);
@@ -122,15 +126,15 @@ static int netns_vlan_config(char *ifname, char *gateway)
 }
 
 /* std_io should be a socketpair int std_io[2], [0] current thread [1] new thread*/
-static int do_exec(char *path, char *argv[], int *std_io, char *inbuf, int bufsize)
+static int do_fw_exec(char *argv[], int *std_io, char *inbuf, int bufsize)
 {
 	pid_t p;
 	int status;
 	int std;
 	FILE *stdo;
-	if (!path || !argv || (inbuf && !std_io))
+	if (!argv || (inbuf && !std_io))
 		return -1;
-	if (strnlen(path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+	if (strnlen(FIREWALL_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
 		return -1;
 
 	p = fork();
@@ -172,7 +176,7 @@ static int do_exec(char *path, char *argv[], int *std_io, char *inbuf, int bufsi
 			fprintf(stdo, "pid: %d\r\n", hdr.pid);
 			_exit(-1);
 		}
-		if (execve(path, argv, environ)) {
+		if (execve(FIREWALL_PROG, argv, environ)) {
 			fprintf(stdo, "execve: %s\n", strerror(errno));
 			_exit(-1);
 		}
@@ -222,7 +226,7 @@ static int do_exec(char *path, char *argv[], int *std_io, char *inbuf, int bufsi
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 		return 0;
 	}
-	printf("%s program encountered an error\n", path);
+	printf("%s program encountered an error\n", FIREWALL_PROG);
 	return -1;
 }
 
@@ -324,7 +328,7 @@ int netns_save_firewall(char *buf, int size)
 		printf("socketpair: %s\n", strerror(errno));
 		return -1;
 	}
-	if (do_exec(FIREWALL_PROG, argv, ipc, NULL, 0)) {
+	if (do_fw_exec(argv, ipc, NULL, 0)) {
 		printf("exec(%s) failed\n", FIREWALL_PROG);
 		goto close_err;
 	}
@@ -368,7 +372,7 @@ int netns_restore_firewall(char *buf, int size)
 		printf("socketpair: %s\n", strerror(errno));
 		return -1;
 	}
-	if (do_exec(FIREWALL_PROG, argv, ipc, buf, size)) {
+	if (do_fw_exec(argv, ipc, buf, size)) {
 		printf("exec(%s) failed\n", FIREWALL_PROG);
 		close(ipc[0]);
 		close(ipc[1]);
@@ -635,6 +639,127 @@ free_err:
 	return -1;
 }
 
+/* returns new pid, or -1 on error */
+static pid_t do_nl_exec(char *argv[])
+{
+	pid_t p;
+	int status;
+	int r;
+
+	if (!argv)
+		return -1;
+	if (strnlen(NETLOG_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+		return -1;
+
+	p = fork();
+	if (p == -1) {
+		printf("fork(): %s\n", strerror(errno));
+		return -1;
+	}
+	else if (p == 0) {
+		struct __user_cap_header_struct hdr;
+		struct __user_cap_data_struct   data[2];
+
+		if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
+			printf("set new_ns: %s\n", strerror(errno));
+			return -1;
+		}
+		close(g_newnet.root_ns);
+		close(g_newnet.new_ns);
+		/* TODO close all other fd's too
+		 * TODO jail process in log folder
+		 */
+
+		/* let exec inherit CAP_NET_RAW */
+		memset(&hdr, 0, sizeof(hdr));
+		memset(data, 0, sizeof(data));
+		hdr.pid = syscall(__NR_gettid);
+		hdr.version = _LINUX_CAPABILITY_VERSION_3;
+
+		data[CAP_TO_INDEX(CAP_NET_RAW)].effective
+			|= CAP_TO_MASK(CAP_NET_RAW);
+		data[CAP_TO_INDEX(CAP_NET_RAW)].permitted
+			|= CAP_TO_MASK(CAP_NET_RAW);
+		data[CAP_TO_INDEX(CAP_NET_RAW)].inheritable
+			|= CAP_TO_MASK(CAP_NET_RAW);
+
+		if (capset(&hdr, data)) {
+			printf("capset: %s\r\n", strerror(errno));
+			printf("cap version: %p\r\n", (void *)hdr.version);
+			printf("pid: %d\r\n", hdr.pid);
+			_exit(-1);
+		}
+		if (execve(NETLOG_PROG, argv, environ)) {
+			printf("execve: %s\n", strerror(errno));
+			_exit(-1);
+		}
+		_exit(-1);
+	}
+
+	usleep(333333); /* try to catch early errors */
+	/* see if it's still running */
+	r = waitpid(p, &status, WNOHANG);
+	if (r != 0) {
+		printf("netlog waitpid!");
+		return -1;
+	}
+	return p;
+}
+
+static pid_t setup_netlog()
+{
+	pid_t p;
+	/* tcpdump specific, we could write our own packet logger someday */
+	char *args[10];
+	/* XXX add -n ? */
+	char arg0[]      = "netlog";
+	char arg1[]      = "-p"; /* don't set promiscuous mode */
+	char arg2[]      = "-w";
+	char arg_size[]  = "-C";
+	char arg_count[] = "-W";
+	char str_filename[32];
+	char str_size[32];
+	char str_count[32];
+
+	if (g_newnet.kind != ESRTNL_KIND_IPVLAN && g_newnet.kind != ESRTNL_KIND_MACVLAN)
+		return -1;
+
+	snprintf(str_size, sizeof(str_size), "%d", g_newnet.log_filesize);
+	snprintf(str_count, sizeof(str_count), "%d", g_newnet.log_count);
+	snprintf(str_filename, sizeof(str_filename), "netlog");
+
+	if (g_newnet.log_filesize < 0)
+		return -1;
+
+	args[0] = arg0;
+	args[1] = arg1;
+	args[2] = arg2;
+	args[3] = str_filename;
+
+	if (g_newnet.log_filesize == 0) {
+		args[4] = NULL;
+	}
+	else {
+		if (g_newnet.log_count < 2)
+			return -1;
+
+		/* single constrained logfile */
+		args[4] = arg_size;
+		args[5] = str_size;
+		args[6] = arg_count;
+		args[7] = str_count;
+		args[8] = NULL;
+	}
+
+	p = do_nl_exec(args);
+	if (p == -1) {
+		printf("exec(%s) failed\n", NETLOG_PROG);
+		return -1;
+	}
+	g_newnet.log_pid = p;
+	return 0;
+}
+
 int netns_setup()
 {
 	char path[MAX_SYSTEMPATH];
@@ -671,7 +796,6 @@ int netns_setup()
 	/* new name is t<pid>, renamed to match root device after namespace transit */
 	snprintf(ifname, sizeof(ifname), "t%d", getpid());
 
-	/* TODO setup netlogger */
 	/* create new interface and move to new namespace */
 	switch (g_newnet.kind)
 	{
@@ -742,6 +866,12 @@ int netns_setup()
 		return -1;
 	}
 
+	if (g_lognet) {
+		if (setup_netlog()) {
+			printf("could not setup netlog\n");
+			return -1;
+		}
+	}
 	/* we don't want to hold on to these */
 	close(g_newnet.root_ns);
 	close(g_newnet.new_ns);

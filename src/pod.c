@@ -131,7 +131,7 @@ unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
 
-struct newnet_param g_newnet;
+extern struct newnet_param g_newnet;
 extern struct user_privs g_privs;
 
 static int pod_load_config(char *data, size_t size);
@@ -222,7 +222,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	g_filedata = NULL;
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
-	memset(&g_newnet, 0, sizeof(g_newnet));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 
 	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
@@ -1118,7 +1117,6 @@ static int parse_newnet(char *params, size_t size)
 		return -1;
 
 	memset(type, 0, sizeof(type));
-	memset(&g_newnet, 0, sizeof(g_newnet));
 	for (i = 0; i < size; ++i) /* space separated */
 		if (params[i] == ' ')
 			break;
