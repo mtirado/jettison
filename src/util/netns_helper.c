@@ -125,17 +125,27 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	return 0;
 }
 
-/* std_io should be a socketpair int std_io[2], [0] current thread [1] new thread*/
-static int do_fw_exec(char *argv[], int *std_io, char *inbuf, int bufsize)
+/* returns 0 on success, bytesread if outbuf is specified, or -1 on error
+ * note: reading exactly outsize bytes is an error
+ */
+static int do_fw_exec(char *argv[],/* program args */
+                      int *std_io, /* socketpair: [0] current proc, [1] new proc*/
+                      char *inbuf,  int insize, /* pipe in to program    */
+                      char *outbuf, int outsize)/* read output */
 {
 	pid_t p;
+	int bytesread = 0;
 	int status;
 	int std;
 	FILE *stdo;
-	if (!argv || (inbuf && !std_io))
+	int i;
+
+	if (!argv || (inbuf && !std_io)) {
 		return -1;
-	if (strnlen(FIREWALL_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+	}
+	if (strnlen(FIREWALL_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH) {
 		return -1;
+	}
 
 	p = fork();
 	if (p == -1) {
@@ -182,20 +192,22 @@ static int do_fw_exec(char *argv[], int *std_io, char *inbuf, int bufsize)
 		}
 		_exit(-1);
 	}
+	close(std_io[1]);
 
 	/* pipe input to new program */
 	if (inbuf && std_io) {
-		int bytesleft = bufsize;
-		if (bufsize <= 0)
+		int bytesleft = insize;
+		if (insize <= 0)
 			return -1;
+
 		while(1)
 		{
 			int w = write(std_io[0], inbuf, bytesleft);
 			if (w == -1 && (errno == EINTR||errno == EAGAIN))
 				continue;
-			else if (w == -1 || w == 0) {
+			else if (w == -1 || w == 0)
 				return -1;
-			}
+
 			bytesleft -= w;
 			inbuf += w;
 			if (bytesleft == 0) {
@@ -208,23 +220,56 @@ static int do_fw_exec(char *argv[], int *std_io, char *inbuf, int bufsize)
 			}
 		}
 	}
-	/* wait for program return code */
+
+	/* read output */
+	if (outbuf) {
+		bytesread = 0;
+		if (outsize <= 1)
+			return -1;
+		while(1)
+		{
+			int r = read(std_io[0], outbuf+bytesread, outsize-bytesread);
+			if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
+				continue;
+			}
+			else if (r == 0) {
+				break;
+			}
+			else if (r > 0) {
+				bytesread += r;
+				if (bytesread >= outsize) {
+					printf("filter is >= %d\n", FIREWALL_MAXFILTER);
+					return -1;
+				}
+			}
+			else {
+				printf("read error: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+	}
+
+	/* wait some time for program return code */
+	i = 0;
 	while (1)
 	{
-		int r = waitpid(p, &status, 0);
-		if (r == -1 && errno == EINTR) {
-			continue;
-		}
-		else if (r == p) {
+		int r = waitpid(p, &status, WNOHANG);
+		if (r == p) {
 			break;
 		}
-		else {
+		else if (r != 0) {
 			printf("waitpid(%d) error: %s\n", p, strerror(errno));
 			return -1;
 		}
+		if (++i > 20) {
+			printf("%s %s program hanging\n", FIREWALL_PROG, FIREWALL_SAVE);
+			kill(p, SIGKILL);
+			return -1;
+		}
+		usleep(99999);
 	}
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-		return 0;
+		return bytesread;
 	}
 	printf("%s program encountered an error\n", FIREWALL_PROG);
 	return -1;
@@ -269,8 +314,10 @@ static int netns_enter_and_config(char *ifname)
 	/* save current firewall for new net namespace */
 	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
 	if (r <= 0) {
-		printf("couldn't save firewall rules\n");
-		return -1;
+		if (r == 0 && (g_newnet.kind != ESRTNL_KIND_LOOP)) {
+			printf("couldn't save firewall rules\n");
+			return -1;
+		}
 	}
 	g_newnet.filtersize = r;
 
@@ -319,6 +366,7 @@ static int netns_enter_and_config(char *ifname)
 int netns_save_firewall(char *buf, int size)
 {
 	int ipc[2];
+	int bytes;
 	char *argv[] = { "fwsave", FIREWALL_SAVE, NULL };
 	if (buf == NULL || size <= 0)
 		return -1;
@@ -328,33 +376,17 @@ int netns_save_firewall(char *buf, int size)
 		printf("socketpair: %s\n", strerror(errno));
 		return -1;
 	}
-	if (do_fw_exec(argv, ipc, NULL, 0)) {
+	bytes = do_fw_exec(argv, ipc, NULL, 0, buf, size);
+	if (bytes == -1) {
 		printf("exec(%s) failed\n", FIREWALL_PROG);
-		goto close_err;
+		close(ipc[1]);
+		close(ipc[0]);
+		return -1;
 	}
+
 	close(ipc[1]);
-	while(1)
-	{
-		int r = read(ipc[0], buf, size);
-		if (r == size) {
-			printf("filter too big, size=%d\n", size);
-			goto close_err;
-		}
-		else if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
-			continue;
-		}
-		else if (r <= 0) {
-			printf("read error(%d)\n", r);
-			goto close_err;
-		}
-		else {
-			close(ipc[0]);
-			return r;
-		}
-	}
-close_err:
 	close(ipc[0]);
-	return -1;
+	return bytes;
 }
 
 /*
@@ -372,7 +404,7 @@ int netns_restore_firewall(char *buf, int size)
 		printf("socketpair: %s\n", strerror(errno));
 		return -1;
 	}
-	if (do_fw_exec(argv, ipc, buf, size)) {
+	if (do_fw_exec(argv, ipc, buf, size, NULL, 0)) {
 		printf("exec(%s) failed\n", FIREWALL_PROG);
 		close(ipc[0]);
 		close(ipc[1]);
