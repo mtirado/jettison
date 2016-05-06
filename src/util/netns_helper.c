@@ -7,9 +7,11 @@
 #include <errno.h>
 #include <sched.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <sys/mount.h>
 #include <sys/capability.h>
 #include <unistd.h>
 #include <string.h>
@@ -18,6 +20,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/if_link.h>
 #include <stdlib.h>
+#include "seccomp_helper.h"
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
 #include "../pod.h"
@@ -55,6 +58,7 @@ extern struct newnet_param g_newnet; /* setup in pod.c */
 extern struct user_privs   g_privs;  /* setup in jettison.c */
 extern char **environ;
 extern int g_lognet;
+extern char g_cwd[MAX_SYSTEMPATH];
 
 int netns_restore_firewall(char *buf, int size);
 int netns_save_firewall(char *buf, int size);
@@ -671,8 +675,89 @@ free_err:
 	return -1;
 }
 
+/* build a minimal environment to exec log program in */
+static int netlog_buildfs(char *chroot_path)
+{
+	struct path_node node;
+
+	memset(&node, 0, sizeof(node));
+	node.mntflags = MS_RDONLY|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
+
+	snprintf(node.src,  MAX_SYSTEMPATH, "%s", NETLOG_PROG);
+	snprintf(node.dest, MAX_SYSTEMPATH, "%s%s", chroot_path, NETLOG_PROG);
+	eslib_file_mkfile(node.dest, 0750, 1);
+	if (pathnode_bind(&node))
+		goto bind_err;
+
+	snprintf(node.src,  MAX_SYSTEMPATH, "/lib");
+	snprintf(node.dest, MAX_SYSTEMPATH, "%s/lib", chroot_path);
+	eslib_file_mkdirpath(node.dest, 0750, 1);
+	if (pathnode_bind(&node))
+		goto bind_err;
+
+	snprintf(node.src,  MAX_SYSTEMPATH, "/usr/lib");
+	snprintf(node.dest, MAX_SYSTEMPATH, "%s/usr/lib", chroot_path);
+	eslib_file_mkdirpath(node.dest, 0750, 1);
+	if (pathnode_bind(&node))
+		goto bind_err;
+
+	return 0;
+
+bind_err:
+	printf("bind %s ---> %s failed\n", node.src, node.dest);
+	return -1;
+}
+
+static int jail_netlog(char *chroot_path)
+{
+	int cap_e[NUM_OF_CAPS];
+	int cap_p[NUM_OF_CAPS];
+	int cap_i[NUM_OF_CAPS];
+
+	memset(&cap_e, 0, sizeof(cap_e));
+	memset(&cap_p, 0, sizeof(cap_p));
+	memset(&cap_i, 0, sizeof(cap_i));
+	cap_e[CAP_NET_RAW] = 1;
+	cap_p[CAP_NET_RAW] = 1;
+	cap_i[CAP_NET_RAW] = 1;
+	/* not inherited */
+	cap_e[CAP_SETUID]  = 1;
+	cap_p[CAP_SETUID]  = 1;
+	cap_e[CAP_SETGID]  = 1;
+	cap_p[CAP_SETGID]  = 1;
+
+	if (eslib_file_path_check(chroot_path)) {
+		printf("bad chroot_path: %s\n", chroot_path);
+		return -1;
+	}
+	/* mini pod */
+	if (mkdir(chroot_path, 0770) && errno != EEXIST) {
+		printf("mkdir(%s): %s\n", chroot_path, strerror(errno));
+		return -1;
+	}
+	if (chmod(chroot_path, 0770)) {
+		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
+	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
+		printf("unshare: %s\n", strerror(errno));
+		return -1;
+	}
+	if (netlog_buildfs(chroot_path)) {
+		return -1;
+	}
+	/* TODO add log group/user to run this process under, just in case. */
+	if (jail_process(chroot_path, 0, 0, NULL, 0, cap_e, cap_p, cap_i, 1, 1)) {
+		printf("jail_process failed\n");
+		return -1;
+	}
+	return 0;
+}
+
+
+
 /* returns new pid, or -1 on error */
-static pid_t do_nl_exec(char *argv[])
+static pid_t do_netlog_exec(char *argv[])
 {
 	pid_t p;
 	int status;
@@ -689,8 +774,14 @@ static pid_t do_nl_exec(char *argv[])
 		return -1;
 	}
 	else if (p == 0) {
-		struct __user_cap_header_struct hdr;
-		struct __user_cap_data_struct   data[2];
+		char path[MAX_SYSTEMPATH];
+		/*uid_t log_user;
+
+		log_user = get_user_id(NETLOG_USER);
+		if ((int)log_user == -1) {
+			printf("add loguser user to passwd file, default is 'nobody'\n");
+			_exit(-1);
+		}*/
 
 		if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
 			printf("set new_ns: %s\n", strerror(errno));
@@ -699,31 +790,25 @@ static pid_t do_nl_exec(char *argv[])
 		close(g_newnet.root_ns);
 		close(g_newnet.new_ns);
 		/* TODO close all other fd's too
-		 * TODO jail process in log folder
+		 * TODO add above log user switch option
 		 */
 
-		/* let exec inherit CAP_NET_RAW */
-		memset(&hdr, 0, sizeof(hdr));
-		memset(data, 0, sizeof(data));
-		hdr.pid = syscall(__NR_gettid);
-		hdr.version = _LINUX_CAPABILITY_VERSION_3;
-
-		data[CAP_TO_INDEX(CAP_NET_RAW)].effective
-			|= CAP_TO_MASK(CAP_NET_RAW);
-		data[CAP_TO_INDEX(CAP_NET_RAW)].permitted
-			|= CAP_TO_MASK(CAP_NET_RAW);
-		data[CAP_TO_INDEX(CAP_NET_RAW)].inheritable
-			|= CAP_TO_MASK(CAP_NET_RAW);
-
-		if (capset(&hdr, data)) {
-			printf("capset: %s\r\n", strerror(errno));
-			printf("cap version: %p\r\n", (void *)hdr.version);
-			printf("pid: %d\r\n", hdr.pid);
+		if (setuid(g_ruid)) {
+			printf("setuid: %s\n", strerror(errno));
+			_exit(-1);
+		}
+		snprintf(path, sizeof(path), "%s/.podlog", g_cwd);
+		if (jail_netlog(path)) {
+			printf("jail_netlog failed\n");
+			_exit(-1);
+		}
+		/* setuid for after exec, and back to 0 for inherited caps to work. */
+		if (setuid(g_ruid) || seteuid(0) || setgid(g_rgid) || setegid(0)) {
+			printf("final setuid: %s\n", strerror(errno));
 			_exit(-1);
 		}
 		if (execve(NETLOG_PROG, argv, environ)) {
 			printf("execve: %s\n", strerror(errno));
-			_exit(-1);
 		}
 		_exit(-1);
 	}
@@ -743,7 +828,6 @@ static pid_t setup_netlog()
 	pid_t p;
 	/* tcpdump specific, we could write our own packet logger someday */
 	char *args[10];
-	/* XXX add -n ? */
 	char arg0[]      = "netlog";
 	char arg1[]      = "-p"; /* don't set promiscuous mode */
 	char arg2[]      = "-w";
@@ -759,7 +843,7 @@ static pid_t setup_netlog()
 	snprintf(str_size, sizeof(str_size), "%d", g_newnet.log_filesize);
 	snprintf(str_count, sizeof(str_count), "%d", g_newnet.log_count);
 	/* TODO update usage info to include jail directory info, give a better name */
-	snprintf(str_filename, sizeof(str_filename), "pod-netlog.pcap");
+	snprintf(str_filename, sizeof(str_filename), "netlog.pcap");
 
 	if (g_newnet.log_filesize < 0)
 		return -1;
@@ -784,7 +868,7 @@ static pid_t setup_netlog()
 		args[8] = NULL;
 	}
 
-	p = do_nl_exec(args);
+	p = do_netlog_exec(args);
 	if (p == -1) {
 		printf("exec(%s) failed\n", NETLOG_PROG);
 		return -1;
@@ -898,7 +982,6 @@ int netns_setup()
 		printf("could not configure new net namespace\n");
 		return -1;
 	}
-
 	if (g_lognet) {
 		if (setup_netlog()) {
 			printf("could not setup netlog\n");

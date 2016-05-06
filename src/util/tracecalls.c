@@ -20,7 +20,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <fcntl.h>
+#include <sched.h>
 #include "seccomp_helper.h"
+
+extern uid_t g_ruid;
+extern gid_t g_rgid;
 
 /* XXX what is the proper way to include this? */
 #ifndef SYS_SECCOMP
@@ -220,7 +224,12 @@ static int downgrade_tracer(char *jailpath)
 	syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
-	if (jail_process(jailpath, syscalls, SECCOPT_PTRACE)) {
+	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
+		printf("unshare: %s\n", strerror(errno));
+		return -1;
+	}
+	if (jail_process(jailpath, g_ruid, g_rgid, syscalls, SECCOPT_PTRACE,
+				NULL, NULL, NULL, 0, 0)) {
 		printf("jail_process failed\n");
 		return -1;
 	}

@@ -16,6 +16,14 @@
 	#define JETTISON_IPVLAN_LIMIT 30
 #endif
 
+/* TODO -- use these */
+#ifndef NETLOG_USER
+	#define NETLOG_USER "nobody"
+#endif
+#ifndef NETLOG_GROUP
+	#define NETLOG_USER "nobody"
+#endif
+
 /* maximum line length for user privilege file */
 #define MAX_PRIVLN 1024
 struct newnet_param {
@@ -37,6 +45,27 @@ struct user_privs {
 	unsigned int newpts;        /* can create newpts instances */
 	unsigned int ipvlan_limit;  /* maximum number of ipvlan's */
 };
+
+
+/* node flags */
+#define NODE_HOME     1 /* node created using home option */
+#define NODE_EMPTY    2 /* mounted on itself (dest/dest) instead of (src/dest) */
+#define NODE_HOMEROOT 4 /* home root is a special case that must be sorted */
+struct path_node
+{
+	struct path_node *next;
+	char src[MAX_SYSTEMPATH];
+	char dest[MAX_SYSTEMPATH];
+	unsigned long mntflags;
+	unsigned long nodeflags;
+	/* strlens, no null terminator */
+	unsigned int srclen;
+	unsigned int destlen;
+};
+
+int pathnode_bind(struct path_node *node);
+
+
 /* chop matching character from the end of string
  * returns 0 on first non matching character, -1 on error.
  * size is the string array size (including null terminator)
@@ -69,9 +98,12 @@ enum {
 
 /* return the first passwd entry that matches uid, points to static array */
 char *passwd_fetchline(uid_t uid);
+char *passwd_fetchline_byname(char *username);
 /* get specific passwd field, destroys line by inserting null terminator */
 char *passwd_getfield(char *line, unsigned int field);
 
+/* returns -1 on error */
+uid_t get_user_id(char *username);
 /* create a new machine-id file
  * path is machine-id file path
  * newid is 32 hexadecimal characters.

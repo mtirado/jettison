@@ -29,8 +29,17 @@
 int clear_caps();
 int print_caps();
 int downgrade_caps();
-int capbset_drop(char fcaps[NUM_OF_CAPS]);
-int jail_process(char *chroot_path, int *whitelist, unsigned int opts);
+int capbset_drop(int fcaps[NUM_OF_CAPS]);
+int jail_process(char *chroot_path,
+		 uid_t set_reuid, /* if these are 0, no setreuid call is made */
+		 gid_t set_regid,
+		 int  *whitelist,
+		 unsigned long seccomp_opts,
+		 int cap_e[NUM_OF_CAPS],
+		 int cap_p[NUM_OF_CAPS],
+		 int cap_i[NUM_OF_CAPS],
+		 int can_write,
+		 int can_exec);
 
 unsigned int count_syscalls(int *syscalls, unsigned int count);
 

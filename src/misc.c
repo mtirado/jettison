@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -185,6 +186,60 @@ int chop_trailing(char *string, unsigned int size, const char match)
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];
 
+char *passwd_fetchline_byname(char *username)
+{
+	char rdline[FMAXLINE+1];
+	FILE *file;
+
+	if (strnlen(username, FMAXLINE) >= FMAXLINE)
+		goto err_return;
+
+	file = fopen(PASSWD_FILE, "r");
+	if (file == NULL)
+		return NULL;
+
+	do
+	{
+		unsigned int len = 0;
+
+		if (fgets(rdline, FMAXLINE, file) == NULL) {
+			printf("user %s not found in %s?\n", username, PASSWD_FILE);
+			goto err_return;
+		}
+		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
+			printf("line too long.\n");
+			goto err_return;
+		}
+
+		/* find username stringlen */
+		while(len < FMAXLINE)
+		{
+			if (rdline[len] == ':')
+				break;
+			++len;
+		}
+		if (len >= FMAXLINE || len == 0) {
+			printf("username string error\n");
+			goto err_return;
+		}
+
+		if (strncmp(username, rdline, len) == 0) {
+			if (rdline[len] == ':') {
+				strncpy(g_storeline, rdline, FMAXLINE);
+				g_storeline[FMAXLINE] = '\0';
+				fclose(file);
+				return g_storeline;
+			}
+		}
+	}
+	while(1);
+
+
+err_return:
+	fclose(file);
+	return NULL;
+}
+
 char *passwd_fetchline(uid_t uid)
 {
 	char rdline[FMAXLINE+1];
@@ -209,7 +264,7 @@ char *passwd_fetchline(uid_t uid)
 			goto err_return;
 		}
 		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
-			printf("line too long, increase FMAXLINE\n");
+			printf("line too long.\n");
 			goto err_return;
 		}
 
@@ -430,4 +485,64 @@ int getch(char *c)
 		return -1;
 
 	return 0;
+}
+
+int pathnode_bind(struct path_node *node)
+{
+	if (node == NULL)
+		return -1;
+	if (node->nodeflags & NODE_EMPTY) {
+		printf("do_empty(%s, %s)\n", node->src, node->dest);
+		if (mount(node->dest, node->dest, NULL, MS_BIND, NULL)) {
+			printf("home or empty mount failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	else {
+		printf("pathnode_bind(%s, %s)\n", node->src, node->dest);
+		if (mount(node->src, node->dest, NULL, MS_BIND, NULL)) {
+			printf("mount failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	/* remount */
+	if (mount(NULL, node->dest, NULL, MS_BIND|MS_REMOUNT|node->mntflags, NULL)) {
+		printf("remount failed: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, node->dest, NULL, MS_SLAVE|MS_REC, NULL)) {
+		printf("could not make slave: %s\n", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+uid_t get_user_id(char *username)
+{
+	char *pwline;
+	char *pwuid;
+	char *err = NULL;
+	unsigned long uid;
+
+	pwline = passwd_fetchline_byname(username);
+	if (pwline == NULL) {
+		printf("could not find user: %s\n", username);
+		return -1;
+	}
+	pwuid = passwd_getfield(pwline, PASSWD_UID);
+	if (pwuid == NULL) {
+		printf("could not find uid in passwd file\n");
+		return -1;
+	}
+	errno = 0;
+	uid = strtoul(pwuid, &err, 10);
+	if (errno || err == NULL || *err) {
+		printf("error converting string to ulong\n");
+		return -1;
+	}
+	if (uid == 0 || (long)uid == -1) {
+		printf("absurd uid value\n");
+		return -1;
+	}
+	return uid;
 }

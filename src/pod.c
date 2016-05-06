@@ -83,23 +83,6 @@ static char *g_blacklist_paths[] =
 };
 #define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
 
-/* node flags */
-#define NODE_HOME     1 /* node created using home option */
-#define NODE_EMPTY    2 /* mounted on itself (dest/dest) instead of (src/dest) */
-#define NODE_HOMEROOT 4 /* home root is a special case that must be sorted */
-
-/* bind mount data */
-struct path_node
-{
-	struct path_node *next;
-	char src[MAX_SYSTEMPATH];
-	char dest[MAX_SYSTEMPATH];
-	unsigned long mntflags;
-	unsigned long nodeflags;
-	/* strlens, no null terminator */
-	unsigned int srclen;
-	unsigned int destlen;
-};
 struct path_node *g_mountpoints;
 
 /* external variables from jettison.c
@@ -123,7 +106,7 @@ int g_allow_dev;
 int g_firstpass;
 unsigned int g_podflags;
 
-char g_fcaps[NUM_OF_CAPS];
+int g_fcaps[NUM_OF_CAPS];
 int g_syscalls[MAX_SYSCALLS];
 int g_blkcalls[MAX_SYSCALLS];
 unsigned int  g_syscall_idx;
@@ -601,36 +584,6 @@ static int prep_bind(struct path_node *node)
 	return 0;
 }
 
-static int do_bind(struct path_node *node)
-{
-	if (node == NULL)
-		return -1;
-	if (node->nodeflags & NODE_EMPTY) {
-		printf("do_empty(%s, %s)\n", node->src, node->dest);
-		if (mount(node->dest, node->dest, NULL, MS_BIND, NULL)) {
-			printf("home or empty mount failed: %s\n", strerror(errno));
-			return -1;
-		}
-	}
-	else {
-		printf("do_bind(%s, %s)\n", node->src, node->dest);
-		if (mount(node->src, node->dest, NULL, MS_BIND, NULL)) {
-			printf("mount failed: %s\n", strerror(errno));
-			return -1;
-		}
-	}
-	/* remount */
-	if (mount(NULL, node->dest, NULL, MS_BIND|MS_REMOUNT|node->mntflags, NULL)) {
-		printf("remount failed: %s\n", strerror(errno));
-		return -1;
-	}
-	if (mount(NULL, node->dest, NULL, MS_SLAVE|MS_REC, NULL)) {
-		printf("could not make slave: %s\n", strerror(errno));
-		return -1;
-	}
-	return 0;
-}
-
 /* user is mounting entire $HOME to /podhome */
 static int create_homeroot(unsigned long mntflags, unsigned long nodeflags)
 {
@@ -1084,8 +1037,8 @@ static int X11_hookup()
 		return -1;
 	}
 	setuid(0);
-	if (do_bind(&xsock)) {
-		printf("do_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+	if (pathnode_bind(&xsock)) {
+		printf("pathnode_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
 	}
 	if (chown(xsock.dest, g_ruid, g_rgid)) {
@@ -1481,8 +1434,8 @@ static int pass2_finalize()
 	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
 	tnode.nodeflags = NODE_EMPTY;
-	if (do_bind(&tnode)) {
-		printf("do_bind(%s, %s) failed\n", tnode.src, tnode.dest);
+	if (pathnode_bind(&tnode)) {
+		printf("pathnode_bind(%s, %s) failed\n", tnode.src, tnode.dest);
 		return -1;
 	}
 
@@ -1511,8 +1464,8 @@ static int pass2_finalize()
 			tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID;
 
 			eslib_file_mkfile(tnode.dest, 0775, 0);
-			if (do_bind(&tnode)) {
-				printf("do_bind(%s,%s) failed\n", tnode.src, tnode.dest);
+			if (pathnode_bind(&tnode)) {
+				printf("pathnode_bind(%s,%s) failed\n", tnode.src, tnode.dest);
 				return -1;
 			}
 			if (chown(tnode.dest, g_ruid, g_rgid)) {
@@ -1787,8 +1740,8 @@ SINGLE_KEYWORD:		/* no parameters */
 		n = g_mountpoints;
 		while(n)
 		{
-			if (do_bind(n)) {
-				printf("do_bind()\n");
+			if (pathnode_bind(n)) {
+				printf("pathnode_bind()\n");
 				return -1;
 			}
 			n = n->next;

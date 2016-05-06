@@ -11,6 +11,7 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <linux/unistd.h>
+#include <stdlib.h>
 #include <sys/prctl.h>
 #include <sys/mount.h>
 #include <sched.h>
@@ -21,7 +22,9 @@
 #include <errno.h>
 
 #include <sys/syscall.h>
+#include "../misc.h"
 #include "seccomp_helper.h"
+#include "../eslib/eslib.h"
 
 /* translate config file strings to syscall number */
 struct sc_translate
@@ -852,48 +855,65 @@ static int cap_blisted(unsigned long cap)
 
 }
 
-
-int clear_caps()
+/* e,p,i are which caps to set effective, permitted, inheritable
+ * to gain effective capability, it must already be in permitted set
+ * pass NULL to clear all */
+int set_caps(int cap_e[NUM_OF_CAPS], int cap_p[NUM_OF_CAPS], int cap_i[NUM_OF_CAPS])
 {
 	struct __user_cap_header_struct hdr;
 	struct __user_cap_data_struct   data[2];
 	int i;
-
+	int inheriting = 0;
+	unsigned long secbits;
 	memset(&hdr, 0, sizeof(hdr));
 	memset(data, 0, sizeof(data));
 	hdr.pid = syscall(__NR_gettid);
 	hdr.version = _LINUX_CAPABILITY_VERSION_3;
 
-	if (prctl(PR_SET_SECUREBITS,
-			SECBIT_KEEP_CAPS_LOCKED		|
-			SECBIT_NO_SETUID_FIXUP		|
-			SECBIT_NO_SETUID_FIXUP_LOCKED	|
-			SECBIT_NOROOT			|
-			SECBIT_NOROOT_LOCKED)) {
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		if (cap_e && cap_e[i])
+			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+		if (cap_p && cap_p[i])
+			data[CAP_TO_INDEX(i)].permitted	|= CAP_TO_MASK(i);
+		if (cap_i && cap_i[i]) {
+			data[CAP_TO_INDEX(i)].inheritable |= CAP_TO_MASK(i);
+			inheriting = 1;
+		}
+
+		/* clear bounding set, unless inheriting */
+		if (cap_i == NULL || cap_i[i] != 1) {
+			if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+				if (i > CAP_LAST_CAP) {
+					break;
+				}
+				else if (errno == EINVAL) {
+					printf("cap not found: %d\n", i);
+					return -1;
+				}
+				printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+	}
+
+	secbits = SECBIT_KEEP_CAPS_LOCKED	|
+		  SECBIT_NO_SETUID_FIXUP	|
+		  SECBIT_NO_SETUID_FIXUP_LOCKED;
+	if (!inheriting) {
+		  secbits |= SECBIT_NOROOT | SECBIT_NOROOT_LOCKED;
+	}
+	if (prctl(PR_SET_SECUREBITS, secbits)) {
 		printf("prctl(): %s\n", strerror(errno));
 		return -1;
 	}
-	/* clear bounding set */
-	for(i = 0; i < NUM_OF_CAPS; ++i)
-	{
-		if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
-			if (i > CAP_LAST_CAP)
-				break;
-			else if (errno == EINVAL) {
-				printf("cap not found: %d\n", i);
-				return -1;
-			}
-			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
-			return -1;
-		}
-	}
+
 	if (capset(&hdr, data)) {
 		printf("capset: %s\n", strerror(errno));
 		printf("cap version: %p\n", (void *)hdr.version);
 		printf("pid: %d\n", hdr.pid);
 		return -1;
 	}
-
 	return 0;
 }
 
@@ -935,16 +955,22 @@ int downgrade_caps()
 
 	for(i = 0; i < NUM_OF_CAPS; ++i)
 	{
-		/* we need to temporarily hold on to these caps */
+		/* we need to temporarily hold on to these caps
+		 * TODO drop setuid if not using --lognet, and net_admin
+		 * and net_raw if not using ipvlan / --lognet */
 		if (i == CAP_SYS_CHROOT
 				|| i == CAP_SYS_ADMIN
 				|| i == CAP_NET_ADMIN
 				|| i == CAP_NET_RAW
 				|| i == CAP_CHOWN
 				|| i == CAP_SETGID
+				|| i == CAP_SETUID
 				|| i == CAP_SETPCAP) {
-			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
 			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
+			/* these dont need to be in effective set */
+			if (i != CAP_NET_RAW && i != CAP_SETUID) {
+				data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+			}
 		}
 	}
 	/* don't grant caps on uid change */
@@ -966,7 +992,7 @@ int downgrade_caps()
 	return 0;
 }
 
-int capbset_drop(char fcaps[NUM_OF_CAPS])
+int capbset_drop(int fcaps[NUM_OF_CAPS])
 {
 	int i;
 	int c;
@@ -1014,20 +1040,30 @@ int capbset_drop(char fcaps[NUM_OF_CAPS])
 	return 0;
 }
 
-int jail_process(char *chroot_path, int *whitelist, unsigned int opts)
+int jail_process(char *chroot_path,
+		 uid_t set_reuid,
+		 gid_t set_regid,
+		 int  *whitelist,
+		 unsigned long seccomp_opts,
+		 int cap_e[NUM_OF_CAPS],
+		 int cap_p[NUM_OF_CAPS],
+		 int cap_i[NUM_OF_CAPS],
+		 int can_write,
+		 int can_exec)
 {
-	unsigned long remountflags =	  MS_REMOUNT
-					| MS_NOSUID
-					| MS_NOEXEC
-					| MS_NODEV
-					| MS_RDONLY;
-	if (!chroot_path || !whitelist)
+
+	unsigned long remountflags = MS_REMOUNT
+				   | MS_NOSUID
+				   | MS_NODEV;
+
+	if (eslib_file_path_check(chroot_path))
 		return -1;
 
-	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
-		printf("relay unshare: %s\n", strerror(errno));
-		return -1;
-	}
+	if (!can_write)
+		remountflags |= MS_RDONLY;
+	if (!can_exec)
+		remountflags |= MS_NOEXEC;
+
 	if (mount(chroot_path, chroot_path, "bind", MS_BIND, NULL)) {
 		printf("could not bind mount: %s\n", strerror(errno));
 		return -1;
@@ -1058,23 +1094,33 @@ int jail_process(char *chroot_path, int *whitelist, unsigned int opts)
 		return -1;
 	}
 
-	if (clear_caps()) {
-		printf("clear_caps failed\n");
+	if (set_regid && setregid(set_regid, set_regid)) {
+		printf("error setting gid(%d): %s\n", set_regid, strerror(errno));
 		return -1;
 	}
+        if (set_reuid && setreuid(set_reuid, set_reuid)) {
+		printf("error setting uid(%d): %s\n", set_reuid, strerror(errno));
+		return -1;
+	}
+	if (set_caps(cap_e, cap_p, cap_i)) {
+		printf("set_caps failed\n");
+		return -1;
+	}
+
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
 		printf("set no new privs failed\n");
 		return -1;
 	}
 
-	printf("setting seccomp filter\r\n");
-	if (filter_syscalls(SYSCALL_ARCH, whitelist, NULL,
+	if (whitelist && filter_syscalls(SYSCALL_ARCH, whitelist, NULL,
 				 count_syscalls(whitelist, MAX_SYSCALLS), 0,
-				 opts, SECCOMP_RET_ERRNO)) {
+				 seccomp_opts, SECCOMP_RET_ERRNO)) {
 		/* TODO eventually set this to RET_KILL */
 		printf("unable to apply seccomp filter\n");
 		return -1;
 	}
-
+	else if (whitelist) {
+		printf("seccomp filter set \r\n");
+	}
 	return 0;
 }

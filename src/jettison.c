@@ -60,7 +60,7 @@ extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
 extern int netns_setup(); /* netns_helper.c */
 
 /* pod.c globals */
-extern char g_fcaps[NUM_OF_CAPS];
+extern int  g_fcaps[NUM_OF_CAPS];
 extern int  g_syscalls[MAX_SYSCALLS];
 extern int  g_blkcalls[MAX_SYSCALLS];
 extern unsigned int g_syscall_idx;
@@ -166,28 +166,34 @@ static int create_nullspace()
 /* uses POD_PATH/.nullspace as chroot directory */
 static int downgrade_relay()
 {
+	int syscalls[MAX_SYSCALLS];
 	unsigned int i;
 	/* set up new seccomp filter */
-	for (i = 0; i < sizeof(g_syscalls) / sizeof(g_syscalls[0]); ++i)
+	for (i = 0; i < sizeof(syscalls) / sizeof(syscalls[0]); ++i)
 	{
-		g_syscalls[i] = -1;
+		syscalls[i] = -1;
 	}
 
 	i = 0;
-	g_syscalls[i]   = syscall_getnum("__NR__newselect");
-	g_syscalls[++i] = syscall_getnum("__NR_close");
-	g_syscalls[++i] = syscall_getnum("__NR_waitpid");
-	g_syscalls[++i] = syscall_getnum("__NR_write");
-	g_syscalls[++i] = syscall_getnum("__NR_read");
-	g_syscalls[++i] = syscall_getnum("__NR_capset");
-	g_syscalls[++i] = syscall_getnum("__NR_gettid");
-	g_syscalls[++i] = syscall_getnum("__NR_exit");
-	g_syscalls[++i] = syscall_getnum("__NR_exit_group");
-	g_syscalls[++i] = syscall_getnum("__NR_ioctl");
-	g_syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	g_syscalls[++i] = syscall_getnum("__NR_nanosleep");
+	syscalls[i]   = syscall_getnum("__NR__newselect");
+	syscalls[++i] = syscall_getnum("__NR_close");
+	syscalls[++i] = syscall_getnum("__NR_waitpid");
+	syscalls[++i] = syscall_getnum("__NR_write");
+	syscalls[++i] = syscall_getnum("__NR_read");
+	syscalls[++i] = syscall_getnum("__NR_capset");
+	syscalls[++i] = syscall_getnum("__NR_gettid");
+	syscalls[++i] = syscall_getnum("__NR_exit");
+	syscalls[++i] = syscall_getnum("__NR_exit_group");
+	syscalls[++i] = syscall_getnum("__NR_ioctl");
+	syscalls[++i] = syscall_getnum("__NR_sigreturn");
+	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
-	if (jail_process(g_nullspace, g_syscalls, 0)) {
+	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
+		printf("unshare: %s\n", strerror(errno));
+		return -1;
+	}
+	setgid(g_rgid);
+	if (jail_process(g_nullspace, g_ruid, g_rgid, syscalls, 0, NULL, NULL, NULL, 0, 0)) {
 		printf("jail_process failed\n");
 		return -1;
 	}
@@ -678,11 +684,33 @@ err_usage:
 struct termios g_origterm;
 void exit_func()
 {
-	usleep(300000);
-	/* send pid1 sigterm to propagate to new namespace */
 	if (g_initpid > 0)
 		kill(g_initpid, SIGTERM);
+	if (g_newnet.log_pid > 0)
+		kill(g_newnet.log_pid, SIGTERM);
 	kill(0, SIGTERM);
+	usleep(500000);
+	if (g_newnet.log_pid > 0) {
+		int status;
+		/* this is sitting in a new net namespace,
+		 * make sure it's killed if it hangs > 5 seconds */
+		while (1)
+		{
+			int i = 0;
+			pid_t p = waitpid(g_newnet.log_pid, &status, WNOHANG);
+			if (p == g_newnet.log_pid)
+				break;
+			else if (p == -1 && errno == ECHILD)
+				break;
+			else if (p != 0 || ++i >= 50) {
+				kill(g_newnet.log_pid, SIGKILL);
+				printf("netlog program was unresponsive to SIGTERM\n");
+				break;
+			}
+			usleep(100000);
+		}
+	}
+
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 	printf("jettison_exit\n");
@@ -987,20 +1015,26 @@ static int relay_io(int stdout_logfd)
 		tmr.tv_usec = 0;
 		tmr.tv_sec = 10;
 
-
 		p = waitpid(-1, &status, WNOHANG);
-		if (p == g_initpid) {
-			wbytes = 0;
-			canwrite = 0;
-		}
-		else if (p == g_newnet.log_pid) {
-			if (g_initpid > 0) {
-				/* netlogger was interrupted */
-				if (kill(g_initpid, SIGTERM)) {
-					printf("kill %d %s\n",g_initpid,strerror(errno));
-					return -1;
+		if (p > 1) {
+			if (p == g_initpid) {
+				wbytes = 0;
+				canwrite = 0;
+			}
+			else if (p == g_newnet.log_pid) {
+				if (g_initpid > 0) {
+					/* netlogger was interrupted,  TODO:
+					 * make an option for this kill behavior
+					 * and use in strict mode, otherwise huge
+					 * warning message should be displayed. */
+					if (kill(g_initpid, SIGTERM)) {
+						printf("kill %d %s\n",g_initpid,
+								strerror(errno));
+						return -1;
+					}
+					g_initpid = 0;
+					g_newnet.log_pid = 0;
 				}
-				g_initpid = -1;
 			}
 		}
 		/* waiting on them to consume wbuf */
@@ -1299,10 +1333,6 @@ static int trace_fork(char **argv)
 			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
 			return -1;
 		}
-		if (clear_caps()) {
-			printf("clear_caps()\n");
-			return -1;
-		}
 		if (do_trace(p)) {
 			printf("do_trace error\n");
 			exit_func();
@@ -1480,7 +1510,7 @@ int main(int argc, char *argv[])
 	g_mainpid = getpid();
 	g_ptym = -1;
 	g_daemon = 0;
-	g_initpid = -1;
+	g_initpid = 0;
 	g_podflags = 0;
 	g_logoutput = 0;
 	stdout_logfd = -1;
@@ -1500,8 +1530,6 @@ int main(int argc, char *argv[])
 	memset(g_pty_slavepath, 0, sizeof(g_pty_slavepath));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));
-
-	g_newnet.log_pid = -1;
 
 	if (process_arguments(argc, argv)) {
 		return -1;
