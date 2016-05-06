@@ -21,7 +21,7 @@
 	#define NETLOG_USER "nobody"
 #endif
 #ifndef NETLOG_GROUP
-	#define NETLOG_USER "nobody"
+	#define NETLOG_GROUP "nobody"
 #endif
 
 /* maximum line length for user privilege file */
