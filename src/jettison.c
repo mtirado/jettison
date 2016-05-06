@@ -666,10 +666,12 @@ err_usage:
 	printf("        write stdout/stderr to a timestamped log file in cwd\n");
 	printf("\n");
 	printf("--lognet <size> <count>\n");
-	printf("        dump .pcap file for ipvlan / macvlan traffic\n");
+	printf("        dump .pcap file(s) for ipvlan / macvlan traffic\n");
 	printf("        <size> is individual log file size in megabytes, if 0\n");
-	printf("        the log file will not be constrained. if >= 2 log will be\n");
-	printf("        rotated and numbered, with up to <count> file backlog\n");
+	printf("        the log file will not be limited.\n");
+	printf("        <count> >= 2 means log will be rotated and numbered\n");
+	printf("        with up to <count> files backlog. currently this just execs\n");
+	printf("        tcpdump and jails in CWD/.podlog\n");
 	printf("\n");
 	printf("\n");
 	return -1;
