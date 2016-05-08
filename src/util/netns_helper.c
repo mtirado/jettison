@@ -59,6 +59,7 @@ extern struct user_privs   g_privs;  /* setup in jettison.c */
 extern char **environ;
 extern int g_lognet;
 extern char g_cwd[MAX_SYSTEMPATH];
+extern pid_t g_mainpid;
 
 int netns_restore_firewall(char *buf, int size);
 int netns_save_firewall(char *buf, int size);
@@ -676,30 +677,43 @@ free_err:
 }
 
 /* build a minimal environment to exec log program in */
-static int netlog_buildfs(char *chroot_path)
+static int netlog_buildfs(char *chroot_path, char *logdir)
 {
 	struct path_node node;
+	char *progname;
 
 	memset(&node, 0, sizeof(node));
 	node.mntflags = MS_RDONLY|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
 
+	progname = eslib_file_getname(NETLOG_PROG);
+	if (progname == NULL)
+		return -1;
 	snprintf(node.src,  MAX_SYSTEMPATH, "%s", NETLOG_PROG);
-	snprintf(node.dest, MAX_SYSTEMPATH, "%s%s", chroot_path, NETLOG_PROG);
-	eslib_file_mkfile(node.dest, 0750, 1);
+	snprintf(node.dest, MAX_SYSTEMPATH, "%s/%s", chroot_path, progname);
+	eslib_file_mkfile(node.dest, 0755, 0);
 	if (pathnode_bind(&node))
 		goto bind_err;
 
 	snprintf(node.src,  MAX_SYSTEMPATH, "/lib");
 	snprintf(node.dest, MAX_SYSTEMPATH, "%s/lib", chroot_path);
-	eslib_file_mkdirpath(node.dest, 0750, 1);
+	eslib_file_mkdirpath(node.dest, 0755, 0);
 	if (pathnode_bind(&node))
 		goto bind_err;
 
 	snprintf(node.src,  MAX_SYSTEMPATH, "/usr/lib");
 	snprintf(node.dest, MAX_SYSTEMPATH, "%s/usr/lib", chroot_path);
-	eslib_file_mkdirpath(node.dest, 0750, 1);
+	eslib_file_mkdirpath(node.dest, 0755, 0);
 	if (pathnode_bind(&node))
 		goto bind_err;
+
+	/* bind log directory */
+	node.mntflags = MS_NOEXEC|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
+	snprintf(node.src,  MAX_SYSTEMPATH, "%s", logdir);
+	snprintf(node.dest, MAX_SYSTEMPATH, "%s/%s", chroot_path, "logdir");
+	eslib_file_mkdirpath(node.dest, 0770, 0);
+	if (pathnode_bind(&node))
+		goto bind_err;
+
 
 	return 0;
 
@@ -708,7 +722,7 @@ bind_err:
 	return -1;
 }
 
-static int jail_netlog(char *chroot_path)
+static int jail_netlog(char *chroot_path, char *logdir)
 {
 	int cap_e[NUM_OF_CAPS];
 	int cap_p[NUM_OF_CAPS];
@@ -726,24 +740,12 @@ static int jail_netlog(char *chroot_path)
 	cap_e[CAP_SETGID]  = 1;
 	cap_p[CAP_SETGID]  = 1;
 
-	if (eslib_file_path_check(chroot_path)) {
-		printf("bad chroot_path: %s\n", chroot_path);
-		return -1;
-	}
-	/* mini pod */
-	if (mkdir(chroot_path, 0770) && errno != EEXIST) {
-		printf("mkdir(%s): %s\n", chroot_path, strerror(errno));
-		return -1;
-	}
-	if (chmod(chroot_path, 0770)) {
-		printf("chmod: %s\n", strerror(errno));
-		return -1;
-	}
 	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
 		printf("unshare: %s\n", strerror(errno));
 		return -1;
 	}
-	if (netlog_buildfs(chroot_path)) {
+
+	if (netlog_buildfs(chroot_path, logdir)) {
 		return -1;
 	}
 	/* TODO add log group/user to run this process under, just in case. */
@@ -759,14 +761,56 @@ static int jail_netlog(char *chroot_path)
 /* returns new pid, or -1 on error */
 static pid_t do_netlog_exec(char *argv[])
 {
+	char chroot_path[MAX_SYSTEMPATH];
+	char path[MAX_SYSTEMPATH];
+	char *progname;
 	pid_t p;
 	int status;
-	int r;
+	int r, i;
+	int notify[2];
 
 	if (!argv)
 		return -1;
 	if (strnlen(NETLOG_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
 		return -1;
+
+	progname = eslib_file_getname(NETLOG_PROG);
+	if (progname == NULL)
+		return -1;
+
+	snprintf(chroot_path, sizeof(chroot_path), "%s/.netlog", POD_PATH);
+	if (eslib_file_path_check(chroot_path)) {
+		printf("bad chroot_path: %s\n", chroot_path);
+		return -1;
+	}
+	if (mkdir(chroot_path, 0775) && errno != EEXIST) {
+		printf("minipod mkdir(%s): %s\n", chroot_path, strerror(errno));
+		return -1;
+	}
+	/* directory logs are written to, TODO if exists, increment+timestamp filename */
+	/* TODO chown to log group */
+	snprintf(path, sizeof(path), "%s/.podlog", g_cwd);
+	if (eslib_file_path_check(path)) {
+		printf("bad logdir: %s\n", path);
+		return -1;
+	}
+	setuid(g_ruid);
+	setgid(g_rgid);
+	if (mkdir(path, 0770) && errno != EEXIST) {
+		printf("mkdir(%s): %s\n", path, strerror(errno));
+		return -1;
+	}
+	if (chmod(path, 0770)) {
+		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
+	setuid(0);
+	setgid(0);
+
+	if (pipe2(notify, O_CLOEXEC)) {
+		printf("pipe: %s\n", strerror(errno));
+		return -1;
+	}
 
 	p = fork();
 	if (p == -1) {
@@ -774,7 +818,7 @@ static pid_t do_netlog_exec(char *argv[])
 		return -1;
 	}
 	else if (p == 0) {
-		char path[MAX_SYSTEMPATH];
+		const char ack = 'K';
 		/*uid_t log_user;
 
 		log_user = get_user_id(NETLOG_USER);
@@ -789,37 +833,54 @@ static pid_t do_netlog_exec(char *argv[])
 		}
 		close(g_newnet.root_ns);
 		close(g_newnet.new_ns);
-		/* TODO close all other fd's too
-		 * TODO add above log user switch option
-		 */
+		/*
+		 * TODO close all other fd's too
+		 * */
 
-		if (setuid(g_ruid)) {
-			printf("setuid: %s\n", strerror(errno));
-			_exit(-1);
-		}
-		snprintf(path, sizeof(path), "%s/.podlog", g_cwd);
-		if (jail_netlog(path)) {
+		if (jail_netlog(chroot_path, path)) {
 			printf("jail_netlog failed\n");
 			_exit(-1);
 		}
+
 		/* setuid for after exec, and back to 0 for inherited caps to work. */
 		if (setuid(g_ruid) || seteuid(0) || setgid(g_rgid) || setegid(0)) {
 			printf("final setuid: %s\n", strerror(errno));
 			_exit(-1);
 		}
-		if (execve(NETLOG_PROG, argv, environ)) {
+		if (write(notify[1], &ack, 1) != 1) {
+			printf("write: %s\n", strerror(errno));
+			_exit(-1);
+		}
+		if (execve(progname, argv, environ)) {
 			printf("execve: %s\n", strerror(errno));
 		}
 		_exit(-1);
 	}
-
-	usleep(333333); /* try to catch early errors */
-	/* see if it's still running */
-	r = waitpid(p, &status, WNOHANG);
-	if (r != 0) {
-		printf("netlog waitpid!");
-		return -1;
+	close(notify[1]);
+	while (1)
+	{
+		char rd;
+		r = read(notify[0], &rd, 1);
+		if (r == -1 && (errno == EAGAIN || errno == EINTR))
+			continue;
+		else if (r == 1 && rd == 'K')
+			break;
+		else
+			return -1;
 	}
+	close(notify[0]);
+	i = 0;
+	/* detect early failures */
+	while(++i <= 30)
+	{
+		usleep(10000);
+		r = waitpid(p, &status, WNOHANG);
+		if (r != 0) {
+			printf("netlog waitpid!");
+			return -1;
+		}
+	}
+
 	return p;
 }
 
@@ -842,7 +903,7 @@ static pid_t setup_netlog()
 
 	snprintf(str_size, sizeof(str_size), "%d", g_newnet.log_filesize);
 	snprintf(str_count, sizeof(str_count), "%d", g_newnet.log_count);
-	snprintf(str_filename, sizeof(str_filename), "netlog.pcap");
+	snprintf(str_filename, sizeof(str_filename), "logdir/netlog.pcap");
 
 	if (g_newnet.log_filesize < 0)
 		return -1;

@@ -371,14 +371,75 @@ int shuffle_bits(unsigned char *data, size_t size, size_t idx,
 	return 0;
 }
 
-/*
- *  missing machine-id causes failure on systems that have disabled dbus.
- *  we need a way to create this file if absent, and program links dbus lib.
- */
+/* assumes overflows are not saturated, does not null terminate output */
+int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cycles)
+{
+	const char hecks[16] = {'0','1','2','3','4','5','6','7',
+			  '8','9','a','b','c','d','e','f'};
+	unsigned int i, z;
+	unsigned int iterations;
+	unsigned char h1;
+	if (size != 0 && size % 4 != 0) {
+		printf("size must be divisible by 4 \n");
+		return -1;
+	}
+	if (size > 1024*1024) {
+		printf("size limited to 1MB\n");
+		return -1;
+	}
+	if (cycles > 3000) {
+		printf("cycles limited to 3000\n");
+		return -1;
+	}
+	iterations = size * cycles;
+	if (iterations == 0)
+		return -1;
+
+	entropy += 99;
+	h1 = entropy+hecks[entropy%16];
+	for (i = 0; i < size; i += 4)
+	{
+		memcpy(&out[i], &entropy, sizeof(entropy));
+		out[i+1] += out[i] + h1;
+		out[i+2] += out[i+1] + out[i];
+		out[i+3] += out[i+2] + out[i+1];
+		h1 += out[i+3]+entropy;
+	}
+	for (z = 0; z < 15; ++z)
+	{
+		for (i = 0; i < size; i += 4)
+		{
+			out[i+1] += out[i] + h1;
+			out[i+2] += out[i+1] + out[i];
+			out[i+3] += out[i+2] + out[i+1];
+			h1 += out[i+3]+entropy;
+			++entropy;
+		}
+	}
+	/* scramble bits */
+	for (i = 0; i < iterations ; ++i)
+	{
+		unsigned int  e  = entropy+i;
+		unsigned char e2 = out[e%size]+i;
+		out[i%size] += e+e2;
+		if (shuffle_bits((unsigned char *)out, size, entropy, e, e2)) {
+			return -1;
+		}
+	}
+	/* generate hex string */
+	for (i = 0; i < size; ++i)
+	{
+		unsigned char c = out[i];
+		out[i] = hecks[c%16];
+	}
+	return 0;
+}
+
+/* some libraries fail to load if this file is missing */
 int create_machineid(char *path, char *newid, unsigned int entropy)
 {
 	char idstr[33];
-	unsigned int i,c;
+	unsigned int i;
 	int fd;
 	errno = 0;
 
@@ -386,38 +447,9 @@ int create_machineid(char *path, char *newid, unsigned int entropy)
 		return -1;
 
 	if (!newid) {
-		unsigned char randx[16];
-		char hecks[16] = {'0','1','2','3','4','5','6','7',
-				  '8','9','a','b','c','d','e','f'};
-		unsigned char h1;
-		entropy += 99;
-	        h1 = entropy+hecks[entropy%15];
-		/* assumes overflows are not saturated */
-		for (i = 0; i < 16; i += 4)
-		{
-			memcpy(&randx[i], &entropy, sizeof(entropy));
-			randx[i+1] += randx[i] + h1;
-			randx[i+2] += randx[i+1] + randx[i];
-			randx[i+3] += randx[i+2] + randx[i+1];
-			h1 = randx[i+3];
-		}
-		/* scramble bits */
-		for (i = 0; i < 1111 ; ++i)
-		{
-			unsigned char e = entropy+i;
-			unsigned char e2= randx[entropy%15]+i;
-			if (shuffle_bits(randx, 16, entropy, e, e2)) {
-				return -1;
-			}
-		}
-		/* generate hex string */
-		for (i = 0, c = 0; i < 16; ++i)
-		{
-			unsigned long idx1,idx2;
-			idx1 = (randx[i] & 0x0f);
-			idx2 = (randx[i] & 0xf0) >> 4;
-			idstr[c++] = hecks[idx1];
-			idstr[c++] = hecks[idx2];
+		if (randhex(idstr, 32, entropy, 1200)) {
+			printf("couldn't get random hex string\n");
+			return -1;
 		}
 		newid = idstr;
 	}

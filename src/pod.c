@@ -1350,8 +1350,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			struct timespec t;
 			clock_gettime(CLOCK_MONOTONIC_RAW, &t);
 			/* assumes overflows are not saturated */
-			if (create_machineid(path, NULL, (int)t.tv_nsec
-							+(int)t.tv_sec
+			if (create_machineid(path, NULL, 0x0f0f0f0f
+							+(unsigned int)t.tv_nsec
+							+(unsigned int)t.tv_sec
 							+(unsigned int)g_mainpid)) {
 				printf("create_machineid(NULL)\n");
 				return -1;

@@ -49,7 +49,7 @@ struct user_privs {
 
 /* node flags */
 #define NODE_HOME     1 /* node created using home option */
-#define NODE_EMPTY    2 /* mounted on itself (dest/dest) instead of (src/dest) */
+#define NODE_EMPTY    2 /* mounted on itself(dest/dest) instead of (src/dest)*/
 #define NODE_HOMEROOT 4 /* home root is a special case that must be sorted */
 struct path_node
 {
@@ -109,6 +109,8 @@ uid_t get_user_id(char *username);
  * newid is 32 hexadecimal characters.
  * if newid is null, a random string is generated.
  */
+int randhex(char *out, unsigned int size,
+		unsigned int entropy, unsigned int cycles);
 int create_machineid(char *path, char *newid, unsigned int entropy);
 int shuffle_bits(unsigned char *data, size_t size, size_t idx,
 			size_t amount, unsigned char bitmask);
