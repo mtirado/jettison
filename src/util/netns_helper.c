@@ -750,7 +750,6 @@ static int jail_netlog(char *chroot_path, char *logdir)
 	if (netlog_buildfs(chroot_path, logdir)) {
 		return -1;
 	}
-	/* TODO add log group/user to run this process under, just in case. */
 	if (jail_process(chroot_path, 0, 0, NULL, 0, cap_e, cap_p, cap_i, 1, 1)) {
 		printf("jail_process failed\n");
 		return -1;
@@ -758,7 +757,7 @@ static int jail_netlog(char *chroot_path, char *logdir)
 	return 0;
 }
 
-static int create_logdir(char *buf, unsigned int size)
+static int create_logdir(char *buf, unsigned int size, gid_t log_gid)
 {
 	char hexstr[17];
 	struct timespec t;
@@ -785,7 +784,7 @@ retry:
 	}
 	setuid(g_ruid);
 	setgid(g_rgid);
-	r = mkdir(buf, 0770);
+	r = mkdir(buf, 0750);
 	if (r && errno == EEXIST) {
 		printf("improbable name collision in --lognet directory: %s\n", buf);
 		usleep(500000);
@@ -796,8 +795,12 @@ retry:
 		return -1;
 	}
 
-	if (chmod(buf, 0770)) {
+	if (chmod(buf, 0750)) {
 		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chown(buf, g_ruid, log_gid)) {
+		printf("chown: %s\n", strerror(errno));
 		return -1;
 	}
 	setuid(0);
@@ -811,6 +814,7 @@ static pid_t do_netlog_exec(char *argv[])
 	char chroot_path[MAX_SYSTEMPATH];
 	char path[MAX_SYSTEMPATH];
 	char *progname;
+	gid_t log_group;
 	pid_t p;
 	int status;
 	int r, i;
@@ -825,6 +829,12 @@ static pid_t do_netlog_exec(char *argv[])
 	if (progname == NULL)
 		return -1;
 
+	log_group = get_group_id(NETLOG_GROUP);
+	if ((int)log_group == -1) {
+		printf("add log group to group file, default is 'nobody'\n");
+		return -1;
+	}
+
 	snprintf(chroot_path, sizeof(chroot_path), "%s/.netlog", POD_PATH);
 	if (eslib_file_path_check(chroot_path)) {
 		printf("bad chroot_path: %s\n", chroot_path);
@@ -835,8 +845,7 @@ static pid_t do_netlog_exec(char *argv[])
 		return -1;
 	}
 	/* directory logs are written to*/
-	/* TODO chown to log group */
-	if (create_logdir(path, sizeof(path)))
+	if (create_logdir(path, sizeof(path), log_group))
 		return -1;
 	printf("netlog directory: %s\n", path);
 
@@ -852,17 +861,9 @@ static pid_t do_netlog_exec(char *argv[])
 	}
 	else if (p == 0) {
 		const char ack = 'K';
-		/*uid_t log_user;
-
-		log_user = get_user_id(NETLOG_USER);
-		if ((int)log_user == -1) {
-			printf("add loguser user to passwd file, default is 'nobody'\n");
-			_exit(-1);
-		}*/
-
 		if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
 			printf("set new_ns: %s\n", strerror(errno));
-			return -1;
+			_exit(-1);
 		}
 		close(g_newnet.root_ns);
 		close(g_newnet.new_ns);
@@ -876,7 +877,7 @@ static pid_t do_netlog_exec(char *argv[])
 		}
 
 		/* setuid for after exec, and back to 0 for inherited caps to work. */
-		if (setuid(g_ruid) || seteuid(0) || setgid(g_rgid) || setegid(0)) {
+		if (setuid(g_ruid) || seteuid(0) || setgid(log_group) || setegid(0)) {
 			printf("final setuid: %s\n", strerror(errno));
 			_exit(-1);
 		}

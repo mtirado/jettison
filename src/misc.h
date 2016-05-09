@@ -16,10 +16,16 @@
 	#define JETTISON_IPVLAN_LIMIT 30
 #endif
 
-/* TODO -- use these */
-#ifndef NETLOG_USER
+/* this is a bit complicated. its possible to run netlog as it's own user
+ * but requires a bunch of ipc to send pid's and use pipe to trigger
+ * a sigterm / wait / sigkill and then theres a possiblity something
+ * could go wrong and it just hangs around, orphaned and infinitely logging
+ * tons of ARP/ipv6 noise if. so just use real uid :\
+ */
+/*#ifndef NETLOG_USER
 	#define NETLOG_USER "nobody"
-#endif
+#endif*/
+
 #ifndef NETLOG_GROUP
 	#define NETLOG_GROUP "nobody"
 #endif
@@ -83,7 +89,7 @@ int pty_create(int *fd_master, int master_flags,
 int switch_terminal(char *path, int hangup);
 
 
-/* --------------  passwd help --------------- */
+/* --------------  passwd/group file interface --------------- */
 enum {
 	/* passwd fields */
 	PASSWD_USER = 0,
@@ -95,15 +101,29 @@ enum {
 	PASSWD_SHELL,
 	PASSWD_FIELDS
 };
+enum {
+	/* group fields */
+	GROUP_NAME = 0,
+	GROUP_PASS,
+	GROUP_GID,
+	GROUP_USERS
+};
 
 /* return the first passwd entry that matches uid, points to static array */
 char *passwd_fetchline(uid_t uid);
-char *passwd_fetchline_byname(char *username);
+char *passwd_fetchline_byname(char *username, const char *filename);
 /* get specific passwd field, destroys line by inserting null terminator */
 char *passwd_getfield(char *line, unsigned int field);
 
 /* returns -1 on error */
 uid_t get_user_id(char *username);
+gid_t get_group_id(char *username);
+
+
+/* ------------------------------------------------------------ */
+
+
+
 /* create a new machine-id file
  * path is machine-id file path
  * newid is 32 hexadecimal characters.

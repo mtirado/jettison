@@ -16,6 +16,17 @@
 #include "misc.h"
 #include "eslib/eslib.h"
 
+#ifndef PASSWD_FILE
+	#define PASSWD_FILE "/etc/passwd"
+#endif
+#ifndef GROUP_FILE
+	#define GROUP_FILE "/etc/group"
+#endif
+
+#define FMAXLINE 4095*4
+static char g_storeline[FMAXLINE+1];
+static char g_storefield[FMAXLINE+1];
+
 
 /* setup some console termios defaults */
 int console_setup(int fd_tty)
@@ -181,20 +192,17 @@ int chop_trailing(char *string, unsigned int size, const char match)
  *  return pointer to static memory containing passwd line for the given uid,
  *  or NULL on error. memory is overwritten each call.
  */
-#define FMAXLINE 4095*4
-#define PASSWD_FILE "/etc/passwd"
-static char g_storeline[FMAXLINE+1];
-static char g_storefield[FMAXLINE+1];
-
-char *passwd_fetchline_byname(char *username)
+char *passwd_fetchline_byname(char *username, const char *filename)
 {
 	char rdline[FMAXLINE+1];
 	FILE *file;
 
 	if (strnlen(username, FMAXLINE) >= FMAXLINE)
 		goto err_return;
+	if (strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+		goto err_return;
 
-	file = fopen(PASSWD_FILE, "r");
+	file = fopen(filename, "r");
 	if (file == NULL)
 		return NULL;
 
@@ -203,7 +211,7 @@ char *passwd_fetchline_byname(char *username)
 		unsigned int len = 0;
 
 		if (fgets(rdline, FMAXLINE, file) == NULL) {
-			printf("user %s not found in %s?\n", username, PASSWD_FILE);
+			printf("user %s not found in %s?\n", username, filename);
 			goto err_return;
 		}
 		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
@@ -211,7 +219,7 @@ char *passwd_fetchline_byname(char *username)
 			goto err_return;
 		}
 
-		/* find username stringlen */
+		/* find name stringlen */
 		while(len < FMAXLINE)
 		{
 			if (rdline[len] == ':')
@@ -556,7 +564,7 @@ uid_t get_user_id(char *username)
 	char *err = NULL;
 	unsigned long uid;
 
-	pwline = passwd_fetchline_byname(username);
+	pwline = passwd_fetchline_byname(username, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("could not find user: %s\n", username);
 		return -1;
@@ -577,4 +585,34 @@ uid_t get_user_id(char *username)
 		return -1;
 	}
 	return uid;
+}
+
+gid_t get_group_id(char *groupname)
+{
+	char *grline;
+	char *grgid;
+	char *err = NULL;
+	unsigned long gid;
+
+	grline = passwd_fetchline_byname(groupname, GROUP_FILE);
+	if (grline == NULL) {
+		printf("could not find user: %s\n", groupname);
+		return -1;
+	}
+	grgid = passwd_getfield(grline, GROUP_GID);
+	if (grgid == NULL) {
+		printf("could not find gid in group file\n");
+		return -1;
+	}
+	errno = 0;
+	gid = strtoul(grgid, &err, 10);
+	if (errno || err == NULL || *err) {
+		printf("error converting string to ulong\n");
+		return -1;
+	}
+	if (gid == 0 || (long)gid == -1) {
+		printf("absurd gid value\n");
+		return -1;
+	}
+	return gid;
 }
