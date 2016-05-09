@@ -20,6 +20,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/if_link.h>
 #include <stdlib.h>
+#include <time.h>
 #include "seccomp_helper.h"
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
@@ -60,6 +61,7 @@ extern char **environ;
 extern int g_lognet;
 extern char g_cwd[MAX_SYSTEMPATH];
 extern pid_t g_mainpid;
+extern char g_chroot_path[MAX_SYSTEMPATH];
 
 int netns_restore_firewall(char *buf, int size);
 int netns_save_firewall(char *buf, int size);
@@ -756,7 +758,52 @@ static int jail_netlog(char *chroot_path, char *logdir)
 	return 0;
 }
 
+static int create_logdir(char *buf, unsigned int size)
+{
+	char hexstr[17];
+	struct timespec t;
+	char *filename;
+	int r;
 
+retry:
+	if (buf == NULL || size == 0 || size > MAX_SYSTEMPATH)
+		return -1;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+	filename = eslib_file_getname(g_chroot_path);
+	if (filename == NULL)
+		return -1;
+
+	if (randhex(hexstr, 16, 0x0f0f0f0f+g_mainpid+t.tv_nsec+t.tv_sec, 1350))
+		return -1;
+	hexstr[16] = '\0';
+
+	snprintf(buf, size, "%s/%s-%s.netlog", g_cwd, filename, hexstr);
+	if (eslib_file_path_check(buf)) {
+		printf("bad logdir: %s\n", buf);
+		return -1;
+	}
+	setuid(g_ruid);
+	setgid(g_rgid);
+	r = mkdir(buf, 0770);
+	if (r && errno == EEXIST) {
+		printf("improbable name collision in --lognet directory: %s\n", buf);
+		usleep(500000);
+		goto retry;
+	}
+	else if (r) {
+		printf("mkdir(%s): %s\n", buf, strerror(errno));
+		return -1;
+	}
+	
+	if (chmod(buf, 0770)) {
+		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
+	setuid(0);
+	setgid(0);
+	return 0;
+}
 
 /* returns new pid, or -1 on error */
 static pid_t do_netlog_exec(char *argv[])
@@ -787,25 +834,11 @@ static pid_t do_netlog_exec(char *argv[])
 		printf("minipod mkdir(%s): %s\n", chroot_path, strerror(errno));
 		return -1;
 	}
-	/* directory logs are written to, TODO if exists, increment+timestamp filename */
+	/* directory logs are written to*/
 	/* TODO chown to log group */
-	snprintf(path, sizeof(path), "%s/.podlog", g_cwd);
-	if (eslib_file_path_check(path)) {
-		printf("bad logdir: %s\n", path);
+	if (create_logdir(path, sizeof(path)))
 		return -1;
-	}
-	setuid(g_ruid);
-	setgid(g_rgid);
-	if (mkdir(path, 0770) && errno != EEXIST) {
-		printf("mkdir(%s): %s\n", path, strerror(errno));
-		return -1;
-	}
-	if (chmod(path, 0770)) {
-		printf("chmod: %s\n", strerror(errno));
-		return -1;
-	}
-	setuid(0);
-	setgid(0);
+	printf("netlog directory: %s\n", path);
 
 	if (pipe2(notify, O_CLOEXEC)) {
 		printf("pipe: %s\n", strerror(errno));
