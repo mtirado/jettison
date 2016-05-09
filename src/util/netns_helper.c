@@ -795,7 +795,7 @@ retry:
 		printf("mkdir(%s): %s\n", buf, strerror(errno));
 		return -1;
 	}
-	
+
 	if (chmod(buf, 0770)) {
 		printf("chmod: %s\n", strerror(errno));
 		return -1;
