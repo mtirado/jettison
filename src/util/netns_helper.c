@@ -168,6 +168,8 @@ static int do_fw_exec(char *argv[],/* program args */
 			fprintf(stdo, "pid: %d\r\n", hdr.pid);
 			_exit(-1);
 		}
+		if (close_descriptors())
+			return -1;
 		if (execve(FIREWALL_PROG, argv, environ)) {
 			fprintf(stdo, "execve: %s\n", strerror(errno));
 			_exit(-1);

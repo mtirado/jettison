@@ -56,6 +56,8 @@ int chop_trailing(char *string, unsigned int size, const char match);
 
 /* return -1 on error, c is output */
 int getch(char *c);
+/* close everything except stdioe */
+int close_descriptors();
 
 /* tty/console */
 int console_setup();

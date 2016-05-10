@@ -609,3 +609,25 @@ gid_t get_group_id(char *groupname)
 	}
 	return gid;
 }
+
+int close_descriptors()
+{
+	int fdcount;
+	int *fdlist;
+	int i;
+	fdcount = eslib_proc_getfds(getpid(), &fdlist);
+	if (fdcount == -1) {
+		printf("couldn't get fds\n");
+		return -1;
+	}
+	for (i = 0; i < fdcount; ++i)
+	{
+		if (fdlist[i] != STDIN_FILENO
+				&& fdlist[i] != STDOUT_FILENO
+				&& fdlist[i] != STDERR_FILENO) {
+			close(fdlist[i]);
+		}
+	}
+	free(fdlist);
+	return 0;
+}
