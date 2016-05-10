@@ -91,7 +91,7 @@ extern uid_t g_ruid;
 extern int g_tracecalls;
 extern pid_t g_mainpid;
 extern int g_daemon;
-
+extern int g_blacklist;
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
 char g_params[MAX_PARAM];
 
@@ -1176,6 +1176,49 @@ static int parse_newnet(char *params, size_t size)
 	return 0;
 }
 
+static int load_seccomp_blacklist(const char *file)
+{
+	char rdline[MAX_SYSCALL_DEFLEN*2];
+	FILE *f;
+	int syscall_nr;
+	unsigned int i;
+
+	g_blkcall_idx = 0;
+	g_syscall_idx = 0;
+	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
+	{
+		g_blkcalls[i] = -1;
+		g_syscalls[i] = -1;
+	}
+
+	f = fopen(file, "r");
+	if (f == NULL) {
+		printf("fopen(%s): %s\n", file, strerror(errno));
+		return -1;
+	}
+	while (1)
+	{
+		if (fgets(rdline, sizeof(rdline), f) == NULL) {
+			break;
+		}
+		chop_trailing(rdline, sizeof(rdline), '\n');
+		if (rdline[0] == '\0')
+			continue;
+		syscall_nr = syscall_getnum(rdline);
+		if (syscall_nr < 0) {
+			printf("could not find syscall: %s\n", rdline);
+			goto fail;
+		}
+		g_blkcalls[g_blkcall_idx] = syscall_nr;
+		++g_blkcall_idx;
+	}
+	fclose(f);
+	return 0;
+fail:
+	fclose(f);
+	return -1;
+}
+
 /* some things need action on first pass. like setting flags, paths need to be
  * enumerated for sorting, newnet is handled completely in main thread */
 static int pod_enact_option_pass1(unsigned int option, char *params, size_t size)
@@ -1247,6 +1290,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* add a systemcall to the whitelist */
 	case OPTION_SECCOMP_ALLOW:
+		if (g_blacklist)
+			break;
+
 		if (params == NULL) {
 			printf("null parameter\n");
 			return -1;
@@ -1272,6 +1318,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* add a systemcall to the blocklist */
 	case OPTION_SECCOMP_BLOCK:
+		if (g_blacklist)
+			break;
+
 		if (params == NULL) {
 			printf("null parameter\n");
 			return -1;
@@ -1511,6 +1560,12 @@ static int pass2_finalize()
 		return -1;
 	}
 
+	/* override pod config seccomp options with systemwide blacklist */
+	if (g_blacklist) {
+		if (load_seccomp_blacklist(JETTISON_BLACKLIST)) {
+			return -1;
+		}
+	}
 	return 0;
 }
 

@@ -31,6 +31,11 @@
 #ifndef JETTISON_USERCFG
 	#define JETTISON_USERCFG "/etc/jettison/users"
 #endif
+/* system-wide --blacklist */
+#ifndef JETTISON_BLACKLIST
+	#define JETTISON_BLACKLIST "/etc/jettison/blacklist"
+#endif
+
 /* hard limit number of ip/macvlan a user can create */
 #ifndef JETTISON_IPVLAN_LIMIT
 	#define JETTISON_IPVLAN_LIMIT 30

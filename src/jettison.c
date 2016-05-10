@@ -86,6 +86,7 @@ long g_retaction;
 int  g_strict; /* --strict */
 int  g_blocknew; /* --block-new-filters */
 int  g_allow_ptrace; /* --allow-ptrace */
+int  g_blacklist; /* --blacklist */
 
 /* pod tty i/o */
 int g_pty_notify[2];
@@ -318,12 +319,27 @@ int jettison_clone_func(void *data)
 			if (g_allow_ptrace)
 				opts |= SECCOPT_PTRACE;
 			printf("installing sandbox seccomp filter\r\n");
-			if (filter_syscalls(SYSCALL_ARCH, g_syscalls, g_blkcalls,
-					 count_syscalls(g_syscalls, MAX_SYSCALLS),
-					 count_syscalls(g_blkcalls, MAX_SYSCALLS),
-					 opts, g_retaction)) {
-				printf("unable to apply seccomp filter\n");
-				return -1;
+			if (g_blacklist) {
+				if (filter_syscalls(SYSCALL_ARCH,
+						NULL,
+						g_blkcalls,
+						0,
+						count_syscalls(g_blkcalls,MAX_SYSCALLS),
+						opts, g_retaction)) {
+					printf("unable to apply seccomp filter\n");
+					return -1;
+				}
+			}
+			else {
+				if (filter_syscalls(SYSCALL_ARCH,
+						g_syscalls,
+						g_blkcalls,
+						count_syscalls(g_syscalls,MAX_SYSCALLS),
+						count_syscalls(g_blkcalls,MAX_SYSCALLS),
+						opts, g_retaction)) {
+					printf("unable to apply seccomp filter\n");
+					return -1;
+				}
 			}
 		}
 
@@ -422,6 +438,7 @@ int process_arguments(int argc, char *argv[])
 	g_blocknew = 0;
 	g_allow_ptrace = 0;
 	g_strict = 0;
+	g_blacklist = 0;
 
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
@@ -571,6 +588,10 @@ int process_arguments(int argc, char *argv[])
 				g_lognet = 1;
 				argidx  += 3;
 			}
+			else if (strncmp(argv[i], "--blacklist", len) == 0) {
+				g_blacklist = 1;
+				argidx  += 1;
+			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -661,6 +682,9 @@ err_usage:
 	printf("        <count> >= 2 means log will be rotated and numbered\n");
 	printf("        with up to <count> files backlog. currently this just execs\n");
 	printf("        tcpdump and jails in CWD/.podlog\n");
+	printf("\n");
+	printf("--blacklist\n");
+	printf("        use system blacklist instead of pod config file\n");
 	printf("\n");
 	printf("\n");
 	return -1;

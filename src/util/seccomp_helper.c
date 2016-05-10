@@ -728,6 +728,81 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	return prog;
 }
 
+static struct sock_filter *build_blacklist_filter(int arch, int *blocklist,
+		unsigned int bcount, unsigned int *instr_count, long retaction)
+{
+	unsigned int i,z;
+	unsigned int proglen;
+	struct sock_filter *prog = NULL;
+
+	if (bcount > 2000 || bcount == 0) {
+		printf("blacklist count error\n");
+		return NULL;
+	}
+	printf("blacklist count: %d\r\n", bcount);
+
+	proglen = 4 + (bcount * 2) + 1;
+
+	prog = malloc(proglen * sizeof(struct sock_filter));
+	if (prog == NULL)
+		return NULL;
+
+	/* create seccomp bpf filter */
+	memset(prog, 0, proglen * sizeof(struct sock_filter));
+	i = 0;
+
+	/* validate arch */
+	SECBPF_LD_ABSW(prog, i, SECDAT_ARCH);
+	SECBPF_JEQ(prog, i, arch, 1, 0);
+	SECBPF_RET(prog, i, SECCOMP_RET_KILL);
+
+	/* load syscall number */
+	SECBPF_LD_ABSW(prog, i, SECDAT_NR);
+
+	/* generate blocklist jumps */
+	for (z = 0; z < bcount; ++z)
+	{
+		if (blocklist[z] == -1) {
+			printf("invalid syscall: z(%d)\n", z);
+			free(prog);
+			return NULL;
+		}
+		SECBPF_JEQ(prog, i, blocklist[z], 0, 1);
+		switch (retaction)
+		{
+		case SECCOMP_RET_TRAP:
+			SECBPF_RET(prog,i,SECCOMP_RET_TRAP
+					|(SECCRET_DENIED & SECCOMP_RET_DATA));
+			break;
+		case SECCOMP_RET_KILL:
+			SECBPF_RET(prog,i,SECCOMP_RET_KILL);
+			break;
+		case SECCOMP_RET_ERRNO:
+			SECBPF_RET(prog,i,SECCOMP_RET_ERRNO
+					|(ENOSYS & SECCOMP_RET_DATA));
+			break;
+		default:
+			printf("invalid return action\n");
+			free(prog);
+			return NULL;
+		}
+	}
+	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
+	switch (retaction)
+	{
+	case SECCOMP_RET_TRAP:
+		printf("SECCOMP_RET_TRAP\r\n");
+		break;
+	case SECCOMP_RET_KILL:
+		printf("SECCOMP_RET_KILL\r\n");
+		break;
+	case SECCOMP_RET_ERRNO:
+		printf("SECCOMP_RET_ERRNO\r\n");
+		break;
+	}
+	*instr_count = proglen;
+	return prog;
+}
 
 int filter_syscalls(int arch, int *whitelist, int *blocklist,
 		    unsigned int wcount, unsigned int bcount,
@@ -737,13 +812,19 @@ int filter_syscalls(int arch, int *whitelist, int *blocklist,
 	struct sock_fprog prog;
 	unsigned int instr_count;
 
-	if (!whitelist)
+	if (!whitelist && !blocklist)
 		return -1;
-	if (!blocklist)
-		bcount = 0;
-
-	filter = build_seccomp_filter(arch, whitelist, blocklist, wcount,
+	else if (!whitelist) {
+		filter = build_blacklist_filter(arch, blocklist,
+				bcount, &instr_count, retaction);
+	}
+	else {
+		if (!blocklist) {
+			bcount = 0;
+		}
+		filter = build_seccomp_filter(arch, whitelist, blocklist, wcount,
 				      bcount, &instr_count, options, retaction);
+	}
 	if (filter == NULL)
 		return -1;
 
