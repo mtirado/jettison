@@ -1065,7 +1065,10 @@ static int parse_newnet(char *params, size_t size)
 
 	if (size <= 1)
 		return -1;
-
+	if (g_newnet.active) {
+		printf("only one newnet is supported\n");
+		return -1;
+	}
 	memset(type, 0, sizeof(type));
 	for (i = 0; i < size; ++i) /* space separated */
 		if (params[i] == ' ')
@@ -1169,6 +1172,7 @@ static int parse_newnet(char *params, size_t size)
 		return -1;
 	}
 
+	g_newnet.active = 1;
 	return 0;
 }
 

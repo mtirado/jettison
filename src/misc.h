@@ -9,6 +9,7 @@
 /* maximum line length for user privilege file */
 #define MAX_PRIVLN 1024
 struct newnet_param {
+	int  active;
 	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
 	char addr[19];         /* ipv4 addr */
 	char gateway[16];      /* to net  */
