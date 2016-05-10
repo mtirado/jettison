@@ -1079,7 +1079,7 @@ static int parse_newnet(char *params, size_t size)
 
 	/* get kind */
 	if (strncmp(type, "none", 5) == 0)
-		return 0;
+		g_newnet.kind = ESRTNL_KIND_UNKNOWN;
 	else if (strncmp(type, "loop", 5) == 0)
 		g_newnet.kind = ESRTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
@@ -1162,9 +1162,10 @@ static int parse_newnet(char *params, size_t size)
 		printf("todo...\n");
 		return -1;
 	case ESRTNL_KIND_LOOP:
+	case ESRTNL_KIND_UNKNOWN:
 		break;
 	default:
-		printf("unknown type: %s\n", type);
+		printf("erroneous type: %s\n", type);
 		return -1;
 	}
 

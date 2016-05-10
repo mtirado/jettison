@@ -1065,9 +1065,15 @@ int netns_setup()
 	case ESRTNL_KIND_VETHBR:
 		printf("todo\n");
 		return -1;
+	case ESRTNL_KIND_UNKNOWN:
+		close(g_newnet.root_ns);
+		close(g_newnet.new_ns);
+		return 0;
+	case ESRTNL_KIND_LOOP:
 		break;
 	default:
-		break;
+		printf("netns error\n");
+		return -1;
 	}
 	if (netns_enter_and_config(ifname)) {
 		printf("could not configure new net namespace\n");
