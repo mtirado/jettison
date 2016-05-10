@@ -10,6 +10,13 @@
 #ifndef INIT_PATH
 	#define INIT_PATH="/usr/local/bin/jettison_init"
 #endif
+#ifndef PASSWD_FILE
+	#define PASSWD_FILE "/etc/passwd"
+#endif
+#ifndef GROUP_FILE
+	#define GROUP_FILE "/etc/group"
+#endif
+
 /* hack to make daemon stdio write in linebuffered mode */
 #ifndef PRELOAD_PATH
 	#define PRELOAD_PATH="/usr/local/bin/jettison_preload.so"

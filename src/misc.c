@@ -16,13 +16,6 @@
 #include "misc.h"
 #include "eslib/eslib.h"
 
-#ifndef PASSWD_FILE
-	#define PASSWD_FILE "/etc/passwd"
-#endif
-#ifndef GROUP_FILE
-	#define GROUP_FILE "/etc/group"
-#endif
-
 #define FMAXLINE 4095*4
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];

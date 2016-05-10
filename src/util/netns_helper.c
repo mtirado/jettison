@@ -836,15 +836,35 @@ static pid_t do_netlog_exec(char *argv[])
 	}
 	else if (p == 0) {
 		const char ack = 'K';
+		int fdcount;
+		int *fdlist;
+		int i;
+
 		if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
 			printf("set new_ns: %s\n", strerror(errno));
 			_exit(-1);
 		}
+		/*
+		 * close all fd's
+		 * */
 		close(g_newnet.root_ns);
 		close(g_newnet.new_ns);
-		/*
-		 * TODO close all other fd's too
-		 * */
+		close(notify[0]);
+		fdcount = eslib_proc_getfds(getpid(), &fdlist);
+		if (fdcount == -1) {
+			printf("fdlist error\n");
+			_exit(-1);
+		}
+		for (i = 0; i < fdcount; ++i)
+		{
+			if (fdlist[i] != STDIN_FILENO
+					&& fdlist[i] != STDOUT_FILENO
+					&& fdlist[i] != STDERR_FILENO
+					&& fdlist[i] != notify[1]) {
+				close(fdlist[i]);
+			}
+		}
+		free(fdlist);
 
 		if (jail_netlog(chroot_path, path)) {
 			printf("jail_netlog failed\n");

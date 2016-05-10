@@ -294,6 +294,9 @@ int jettison_clone_func(void *data)
 	}
 	else {
 
+		int fdcount;
+		int *fdlist;
+		int i;
 		/* switch back to real user credentials */
 		if (setregid(g_rgid, g_rgid)) {
 			printf("error setting gid(%d): %s\n",
@@ -327,6 +330,21 @@ int jettison_clone_func(void *data)
 				return -1;
 			}
 		}
+
+		fdcount = eslib_proc_getfds(getpid(), &fdlist);
+		if (fdcount == -1) {
+			printf("couldn't get fds\n");
+			return -1;
+		}
+		for (i = 0; i < fdcount; ++i)
+		{
+			if (fdlist[i] != STDIN_FILENO
+					&& fdlist[i] != STDOUT_FILENO
+					&& fdlist[i] != STDERR_FILENO) {
+				close(fdlist[i]);
+			}
+		}
+		free(fdlist);
 
 		if (execve(INIT_PATH, (char **)data, environ) < 0)
 			printf("jettison_init exec error: %s\n", strerror(errno));
