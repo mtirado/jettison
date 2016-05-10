@@ -28,9 +28,6 @@
 #include "eslib/eslib.h"
 #include "eslib/eslib_rtnetlink.h"
 
-#ifndef DEFAULT_NETMASK_PREFIX
-	#define DEFAULT_NETMASK_PREFIX 24
-#endif
 
 #ifdef X11OPT
 	#include <X11/Xauth.h>

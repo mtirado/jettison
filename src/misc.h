@@ -4,31 +4,7 @@
 #ifndef MISC_H__
 #define MISC_H__
 
-#ifndef FIREWALL_MAXFILTER
-	#define FIREWALL_MAXFILTER (1024 * 32)
-#endif
-/* user config directory */
-#ifndef JETTISON_USERCFG
-	#define JETTISON_USERCFG "/etc/jettison/users"
-#endif
-/* hard limit number of ip/macvlan a user can create */
-#ifndef JETTISON_IPVLAN_LIMIT
-	#define JETTISON_IPVLAN_LIMIT 30
-#endif
-
-/* this is a bit complicated. its possible to run netlog as it's own user
- * but requires a bunch of ipc to send pid's and use pipe to trigger
- * a sigterm / wait / sigkill and then theres a possiblity something
- * could go wrong and it just hangs around, orphaned and infinitely logging
- * tons of ARP/ipv6 noise if. so just use real uid :\
- */
-/*#ifndef NETLOG_USER
-	#define NETLOG_USER "nobody"
-#endif*/
-
-#ifndef NETLOG_GROUP
-	#define NETLOG_GROUP "nobody"
-#endif
+#include "defines.h"
 
 /* maximum line length for user privilege file */
 #define MAX_PRIVLN 1024

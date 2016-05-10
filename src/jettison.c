@@ -40,20 +40,8 @@
 
 #define MAX_ARGV_LEN (1024 * 16) /* 16KB */
 #define IOBUFLEN (4096 * 8) /* 32KB */
-
 #define MAX_PROCNAME 17
 #define MAX_OPTLEN 32
-/* highest stack value system allows */
-#ifndef MAX_SYSTEMSTACK
-	#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
-#endif
-
-#ifndef INIT_PATH
-	#define INIT_PATH="/usr/local/bin/jettison_init"
-#endif
-#ifndef PRELOAD_PATH
-	#define PRELOAD_PATH="/usr/local/bin/jettison_preload.so"
-#endif
 
 extern char **environ;
 extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
@@ -813,12 +801,12 @@ static int pushbuf(int fd, char *buf, unsigned int size)
 			count += r;
 			if (count == size)
 				break;
+			else if (count > size)
+				return -1;
 		}
-		else if (r < 0 && (errno == EINTR || errno == EAGAIN)) {
+		else if (r == 0 || (r < 0 && (errno == EINTR || errno == EAGAIN))) {
 			usleep(500);
 		}
-		else if (r == 0)
-			usleep(500);
 		else {
 			printf("pushbuf write: %s\n", strerror(errno));
 			return -1;
@@ -980,7 +968,8 @@ static int relay_io(int stdout_logfd)
 					return -1;
 				}
 				else {
-					printf("daemon_pipe error: %s\n", strerror(errno));
+					printf("daemon_pipe error: %s\n",
+							strerror(errno));
 					return -1;
 				}
 			}
@@ -1046,7 +1035,8 @@ static int relay_io(int stdout_logfd)
 			r = select(theirs+1, NULL, &wrs, NULL, &instant);
 			if (r == -1) {
 				if (errno != EINTR) {
-					printf("writeset select(): %s\n", strerror(errno));
+					printf("writeset select(): %s\n",
+							strerror(errno));
 					goto fatal;
 				}
 				else {
@@ -1056,7 +1046,6 @@ static int relay_io(int stdout_logfd)
 			if (FD_ISSET(theirs, &wrs)) {
 				r = pushbuf(theirs, &wbuf[wpos], wbytes - wpos);
 				if (r == -1) {
-					/*printf("pushbuf_theirs: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				else {
@@ -1093,7 +1082,6 @@ static int relay_io(int stdout_logfd)
 			if (FD_ISSET(ours, &rds)) {
 				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
 				if (r == -1) {
-					/*printf("fillbuf_ours: %s\n", strerror(errno));*/
 					goto fatal;
 				}
 				wbytes = r;

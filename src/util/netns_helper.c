@@ -27,31 +27,6 @@
 #include "../pod.h"
 #include "../misc.h"
 
-/* reimplementing these in eslib would take quite a bit of time and
- * less flexible than using admin's program of choice, we can set pod
- * specific rules in /etc/jettison/net/<prog>/netfilter or elsewhere...
- *  ^^ TODO ^^
- */
-#ifndef FIREWALL_SAVE
-	#define FIREWALL_SAVE "iptables-save"
-#endif
-#ifndef FIREWALL_RESTORE
-	#define FIREWALL_RESTORE "iptables-restore"
-#endif
-#ifndef FIREWALL_RULE
-	#define FIREWALL_RULE "iptables"
-#endif
-#ifndef FIREWALL_PROG
-	#define FIREWALL_PROG "/usr/sbin/xtables-multi"
-#endif
-/* theres some hardcoded params going on to achieve log rotation */
-#ifndef NETLOG_PROG
-	#define NETLOG_PROG "/usr/sbin/tcpdump"
-#endif
-#ifndef IPVLAN_COUNT_LOCKFILE
-	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
-#endif
-
 /* external globals in jettison.c */
 extern uid_t g_ruid;
 extern gid_t g_rgid;
