@@ -257,6 +257,7 @@ int print_options()
 	printf("-----------------------------------------------------------\n");
 	printf("\n");
 	printf("jettison %s\n", podfile);
+	printf("process name: %s\n", g_procname);
 	printf("\n");
 	/* make note of options */
 	if (g_podflags & (1 << OPTION_HOME_EXEC) ) {
@@ -1531,11 +1532,11 @@ int process_user_permissions()
 			break;
 		}
 		++lncount;
-		if (ipvlan_check && strncmp(privln, "iplimit ", 8) == 0)
+		if (strncmp(privln, "iplimit ", 8) == 0)
 			type = IPLIMIT;
-		else if (ipvlan_check && strncmp(privln, "ip ", 3) == 0)
+		else if (strncmp(privln, "ip ", 3) == 0)
 			type = IP;
-		else if (ipvlan_check && strncmp(privln, "netdev ", 7) == 0)
+		else if (strncmp(privln, "netdev ", 7) == 0)
 			type = DEVICE;
 		else if (strncmp(privln, "newpts", 6) == 0)
 			type = NEWPTS;
@@ -1565,7 +1566,7 @@ int process_user_permissions()
 			ipvlan_limit = lim;
 			break;
 
-		/* read single string argument */
+		/* single string parameter */
 		case IP:
 		case DEVICE:
 			if (type == IP)
@@ -1575,7 +1576,7 @@ int process_user_permissions()
 			c = param;
 			len = 0;
 
-			/* get string length, try to match ip */
+			/* get string length */
 			while (1)
 			{
 				if (*c == '\0' || *c == '\n') {
