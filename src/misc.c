@@ -7,6 +7,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
+#include <sys/resource.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -609,7 +610,7 @@ gid_t get_group_id(char *groupname)
 	}
 	return gid;
 }
-
+#define FAILSAFE_FLIMIT 4096
 int close_descriptors()
 {
 	int fdcount;
@@ -617,8 +618,19 @@ int close_descriptors()
 	int i;
 	fdcount = eslib_proc_getfds(getpid(), &fdlist);
 	if (fdcount == -1) {
-		printf("couldn't get fds\n");
-		return -1;
+		struct rlimit rlim;
+		int fdnum = FAILSAFE_FLIMIT;
+		memset(&rlim, 0, sizeof(rlim));
+		if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
+			if (rlim.rlim_cur >= 3) {
+				fdnum = rlim.rlim_cur;
+			}
+		}
+		while (fdnum >= 3) {
+			close(fdnum);
+			--fdnum;
+		}
+		return 0;
 	}
 	for (i = 0; i < fdcount; ++i)
 	{
