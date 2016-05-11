@@ -1469,6 +1469,7 @@ static int trace_fork(char **argv)
  */
 int process_user_permissions()
 {
+	enum { IPLIMIT = 0, IP, NEWPTS, DEVICE };
 	char *pwline;
 	char *pwuser;
 	char path[MAX_SYSTEMPATH];
@@ -1476,6 +1477,7 @@ int process_user_permissions()
 	char netaddr[19];
 	unsigned int ipvlan_check = 0;
 	unsigned int ipvlan_limit = 0;
+	unsigned int devmatch = 0;
 	unsigned int ipmatch = 0;
 	unsigned int lncount = 0;
 	FILE *file;
@@ -1516,18 +1518,37 @@ int process_user_permissions()
 	 */
 	while (1)
 	{
+		char str[256];
+		char *param;
+		char *err;
+		char *c;
+		long lim;
+		int type = -1;
+		unsigned int len = 0;
 		/* read line */
 		memset(privln, 0, MAX_PRIVLN);
 		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
 			break;
 		}
 		++lncount;
+		if (ipvlan_check && strncmp(privln, "iplimit ", 8) == 0)
+			type = IPLIMIT;
+		else if (ipvlan_check && strncmp(privln, "ip ", 3) == 0)
+			type = IP;
+		else if (ipvlan_check && strncmp(privln, "netdev ", 7) == 0)
+			type = DEVICE;
+		else if (strncmp(privln, "newpts", 6) == 0)
+			type = NEWPTS;
+		else {
+			printf("invalid keyword: %s\n", privln);
+			goto print_errline;
+		}
 
-		/* handle options */
-		if (ipvlan_check && strncmp(privln, "iplimit ", 8) == 0)  {
-			char *param = &privln[8];
-			char *err = NULL;
-			long lim;
+		switch (type)
+		{
+		case IPLIMIT:
+			param = &privln[8];
+			err = NULL;
 
 			if (ipvlan_limit) {
 				printf("duplicate limit entries\n");
@@ -1542,12 +1563,17 @@ int process_user_permissions()
 				goto print_errline;
 			}
 			ipvlan_limit = lim;
-		}
-		else if (ipvlan_check && strncmp(privln, "ip ", 3) == 0)  {
-			char ipstr[64];
-			char *param = &privln[3];
-			char *c = param;
-			unsigned int iplen = 0;
+			break;
+
+		/* read single string argument */
+		case IP:
+		case DEVICE:
+			if (type == IP)
+				param = &privln[3]; /* ip */
+			else
+				param = &privln[7]; /* netdev */
+			c = param;
+			len = 0;
 
 			/* get string length, try to match ip */
 			while (1)
@@ -1555,24 +1581,33 @@ int process_user_permissions()
 				if (*c == '\0' || *c == '\n') {
 					break;
 				}
-				if (++iplen >= sizeof(ipstr)) {
-					printf("iplen error\n");
+				if (++len >= sizeof(str)) {
+					printf("param len error\n");
 					goto print_errline;
 				}
 				++c;
 			}
-			if (iplen == 0) {
+			if (len == 0) {
 				goto print_errline;
 			}
 
-			strncpy(ipstr, param, iplen);
-			ipstr[iplen] = '\0';
-			if (strncmp(ipstr, netaddr, sizeof(netaddr)) == 0) {
-				ipmatch = 1;
+			strncpy(str, param, len);
+			str[len] = '\0';
+
+			if (type == IP) {
+				if (strncmp(str, netaddr, sizeof(netaddr))==0)
+					ipmatch = 1;
 			}
-		}
-		else if (strncmp(privln, "newpts", 6) == 0) {
+			else {
+				if (strncmp(str, g_newnet.dev, sizeof(g_newnet.dev))==0)
+					devmatch = 1;
+			}
+			break;
+		case NEWPTS:
 			g_privs.newpts = 1;
+			break;
+		default:
+			goto print_errline;
 		}
 	}
 	fclose(file);
@@ -1587,10 +1622,14 @@ int process_user_permissions()
 			printf("ipvlan hard limit: %d", JETTISON_IPVLAN_LIMIT);
 			return -1;
 		}
-		if (!ipmatch)
-		{
+		if (!ipmatch) {
 			printf("ip(%s/%s) not found in user privilege file\n",
 					g_newnet.addr, g_newnet.prefix);
+			return -1;
+		}
+		if (!devmatch) {
+			printf("device %s not found in user privilege file\n",
+					g_newnet.dev);
 			return -1;
 		}
 		g_privs.ipvlan_limit = ipvlan_limit;
