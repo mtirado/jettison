@@ -247,6 +247,92 @@ int jettison_initiate()
 	return 0;
 }
 
+int print_options()
+{
+	char *podfile;
+	podfile = eslib_file_getname(g_newroot);
+	if (podfile == NULL)
+		return -1;
+
+	printf("-----------------------------------------------------------\n");
+	printf("\n");
+	printf("jettison %s\n", podfile);
+	printf("\n");
+	/* make note of options */
+	if (g_podflags & (1 << OPTION_HOME_EXEC) ) {
+		printf("+x /podhome\n");
+	}
+	if (g_podflags & (1 << OPTION_X11) ) {
+		printf("X11 enabled\n");
+	}
+	if (g_podflags & (1 << OPTION_NOPROC) ) {
+		printf("no /proc\n");
+	}
+	if (g_podflags & (1 << OPTION_NEWPTS) ) {
+		printf("new pts instance\n");
+	}
+	printf("\n");
+	/* seccomp info */
+	printf("seccomp action: ");
+	switch (g_retaction)
+	{
+	case SECCOMP_RET_TRAP:
+		printf("trap\n");
+		break;
+	case SECCOMP_RET_KILL:
+		printf("kill\n");
+		break;
+	case SECCOMP_RET_ERRNO:
+		printf("errno\n");
+		break;
+	}
+	if (g_blacklist) {
+		printf("    %d blacklisted\n",
+				count_syscalls(g_blkcalls,MAX_SYSCALLS));
+	}
+	else {
+		printf("    %d whitelisted\n",
+				count_syscalls(g_syscalls,MAX_SYSCALLS));
+		printf("    %d blocked\n",
+				count_syscalls(g_blkcalls,MAX_SYSCALLS));
+	}
+
+	printf("\n");
+	/* new network namespace */
+	if (g_newnet.active) {
+		printf(" newnet ");
+		switch(g_newnet.kind)
+		{
+		case ESRTNL_KIND_IPVLAN:
+			printf("ipvlan\n");
+			printf("    interface: %s\n", g_newnet.dev);
+			printf("    address:   %s/%d\n", g_newnet.addr,g_newnet.netmask);
+
+			break;
+		case ESRTNL_KIND_MACVLAN:
+			printf("macvlan\n");
+			printf("    interface: %s\n", g_newnet.dev);
+			printf("    address:   %s/%d\n", g_newnet.addr,g_newnet.netmask);
+			break;
+		case ESRTNL_KIND_LOOP:
+			printf("loopback\n");
+			break;
+		case ESRTNL_KIND_UNKNOWN:
+			printf("none\n");
+			break;
+		case ESRTNL_KIND_VETHBR:
+			printf("todo.\n");
+			break;
+		default:
+			return -1;
+		}
+	}
+	printf("\n");
+	printf("-----------------------------------------------------------\n");
+	return 0;
+}
+
+
 /* new thread function */
 int jettison_clone_func(void *data)
 {
@@ -344,6 +430,8 @@ int jettison_clone_func(void *data)
 		}
 
 		if (close_descriptors())
+			return -1;
+		if (print_options())
 			return -1;
 		if (execve(INIT_PATH, (char **)data, environ) < 0)
 			printf("jettison_init exec error: %s\n", strerror(errno));

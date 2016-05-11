@@ -588,8 +588,6 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 		printf("2000 syscalls maximum\n");
 		return NULL;
 	}
-	printf("whitelist count: %d\r\n", wcount);
-	printf("blocklist count: %d\r\n", bcount);
 
 	proglen = 4 + (count * 2) + 1;
 	/* whitelist for init process */
@@ -653,7 +651,7 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		*instr_count = proglen;
 		printf("---------------------------------\n");
-		printf(" warning: no seccomp whitelist\n");
+		printf(" warning: no seccomp filter\n");
 		printf("--------------------------------\n");
 		return prog;
 	}
@@ -707,15 +705,12 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	switch (retaction)
 	{
 	case SECCOMP_RET_TRAP:
-		printf("SECCOMP_RET_TRAP\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_TRAP|(SECCRET_DENIED & SECCOMP_RET_DATA));
 		break;
 	case SECCOMP_RET_KILL:
-		printf("SECCOMP_RET_KILL\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_KILL);
 		break;
 	case SECCOMP_RET_ERRNO:
-		printf("SECCOMP_RET_ERRNO\r\n");
 		SECBPF_RET(prog,i,SECCOMP_RET_ERRNO|(ENOSYS & SECCOMP_RET_DATA));
 		break;
 	default:
@@ -739,7 +734,6 @@ static struct sock_filter *build_blacklist_filter(int arch, int *blocklist,
 		printf("blacklist count error\n");
 		return NULL;
 	}
-	printf("blacklist count: %d\r\n", bcount);
 
 	proglen = 4 + (bcount * 2) + 1;
 
@@ -788,18 +782,6 @@ static struct sock_filter *build_blacklist_filter(int arch, int *blocklist,
 		}
 	}
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-	switch (retaction)
-	{
-	case SECCOMP_RET_TRAP:
-		printf("SECCOMP_RET_TRAP\r\n");
-		break;
-	case SECCOMP_RET_KILL:
-		printf("SECCOMP_RET_KILL\r\n");
-		break;
-	case SECCOMP_RET_ERRNO:
-		printf("SECCOMP_RET_ERRNO\r\n");
-		break;
-	}
 	*instr_count = proglen;
 	return prog;
 }
