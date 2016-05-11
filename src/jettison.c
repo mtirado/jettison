@@ -250,6 +250,7 @@ int jettison_initiate()
 int print_options()
 {
 	char *podfile;
+	unsigned int i;
 	podfile = eslib_file_getname(g_newroot);
 	if (podfile == NULL)
 		return -1;
@@ -272,6 +273,16 @@ int print_options()
 	if (g_podflags & (1 << OPTION_NEWPTS) ) {
 		printf("new pts instance\n");
 	}
+	printf("\n");
+	/* requested capabilities */
+	for (i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		if (g_fcaps[i]) {
+			char *name = cap_getname(i);
+			printf("can gain %s\n", name);
+		}
+	}
+
 	printf("\n");
 	/* seccomp info */
 	printf("seccomp action: ");

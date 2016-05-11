@@ -10,8 +10,7 @@
 
 /* SECCOMP_RET_DATA values,
  * these are only reliable if new process is unable to install
- * additional seccomp filters using SECCOPT_BLOCKNEW. another
- * idea is a prctl like NO_NEW_PRIVS, NO_NEW_SECCOMP ?
+ * additional seccomp filters using SECCOPT_BLOCKNEW.
  */
 #define SECCRET_DENIED 0xF0FF
 
@@ -67,9 +66,10 @@ char *syscall_getname(long syscall_nr);
 
 /*
  * return value of capability, defined in <linux/capability.h>
- * -1 is an error
+ * -1/NULL is an error
  */
 int cap_getnum(char *defstring);
+char *cap_getname(int cap_nr);
 
 /* return the highest system call number */
 unsigned int syscall_gethighest();

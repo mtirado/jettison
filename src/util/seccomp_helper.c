@@ -505,10 +505,9 @@ int syscall_getnum(char *defstring)
 
 char *syscall_getname(long syscall_nr)
 {
-	long count;
+	const long count = sizeof(sc_table) / sizeof(struct sc_translate);
 	int i;
 
-	count = sizeof(sc_table) / sizeof(struct sc_translate);
 	if (syscall_nr < 0)
 		return NULL;
 
@@ -535,6 +534,21 @@ int cap_getnum(char *defstring)
 			return cap_table[i].nr;
 	}
 	return -1;
+}
+char *cap_getname(int cap_nr)
+{
+	const long count = sizeof(cap_table) / sizeof(struct cap_translate);
+	int i;
+
+	if (cap_nr < 0)
+		return NULL;
+
+	for (i = 0; i < count; ++i)
+	{
+		if (cap_table[i].nr == cap_nr)
+			return cap_table[i].name;
+	}
+	return NULL;
 }
 
 /* number of systemcalls in a given number array ( -1 is invalid )*/
