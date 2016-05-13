@@ -6,8 +6,9 @@ machine-id
 
 # net namespace
 #newnet ipvlan eth0 192.168.1.8/24
-#newnet macvlan eth0 192.168.1.8/24
+#newnet macvlan eth0 **:**:**:**:**:** 192.168.1.8/24
 #newnet loop
+#newnet none
 
 # filsystem
 file rx	 /lib
