@@ -1118,7 +1118,32 @@ static int parse_newnet(char *params, size_t size)
 		}
 		strncpy(g_newnet.dev, &params[z], devlen);
 
-		/* read addr string */
+		/* read hwaddr string */
+		if (g_newnet.kind == ESRTNL_KIND_MACVLAN) {
+			int cnt = 0;
+			z = ++i;
+			for (; i < size; ++i) {
+				if (params[i] == ':')
+					++cnt;
+				else if (params[i] == ' ')
+					break;
+			}
+			if (cnt == 0) {
+				printf("macvlan needs mac address, ");
+				printf("use **:**:**:**:**:** for a random one. \n");
+				return -1;
+			}
+			if (i >= size)
+				return -1;
+			addrlen = i - z;
+			if (addrlen == 0 || addrlen >= sizeof(g_newnet.hwaddr)) {
+				printf("bad hwaddr: %d\n", addrlen);
+				return -1;
+			}
+			strncpy(g_newnet.hwaddr, &params[z], addrlen);
+		}
+
+		/* read ipaddr string */
 		z = ++i;
 		for (; i < size; ++i)
 			if (params[i] == ' ' || params[i] == '\0')

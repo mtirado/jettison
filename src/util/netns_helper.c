@@ -1041,6 +1041,16 @@ int netns_setup()
 			close(lockfd);
 			return -1;
 		}
+		if (g_newnet.kind == ESRTNL_KIND_MACVLAN &&
+				strncmp(g_newnet.hwaddr, "**:**:**:**:**:**", 18)) {
+			/* set mac addr */
+			r = eslib_rtnetlink_linkhwaddr(ifname, g_newnet.hwaddr);
+			if (r) {
+				printf("couldn't set mac address\n");
+				(r > 0)?printf("nack:%s\n",strerror(r)):printf("err\n");
+				goto ipvlan_err;
+			}
+		}
 		r = eslib_rtnetlink_linksetns(ifname, g_newnet.new_ns, 0);
 		if (r) {
 			printf("temp link(%s) setns failed\n", ifname);

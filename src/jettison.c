@@ -324,6 +324,7 @@ int print_options()
 		case ESRTNL_KIND_MACVLAN:
 			printf("macvlan\n");
 			printf("    interface: %s\n", g_newnet.dev);
+			printf("    macaddr:   %s\n", g_newnet.hwaddr);
 			printf("    address:   %s/%d\n", g_newnet.addr,g_newnet.netmask);
 			break;
 		case ESRTNL_KIND_LOOP:
@@ -1481,7 +1482,7 @@ static int trace_fork(char **argv)
  */
 int process_user_permissions()
 {
-	enum { IPLIMIT = 0, IP, NEWPTS, DEVICE };
+	enum { IPLIMIT = 0, IP, NEWPTS, DEVICE, MACADDR };
 	char *pwline;
 	char *pwuser;
 	char path[MAX_SYSTEMPATH];
@@ -1490,6 +1491,7 @@ int process_user_permissions()
 	unsigned int ipvlan_check = 0;
 	unsigned int ipvlan_limit = 0;
 	unsigned int devmatch = 0;
+	unsigned int macmatch = 0;
 	unsigned int ipmatch = 0;
 	unsigned int lncount = 0;
 	FILE *file;
@@ -1549,6 +1551,8 @@ int process_user_permissions()
 			type = IP;
 		else if (strncmp(privln, "netdev ", 7) == 0)
 			type = DEVICE;
+		else if (strncmp(privln, "macaddr ", 8) == 0)
+			type = MACADDR;
 		else if (strncmp(privln, "newpts", 6) == 0)
 			type = NEWPTS;
 		else {
@@ -1580,10 +1584,15 @@ int process_user_permissions()
 		/* single string parameter */
 		case IP:
 		case DEVICE:
+		case MACADDR:
 			if (type == IP)
 				param = &privln[3]; /* ip */
-			else
+			else if (type == DEVICE)
 				param = &privln[7]; /* netdev */
+			else if (type == MACADDR)
+				param = &privln[8]; /* macaddr */
+			else
+				return -1;
 			c = param;
 			len = 0;
 
@@ -1610,9 +1619,17 @@ int process_user_permissions()
 				if (strncmp(str, netaddr, sizeof(netaddr))==0)
 					ipmatch = 1;
 			}
-			else {
+			else if (type == DEVICE) {
 				if (strncmp(str, g_newnet.dev, sizeof(g_newnet.dev))==0)
 					devmatch = 1;
+			}
+			else if (type == MACADDR) {
+				if (strncmp(str, g_newnet.hwaddr,
+							sizeof(g_newnet.hwaddr))==0)
+					macmatch = 1;
+			}
+			else {
+				return -1;
 			}
 			break;
 		case NEWPTS:
@@ -1635,14 +1652,21 @@ int process_user_permissions()
 			return -1;
 		}
 		if (!ipmatch) {
-			printf("ip(%s/%s) not found in user privilege file\n",
+			printf("ip %s/%s not found in user privilege file\n",
 					g_newnet.addr, g_newnet.prefix);
 			return -1;
 		}
 		if (!devmatch) {
-			printf("device %s not found in user privilege file\n",
+			printf("netdev %s not found in user privilege file\n",
 					g_newnet.dev);
 			return -1;
+		}
+		if (g_newnet.kind == ESRTNL_KIND_MACVLAN) {
+			if (!macmatch) {
+				printf("macaddr %s not found in user privilege file\n",
+						g_newnet.hwaddr);
+				return -1;
+			}
 		}
 		g_privs.ipvlan_limit = ipvlan_limit;
 	}

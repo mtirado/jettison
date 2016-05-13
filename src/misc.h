@@ -12,6 +12,7 @@ struct newnet_param {
 	int  active;
 	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
 	char addr[19];         /* ipv4 addr */
+	char hwaddr[18];       /* mac addr */
 	char gateway[16];      /* to net  */
 	char dev[16];          /* master device name */
 	char prefix[3];        /* netmask prefix */
@@ -101,18 +102,17 @@ gid_t get_group_id(char *username);
 
 /* ------------------------------------------------------------ */
 
-
+int shuffle_bits(unsigned char *data, size_t size, size_t idx,
+		size_t amount, unsigned char bitmask);
+int randhex(char *out, unsigned int size,
+		unsigned int entropy, unsigned int cycles);
 
 /* create a new machine-id file
  * path is machine-id file path
  * newid is 32 hexadecimal characters.
  * if newid is null, a random string is generated.
  */
-int randhex(char *out, unsigned int size,
-		unsigned int entropy, unsigned int cycles);
 int create_machineid(char *path, char *newid, unsigned int entropy);
-int shuffle_bits(unsigned char *data, size_t size, size_t idx,
-			size_t amount, unsigned char bitmask);
 
 #endif
 
