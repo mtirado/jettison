@@ -1592,7 +1592,7 @@ int process_user_permissions()
 			else if (type == MACADDR)
 				param = &privln[8]; /* macaddr */
 			else
-				return -1;
+				goto print_errline;
 			c = param;
 			len = 0;
 
@@ -1629,7 +1629,7 @@ int process_user_permissions()
 					macmatch = 1;
 			}
 			else {
-				return -1;
+				goto print_errline;
 			}
 			break;
 		case NEWPTS:
