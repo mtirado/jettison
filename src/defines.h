@@ -1,7 +1,18 @@
 #ifndef DEFINES_H__
 #define DEFINES_H__
 
-/* override these with -D compiler flag */
+/*
+ *  you can add the following to DEFINES in makefile so they are passed
+ *  directly as a compiler flag.
+ *
+ *  global defines not documented here:
+ *  -DUSE_FILE_CAPS     -- enables file capabilities
+ *  -DX11OPT            -- x11 support
+ *  -DNEWNET_IPVLAN     -- can create ipvlans
+ *  -DNEWNET_MACVLAN    -- can create macvlans
+ *  TODO there are possibly more
+ */
+
 /* highest stack value system allows */
 #ifndef MAX_SYSTEMSTACK
 	#define MAX_SYSTEMSTACK  (1024 * 1024 * 16) /* 16MB */
@@ -17,10 +28,11 @@
 	#define GROUP_FILE "/etc/group"
 #endif
 
-/* hack to make daemon stdio write in linebuffered mode */
+/* hack to write daemon glibc output in linebuffered mode */
 #ifndef PRELOAD_PATH
 	#define PRELOAD_PATH="/usr/local/bin/jettison_preload.so"
 #endif
+/* if user doesn't supply prefix, assume this one */
 #ifndef DEFAULT_NETMASK_PREFIX
 	#define DEFAULT_NETMASK_PREFIX 24
 #endif
@@ -40,6 +52,13 @@
 #ifndef JETTISON_IPVLAN_LIMIT
 	#define JETTISON_IPVLAN_LIMIT 30
 #endif
+
+/* prevent race condition when counting ip/macvlans*/
+#ifndef IPVLAN_COUNT_LOCKFILE
+	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
+#endif
+
+/* 3'rd party programs for network setup/logging*/
 #ifndef FIREWALL_SAVE
 	#define FIREWALL_SAVE "iptables-save"
 #endif
@@ -57,9 +76,6 @@
 #endif
 #ifndef NETLOG_GROUP
 	#define NETLOG_GROUP "nobody"
-#endif
-#ifndef IPVLAN_COUNT_LOCKFILE
-	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
 #endif
 
 
