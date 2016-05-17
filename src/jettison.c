@@ -1852,7 +1852,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* setup network namespace */
-	if(g_newnet.kind != ESRTNL_KIND_INVALID) {
+	if(g_newnet.active) {
 		if (netns_setup()) {
 			return -1;
 		}

@@ -37,7 +37,7 @@
  *  prevent these exact paths from being mounted without MS_RDONLY.
  *  you can mount writable directories after these locations.
  *  theres probably more paths i should add to this list.
- *  be extra careful when running root pods.
+ *  be extra careful if running root pods.
  */
 static char *g_rdonly_dirs[] =
 {

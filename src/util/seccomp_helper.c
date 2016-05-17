@@ -446,7 +446,7 @@ struct sc_translate sc_table[] = {
 { "__NR_bpf", __NR_bpf },
 { "__NR_execveat", __NR_execveat },*/
 
-/* 4.3 socket calls, huray!*/
+/* 4.3 fine grained socket calls */
 /*{ "__NR_socket", __NR_socket },
 { "__NR_socketpair", __NR_socketpair },
 { "__NR_bind", __NR_bind },
@@ -664,9 +664,6 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	if (count == 0) {
 		SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 		*instr_count = proglen;
-		printf("---------------------------------\n");
-		printf(" warning: no seccomp filter\n");
-		printf("--------------------------------\n");
 		return prog;
 	}
 
@@ -854,7 +851,6 @@ static int cap_blisted(unsigned long cap)
 		return 1;
 	}
 
-	/* is pod requesting we allow file cap? */
 	/*
 	 * FILE CAP BLACKLIST
 	 * some caps should never be allowed (MKNOD, SYS_MODULE!!)
@@ -934,8 +930,8 @@ static int cap_blisted(unsigned long cap)
 
 /* e,p,i are which caps to set effective, permitted, inheritable
  * to gain effective capability, it must already be in permitted set
- * pass NULL to clear all */
-int set_caps(int cap_e[NUM_OF_CAPS], int cap_p[NUM_OF_CAPS], int cap_i[NUM_OF_CAPS])
+ * pass NULL to clear all, array size is NUM_OF_CAPS */
+static int set_caps(int *cap_e, int *cap_p, int *cap_i)
 {
 	struct __user_cap_header_struct hdr;
 	struct __user_cap_data_struct   data[2];
@@ -1016,7 +1012,6 @@ int print_caps()
 
 /*
  * remove all capabilities this program does not require,
- * setuid defensive measure, just in case.
  * returns 0,  -1 on error.
  */
 int downgrade_caps()
@@ -1122,9 +1117,9 @@ int jail_process(char *chroot_path,
 		 gid_t set_regid,
 		 int  *whitelist,
 		 unsigned long seccomp_opts,
-		 int cap_e[NUM_OF_CAPS],
-		 int cap_p[NUM_OF_CAPS],
-		 int cap_i[NUM_OF_CAPS],
+		 int *cap_e,
+		 int *cap_p,
+		 int *cap_i,
 		 int can_write,
 		 int can_exec)
 {
