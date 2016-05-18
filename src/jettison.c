@@ -683,7 +683,8 @@ int process_arguments(int argc, char *argv[])
 				g_newnet.log_count = strtol(argv[i], &err, 10);
 				if (err == NULL || *err || errno)
 					goto bad_opt;
-				if (g_newnet.log_filesize > 0 && g_newnet.log_count < 2)
+				if (g_newnet.log_count != 0 && g_newnet.log_filesize > 0
+						&& g_newnet.log_count < 2)
 					goto bad_opt;
 
 				g_lognet = 1;

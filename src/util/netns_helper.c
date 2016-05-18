@@ -948,15 +948,17 @@ static pid_t setup_netlog()
 		args[4] = NULL;
 	}
 	else {
-		if (g_newnet.log_count < 2)
-			return -1;
-
 		/* single constrained logfile */
 		args[4] = arg_size;
 		args[5] = str_size;
-		args[6] = arg_count;
-		args[7] = str_count;
-		args[8] = NULL;
+		if (g_newnet.log_count >= 2 ) {
+			args[6] = arg_count;
+			args[7] = str_count;
+			args[8] = NULL;
+		}
+		else {
+			args[6] = NULL;
+		}
 	}
 
 	p = do_netlog_exec(args);
