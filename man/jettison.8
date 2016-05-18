@@ -1,0 +1,251 @@
+.\" Copyright (C) 2016 GPL v3.0 Michael R. Tirado <mtirado418@gmail.com>
+.\"
+.\"
+
+
+
+.TH JETTISON 8
+.SH NAME
+jettison \- launch program into a predefined chroot environment with a new
+mount namespace, pid namespace, and optional net namespace.
+.SH SYNOPSIS
+
+.BI jettison
+.RI [ program_path ] \  [ pod_config ] \  [ options ] \ [program_arguments... ]
+.PP
+.I program_path
+is the absolute path to program,
+.I pod_config
+file defines the new environment, and
+.I options
+are described below.
+.I program_arguments
+start at the first unrecognized option and get passed to program on exec.
+
+.B e.g:
+.RS
+jettison /bin/bash ~/podconfigs/bash1.pod
+.PP
+jettison /bin/bash ~/podconfigs/bash2.pod --lognet 0 0 --strict
+.RE
+
+.\"JETTISON OPTIONS
+.SH OPTIONS
+.TP
+--procname, -p
+Set name of process
+.TP
+--strict
+Seccomp kills process
+.TP
+--tracecalls
+Count each system call made and generate an optimized seccomp whitelist.
+.TP
+--lognet <size> <count>
+Generate logs of newnet ip/macvlan traffic using seperately sandboxed tcpdump
+program. both arguments must be supplied. Log files are stored in a uniquely
+named directory at current working directory.
+.I size
+is unrestricted if 0, otherwise this is file_size limit passed to tcpdump (in
+millions of bytes, not megabytes). If
+.I count
+is 0 the log file is indefinitely incremented when it reaches
+.I size
+bytes. If
+.I count
+is 2 or greater tcpdump will rotate between that many log files.
+
+.TP
+--logoutput
+Write stdout and stderr to time stamped log file at current working directory.
+.TP
+--daemon
+Disconnects controlling terminal and orphans process.
+.TP
+--block-new-filters
+Seccomp optimization.
+.TP
+--blacklist
+Replace seccomp rules with the system-wide blacklist typically located
+at /etc/jettison/blacklist
+.TP
+--allow-ptrace
+Usually ptrace is disabled unless this option is specified, or using
+--blacklist and __NR_ptrace is missing from blacklist file.
+.TP
+--stacksize
+Set stacksize of new cloned thread in kilobytes.
+
+.SH DESCRIPTION
+
+Launches program into a chroot environment. Typically locatable by
+user/podfile. e.g: /opt/pods/user/config.pod/ this new root will contain
+the files and directories specified in pod config. A pod's /podhome can be
+accessed by owner for copying files in and out. Pods are otherwise root owned
+and can usually be destroyed using
+.BR jettison_destruct (8).
+
+.B Seccomp:
+Seccomp filter is specified in the pod config file unless --blacklist is used,
+in which case the pod seccomp options are completely replaced by
+.IR /etc/jettison/blacklist .
+
+.B Capabilities:
+File capabilities can be allowed with the trade-off of NO_NEW_PRIVS not being
+set, and the capabilities requested will be left in bounding set. This feature
+is optional and can be disabled, see the customization section.
+
+.\" POD CONFIG FILE
+.SH POD CONFIG FILE
+
+.\" file
+.TP
+.B file
+.RB [ r | w | x | d | s ]
+</file/path>: Bind mount file into pod with the specified
+remount options. Granting file capability is the only use of
+.BR s uid
+flag.
+.RB ( r )ead,\ ( w )rite,\ e( x )ecute,\ ( d )evice,\ ( s )uid.
+
+.\" home
+.TP
+.B home
+.RB [ r | w | x | d | s ]
+</home/file>: Like the file option, but works relative to home directory instead
+of system root. e.g: 'home r /.bashrc'.
+
+
+.\" seccomp
+.TP
+.BR seccomp_allow \ <__NR_syscall>
+Add systemcall to seccomp whitelist.
+
+.TP
+.BR seccomp_block \ <__NR_syscall>
+Failed seccomp check returns with errno, useful to prevent --strict killings.
+
+.\" newnet
+.TP
+.B newnet
+.RS
+.TP
+.I none
+Create a blank new net namespace.
+.TP
+.I loop
+New net namespace with loopback set up.
+.TP
+.IR ipvlan \ < device > \  < ipaddr >
+Create ipvlan interface with same gateway and mac address as
+.IR device ,
+and new static ip address.
+.TP
+.IR maclan \ < device > \  < macaddr > \  < ipaddr >
+Create macvlan interface with same gateway as
+.IR device ,
+a new mac address, and new static ip address. You can specify
+**:**:**:**:**:** to use default mac assigned by the kernel.
+.RE
+
+.\" newpts
+.TP
+.B newpts
+Mount a new pts instance in pod.
+
+.\" noproc
+.TP
+.B noproc
+Do not mount /proc filesystem.
+
+.\" home_exec
+.TP
+.B home_exec
+Remount /podhome directory with execute flag.
+
+.\" capability
+.TP
+.BR capability \ <CAP_NAME>
+Allow process to elevate privilege through files with
+.RB ( s )uid
+flag set, if that capability is not internally blacklisted by jettison.
+
+.\" X11
+.TP
+.B X11
+This does not sandbox X11 in any profound way other than it's intended purpose
+of filtering auth data/socket so pod can only access the current $SCREEN. This
+works assuming system only provides X11 socket through /tmp. So something like
+`startx -- -nolisten local -nolisten tcp` would be the best way to protect your
+X11 sessions.
+
+
+
+.\" FILES
+.SH FILES
+
+.I /etc/jettison/users/<user>
+- User permissions, don't want them to have unrestricted access to
+these resources.
+.PP
+.I /etc/jettison/blacklist
+- System calls to be used for --blacklist argument.
+.PP
+.I /opt/pods/<user>
+- Directory containing users pod roots.
+
+
+.\" PERMISSIONS
+.SH USER PERMISSIONS FILE
+.RS
+.B newpts
+- allow user to create newpts instances.
+.PP
+.B netdev
+.RI < interface >
+- underlying device for ipvlan and macvlan.
+.PP
+.B iplimit
+.RI < count >
+- maximum number of ip addresses this user may occupy.
+.PP
+.B macaddr
+.RI < address >
+- user can occupy this mac address.
+.PP
+.B ip
+.RI < address >
+- user can occupy this ip address.
+.RE
+
+
+.\" NOTES
+.SH NOTES
+User's pod config directories are not tracked, and is generated using the
+config file name. It's best practice to always use unique pod config names.
+.PP
+It can take a few minutes before a macvlan address will become
+available for use again after process exits.
+.PP
+Ipvlan requires ipv6 kernel.
+
+
+
+.SH SEE ALSO
+.BR jettison_destruct (8).
+.BR iptables (8).
+.BR tcpdump (1).
+.BR capabilities (7).
+.BR setcap (8).
+
+
+.SH CUSTOMIZATION
+There are a bunch of defines for changing paths and various other parameters
+see src/defines.h for more details.
+
+.SH HISTORY
+Spun off a minimal "service manager" for low powered systems, and was
+repurposed as a general purpose security sandbox in early 2015
+.SH BUGS
+.SH AUTHOR
+Michael R. Tirado <mtirado418@gmail.com>
