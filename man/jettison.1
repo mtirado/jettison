@@ -82,7 +82,7 @@ e.g: /opt/pods/user/config.pod/ using current username and pod filename, this
 new root contains the files and directories specified in pod config. A pod's
 /podhome can be accessed by owner for copying files in and out. Pods are
 otherwise root owned and can usually be destroyed using
-.BR jettison_destruct (8).
+.BR jettison_destruct (1).
 
 .B Seccomp:
 Seccomp filter is specified in the pod config file unless --blacklist is used,
@@ -179,37 +179,6 @@ works assuming system only provides X11 socket through /tmp. So something like
 `startx -- -nolisten local -nolisten tcp` would be the best way to protect your
 X11 sessions.
 
-.\" NOTES
-.SH NOTES
-User's pod config directories are not tracked, and is generated using the
-config file name. It's best practice to always use unique pod config names.
-.P
-It can take a few minutes before a macvlan address will become
-available for use again after process exits.
-.P
-Ipvlan requires ipv6 kernel.
-
-.SH CUSTOMIZATION
-There are a bunch of defines for changing paths and various other parameters
-see src/defines.h and makefile for more details.
-
-.SH SEE ALSO
-.BR jettison_destruct (8).
-.BR iptables (8).
-.BR tcpdump (1).
-.BR capabilities (7).
-.BR setcap (8).
-.BR prctl (2).
-
-
-.SH BUGS
-If using --daemon with --logoutput, LD_PRELOAD is used to set stdio to line
-buffered mode since it is piped and not a regular log file. If the daemon
-uses file capabilites this will not be allowed for security reasons, so you
-will have to patch these daemons yourself to write in line buffered mode or
-there will be log data loss.
-
-
 
 .\" FILES
 .SH FILES
@@ -296,6 +265,38 @@ etc, etc, etc...
 
 
 .RE
+
+.\" NOTES
+.SH NOTES
+User's pod config directories are not tracked, and is generated using the
+config file name. It's best practice to always use unique pod config names.
+.P
+It can take a few minutes before a macvlan address will become
+available for use again after process exits.
+.P
+Ipvlan requires ipv6 kernel.
+
+
+.SH BUGS
+If using --daemon with --logoutput, LD_PRELOAD is used to set stdio to line
+buffered mode since it is piped and not a regular log file. If the daemon
+uses file capabilites this will not be allowed for security reasons, so you
+may have to patch these daemons yourself to write in line buffered mode or
+there will be log data loss.
+
+.SH CUSTOMIZATION
+There are a bunch of defines for changing paths and various other parameters
+see src/defines.h and makefile for more details.
+
+
+.SH SEE ALSO
+.BR jettison_destruct (1).
+.BR iptables (8).
+.BR tcpdump (1).
+.BR capabilities (7).
+.BR setcap (8).
+.BR prctl (2).
+
 
 
 .SH HISTORY
