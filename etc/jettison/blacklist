@@ -1,3 +1,4 @@
 __NR_bpf
 __NR_ptrace
 __NR_reboot
+__NR_unshare
