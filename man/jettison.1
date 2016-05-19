@@ -4,7 +4,7 @@
 
 
 
-.TH JETTISON 8
+.TH JETTISON 1
 .SH NAME
 jettison \- launch program into a predefined chroot environment with a new
 mount namespace, pid namespace, and optional net namespace.
@@ -12,7 +12,7 @@ mount namespace, pid namespace, and optional net namespace.
 
 .BI jettison
 .RI [ program_path ] \  [ pod_config ] \  [ options ] \ [program_arguments... ]
-.PP
+.P
 .I program_path
 is the absolute path to program,
 .I pod_config
@@ -25,7 +25,7 @@ start at the first unrecognized option and get passed to program on exec.
 .B e.g:
 .RS
 jettison /bin/bash ~/podconfigs/bash1.pod
-.PP
+.P
 jettison /bin/bash ~/podconfigs/bash2.pod --lognet 0 0 --strict
 .RE
 
@@ -43,7 +43,7 @@ Count each system call made and generate an optimized seccomp whitelist.
 .TP
 --lognet <size> <count>
 Generate logs of newnet ip/macvlan traffic using seperately sandboxed tcpdump
-program. both arguments must be supplied. Log files are stored in a uniquely
+program. Both arguments must be supplied. Log files are stored in a uniquely
 named directory at current working directory.
 .I size
 is unrestricted if 0, otherwise this is file_size limit passed to tcpdump (in
@@ -66,8 +66,7 @@ Disconnects controlling terminal and orphans process.
 Seccomp optimization.
 .TP
 --blacklist
-Replace seccomp rules with the system-wide blacklist typically located
-at /etc/jettison/blacklist
+Replace seccomp rules with the system-wide blacklist.
 .TP
 --allow-ptrace
 Usually ptrace is disabled unless this option is specified, or using
@@ -78,11 +77,11 @@ Set stacksize of new cloned thread in kilobytes.
 
 .SH DESCRIPTION
 
-Launches program into a chroot environment. Typically locatable by
-user/podfile. e.g: /opt/pods/user/config.pod/ this new root will contain
-the files and directories specified in pod config. A pod's /podhome can be
-accessed by owner for copying files in and out. Pods are otherwise root owned
-and can usually be destroyed using
+Launches program into a chroot environment. Typically located somewhere like
+e.g: /opt/pods/user/config.pod/ using current username and pod filename, this
+new root contains the files and directories specified in pod config. A pod's
+/podhome can be accessed by owner for copying files in and out. Pods are
+otherwise root owned and can usually be destroyed using
 .BR jettison_destruct (8).
 
 .B Seccomp:
@@ -96,7 +95,7 @@ set, and the capabilities requested will be left in bounding set. This feature
 is optional and can be disabled, see the customization section.
 
 .\" POD CONFIG FILE
-.SH POD CONFIG FILE
+.SH POD CONFIG OPTIONS
 
 .\" file
 .TP
@@ -119,7 +118,8 @@ of system root. e.g: 'home r /.bashrc'.
 .\" seccomp
 .TP
 .BR seccomp_allow \ <__NR_syscall>
-Add systemcall to seccomp whitelist.
+Add systemcall to seccomp whitelist. If nothing is added to list
+every system call is allowed, except ptrace.
 
 .TP
 .BR seccomp_block \ <__NR_syscall>
@@ -179,6 +179,36 @@ works assuming system only provides X11 socket through /tmp. So something like
 `startx -- -nolisten local -nolisten tcp` would be the best way to protect your
 X11 sessions.
 
+.\" NOTES
+.SH NOTES
+User's pod config directories are not tracked, and is generated using the
+config file name. It's best practice to always use unique pod config names.
+.P
+It can take a few minutes before a macvlan address will become
+available for use again after process exits.
+.P
+Ipvlan requires ipv6 kernel.
+
+.SH CUSTOMIZATION
+There are a bunch of defines for changing paths and various other parameters
+see src/defines.h and makefile for more details.
+
+.SH SEE ALSO
+.BR jettison_destruct (8).
+.BR iptables (8).
+.BR tcpdump (1).
+.BR capabilities (7).
+.BR setcap (8).
+.BR prctl (2).
+
+
+.SH BUGS
+If using --daemon with --logoutput, LD_PRELOAD is used to set stdio to line
+buffered mode since it is piped and not a regular log file. If the daemon
+uses file capabilites this will not be allowed for security reasons, so you
+will have to patch these daemons yourself to write in line buffered mode or
+there will be log data loss.
+
 
 
 .\" FILES
@@ -187,65 +217,89 @@ X11 sessions.
 .I /etc/jettison/users/<user>
 - User permissions, don't want them to have unrestricted access to
 these resources.
-.PP
+.P
 .I /etc/jettison/blacklist
 - System calls to be used for --blacklist argument.
-.PP
+.P
 .I /opt/pods/<user>
 - Directory containing users pod roots.
 
 
 .\" PERMISSIONS
 .SH USER PERMISSIONS FILE
-.RS
+
 .B newpts
 - allow user to create newpts instances.
-.PP
+.P
 .B netdev
 .RI < interface >
 - underlying device for ipvlan and macvlan.
-.PP
+.P
 .B iplimit
 .RI < count >
 - maximum number of ip addresses this user may occupy.
-.PP
+.P
 .B macaddr
 .RI < address >
 - user can occupy this mac address.
-.PP
+.P
 .B ip
 .RI < address >
 - user can occupy this ip address.
+
+
+
+.SH EXAMPLE FILES
+.RS 8
+.SH --------------------------------------------------------------------------
+.B Pod Config
+.RS 8
+newnet macvlan eth0 **:**:**:**:**:** 192.168.0.21/24
+
+file  r   /usr
+
+file  rx  /lib
+
+file  rx  /bin
+
+file  rwd /dev/null
+
+home  r   /.bashrc
+
+seccomp_allow __NR_read
+
+seccomp_allow __NR_write
+.RE
+.P
+.SH --------------------------------------------------------------------------
+.B User Permissions
+.RS 8
+netdev eth0
+
+iplimit 1
+
+macaddr **:**:**:**:**:**
+
+ip 192.168.0.21/24
+.RE
+.P
+.SH --------------------------------------------------------------------------
+.B Blacklist
+.RS 8
+__NR_ptrace
+
+__NR_reboot
+
+etc, etc, etc...
+
 .RE
 
 
-.\" NOTES
-.SH NOTES
-User's pod config directories are not tracked, and is generated using the
-config file name. It's best practice to always use unique pod config names.
-.PP
-It can take a few minutes before a macvlan address will become
-available for use again after process exits.
-.PP
-Ipvlan requires ipv6 kernel.
+.RE
 
-
-
-.SH SEE ALSO
-.BR jettison_destruct (8).
-.BR iptables (8).
-.BR tcpdump (1).
-.BR capabilities (7).
-.BR setcap (8).
-
-
-.SH CUSTOMIZATION
-There are a bunch of defines for changing paths and various other parameters
-see src/defines.h for more details.
 
 .SH HISTORY
-Spun off a minimal "service manager" for low powered systems, and was
-repurposed as a general purpose security sandbox in early 2015
-.SH BUGS
+Spun off a minimal "service manager" for low powered systems in early 2015
+
 .SH AUTHOR
 Michael R. Tirado <mtirado418@gmail.com>

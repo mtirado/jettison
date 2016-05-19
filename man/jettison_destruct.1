@@ -1,0 +1,42 @@
+.\" Copyright (C) 2016 GPL v3.0 Michael R. Tirado <mtirado418@gmail.com>
+.\"
+.\"
+
+
+
+.TH JETTISON_DESTRUCT 1
+.SH NAME
+jettison_destruct \- Destroy root owned pods on behalf of user
+.SH SYNOPSIS
+
+.BI jettison_destruct
+.RI [ pod_name ]\ [ options ]
+.PP
+.B e.g:
+.RS
+jettison_destruct bash1.pod
+
+.\" OPTIONS
+.SH OPTIONS
+.TP
+--zero
+Zero out file contents before unlinking.
+.TP
+--nuke
+Trash file contents before unlinking
+
+.SH DESCRIPTION
+jettison_destruct runs as root group to destroy root owned pod files. These are
+root owned to protect programs that will be gaining file capabilities.
+
+
+.\" NOTES
+.SH NOTES
+You can supply optional iteration count after --zero or --nuke.
+.PP
+
+.SH SEE ALSO
+.SH HISTORY
+.SH BUGS
+.SH AUTHOR
+Michael R. Tirado <mtirado418@gmail.com>
