@@ -2,8 +2,6 @@
 .\"
 .\"
 
-
-
 .TH JETTISON_DESTRUCT 1
 .SH NAME
 jettison_destruct \- Destroy root owned pods on behalf of user
@@ -26,8 +24,10 @@ Zero out file contents before unlinking.
 Trash file contents before unlinking
 
 .SH DESCRIPTION
-jettison_destruct runs as root group to destroy root owned pod files. These are
-root owned to protect programs that will be gaining file capabilities.
+jettison_destruct runs as root group to destroy the pod files that are
+root owned to protect programs with file capabilities, and to prevent
+user from doing unexpected things with system paths that we assume are
+under root control.
 
 
 .\" NOTES

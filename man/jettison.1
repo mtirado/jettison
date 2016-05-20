@@ -2,8 +2,6 @@
 .\"
 .\"
 
-
-
 .TH JETTISON 1
 .SH NAME
 jettison \- launch program into a predefined chroot environment with a new
@@ -14,35 +12,50 @@ mount namespace, pid namespace, and optional net namespace.
 .RI [ program_path ] \  [ pod_config ] \  [ options ] \ [program_arguments... ]
 .P
 .I program_path
-is the absolute path to program,
+is the full path to program,
 .I pod_config
 file defines the new environment, and
 .I options
 are described below.
 .I program_arguments
-start at the first unrecognized option and get passed to program on exec.
+start at the first unrecognized option and are passed to program on execve.
 
 .B e.g:
 .RS
 jettison /bin/bash ~/podconfigs/bash1.pod
 .P
 jettison /bin/bash ~/podconfigs/bash2.pod --lognet 0 0 --strict
+.P
+jettison /bin/echo ~/podconfigs/echo.pod 'argument 1'
 .RE
 
 .\"JETTISON OPTIONS
 .SH OPTIONS
-.TP
 --procname, -p
-Set name of process
-.TP
+.RI [ process_name ]
+.RS
+Set name of process at argv[0] before calling execve.
+.RE
+.P
+
 --strict
-Seccomp kills process
-.TP
+.RS
+Seccomp rejection kills process.
+.RE
+.P
+
 --tracecalls
+.RS
 Count each system call made and generate an optimized seccomp whitelist.
-.TP
---lognet <size> <count>
-Generate logs of newnet ip/macvlan traffic using seperately sandboxed tcpdump
+.RE
+.P
+
+--lognet
+.RI [ size ]\ [ count ]
+.RS
+Generate logs of
+.B newnet
+ip/macvlan traffic using seperately sandboxed tcpdump
 program. Both arguments must be supplied. Log files are stored in a uniquely
 named directory at current working directory.
 .I size
@@ -54,31 +67,52 @@ is 0 the log file is indefinitely incremented when it reaches
 bytes. If
 .I count
 is 2 or greater tcpdump will rotate between that many log files.
+.RE
+.P
 
-.TP
 --logoutput
+.RS
 Write stdout and stderr to time stamped log file at current working directory.
-.TP
+.RE
+.P
+
 --daemon
+.RS
 Disconnects controlling terminal and orphans process.
-.TP
+.RE
+.P
+
 --block-new-filters
+.RS
 Seccomp optimization.
-.TP
+.RE
+.P
+
 --blacklist
+.RS
 Replace seccomp rules with the system-wide blacklist.
-.TP
+.RE
+.P
+
 --allow-ptrace
+.RS
 Usually ptrace is disabled unless this option is specified, or using
 --blacklist and __NR_ptrace is missing from blacklist file.
-.TP
+.RE
+.P
+
 --stacksize
-Set stacksize of new cloned thread in kilobytes.
+.RI [ size ]
+.RS
+Set new cloned threads stack
+.I size
+in kilobytes.
+.RE
 
 .SH DESCRIPTION
 
 Launches program into a chroot environment. Typically located somewhere like
-e.g: /opt/pods/user/config.pod/ using current username and pod filename, this
+/opt/pods/user/config.pod/ using current username and pod filename, this
 new root contains the files and directories specified in pod config. A pod's
 /podhome can be accessed by owner for copying files in and out. Pods are
 otherwise root owned and can usually be destroyed using
@@ -90,44 +124,71 @@ in which case the pod seccomp options are completely replaced by
 .IR /etc/jettison/blacklist .
 
 .B Capabilities:
-File capabilities can be allowed with the trade-off of NO_NEW_PRIVS not being
+File capabilities can be permitted with the trade-off of NO_NEW_PRIVS not being
 set, and the capabilities requested will be left in bounding set. This feature
-is optional and can be disabled, see the customization section.
+can be disabled, see the customization section.
 
 .\" POD CONFIG FILE
 .SH POD CONFIG OPTIONS
 
 .\" file
-.TP
 .B file
-.RB [ r | w | x | d | s ]
-</file/path>: Bind mount file into pod with the specified
-remount options. Granting file capability is the only use of
-.BR s uid
-flag.
+.RI [ mount_flags ]\ [ full_path ]
+.RS
+Provide access to file at
+.IR full_path .
+.I mount_flags
+.RB { r | w | x | d | s }
+can be thought of as a new set of access controls in addition to standard DAC:
 .RB ( r )ead,\ ( w )rite,\ e( x )ecute,\ ( d )evice,\ ( s )uid.
-
+.RE
 .\" home
-.TP
+.P
 .B home
-.RB [ r | w | x | d | s ]
-</home/file>: Like the file option, but works relative to home directory instead
+.RI [ mount_flags ]\ [ home_path ]
+.RS
+Like the
+.B file
+option, but works relative to home directory instead
 of system root. e.g: 'home r /.bashrc'.
-
+.RE
 
 .\" seccomp
-.TP
-.BR seccomp_allow \ <__NR_syscall>
+.P
+.B seccomp_allow
+.RI [ syscall_define ]
+.RS
 Add systemcall to seccomp whitelist. If nothing is added to list
 every system call is allowed, except ptrace.
-
-.TP
-.BR seccomp_block \ <__NR_syscall>
+.I syscall_define
+is the system call definition as it appears in linux header file, e.g:
+__NR_read, __NR_write, etc.
+.RE
+.P
+.BR seccomp_block
+.RI [ syscall_define ]
+.RS
 Failed seccomp check returns with errno, useful to prevent --strict killings.
+.RE
+
+.\" capability
+.P
+.BR capability
+.RI [ cap_define ]
+.RS
+Allow process to elevate privilege through files with
+.RB ( s )uid
+.I mount_flag
+set, if that capability is not internally blacklisted by jettison.
+.I cap_define
+is the capability as defined in linux/capability.h, e.g:
+CAP_NET_RAW, CAP_NET_BIND_SERVICE, etc.
+.RE
 
 .\" newnet
-.TP
+.P
 .B newnet
+.RI [ net_type ]
 .RS
 .TP
 .I none
@@ -136,62 +197,67 @@ Create a blank new net namespace.
 .I loop
 New net namespace with loopback set up.
 .TP
-.IR ipvlan \ < device > \  < ipaddr >
+.IR ipvlan \ [ device ] \  [ ipaddr ]
 Create ipvlan interface with same gateway and mac address as
 .IR device ,
-and new static ip address.
+and new static
+.IR ipaddr .
 .TP
-.IR maclan \ < device > \  < macaddr > \  < ipaddr >
+.IR macvlan \ [ device ] \  [ macaddr ] \  [ ipaddr ]
 Create macvlan interface with same gateway as
 .IR device ,
-a new mac address, and new static ip address. You can specify
+a new
+.IR macaddr ,
+and new static
+.IR ipaddr .
+You can specify
 **:**:**:**:**:** to use default mac assigned by the kernel.
 .RE
 
 .\" newpts
-.TP
+.P
 .B newpts
+.RS
 Mount a new pts instance in pod.
-
+.RE
 .\" noproc
-.TP
+.P
 .B noproc
+.RS
 Do not mount /proc filesystem.
+.RE
 
 .\" home_exec
-.TP
+.P
 .B home_exec
+.RS
 Remount /podhome directory with execute flag.
+.RE
 
-.\" capability
-.TP
-.BR capability \ <CAP_NAME>
-Allow process to elevate privilege through files with
-.RB ( s )uid
-flag set, if that capability is not internally blacklisted by jettison.
 
 .\" X11
-.TP
+.P
 .B X11
+.RS
 This does not sandbox X11 in any profound way other than it's intended purpose
-of filtering auth data/socket so pod can only access the current $SCREEN. This
-works assuming system only provides X11 socket through /tmp. So something like
-`startx -- -nolisten local -nolisten tcp` would be the best way to protect your
-X11 sessions.
-
+of filtering auth data/socket so pod can only access the $SCREEN it was
+launched under. This works assuming system only provides X11 socket through
+/tmp. So something like `startx -- -nolisten local -nolisten tcp` would be the
+best way to protect a pod's X11 session.
+.RE
 
 .\" FILES
 .SH FILES
 
-.I /etc/jettison/users/<user>
-- User permissions, don't want them to have unrestricted access to
-these resources.
+
+.B Pod Roots --
+.I /opt/pods/<username>
 .P
+.B User Permissions  --
+.I /etc/jettison/users/<username>
+.P
+.B System-wide Blacklist  --
 .I /etc/jettison/blacklist
-- System calls to be used for --blacklist argument.
-.P
-.I /opt/pods/<user>
-- Directory containing users pod roots.
 
 
 .\" PERMISSIONS
@@ -201,19 +267,19 @@ these resources.
 - allow user to create newpts instances.
 .P
 .B netdev
-.RI < interface >
-- underlying device for ipvlan and macvlan.
+.RI [ interface ]
+- underlying device used for ipvlan and macvlan.
 .P
 .B iplimit
-.RI < count >
+.RI [ count ]
 - maximum number of ip addresses this user may occupy.
 .P
 .B macaddr
-.RI < address >
+.RI [ address ]
 - user can occupy this mac address.
 .P
 .B ip
-.RI < address >
+.RI [ address ]
 - user can occupy this ip address.
 
 
@@ -268,14 +334,18 @@ etc, etc, etc...
 
 .\" NOTES
 .SH NOTES
-User's pod config directories are not tracked, and is generated using the
-config file name. It's best practice to always use unique pod config names.
+The users pod directory is not tracked, and is generated using the config
+file name. Best practice is to always use unique pod config names.
 .P
 It can take a few minutes before a macvlan address will become
 available for use again after process exits.
 .P
 Ipvlan requires ipv6 kernel.
-
+.P
+Some directories are either blacklisted, or can only be mounted as MS_RDONLY.
+.B Pod Roots --
+.I /opt/pods/<username>
+These can be expanded by adding entries to the arrays near the top of src/pod.c
 
 .SH BUGS
 If using --daemon with --logoutput, LD_PRELOAD is used to set stdio to line
