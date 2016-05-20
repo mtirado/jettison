@@ -297,16 +297,13 @@ static int overwrite(char *path, unsigned int leaf_action)
 	for (i = 0; i < blocks; ++i)
 	{
 		if (leaf_action == ACTION_NUKE) {
-			unsigned int z, x;
+			unsigned int z;
 			for (z = 0; z < sizeof(wbuf); ++z)
 			{
 				++block_total;
 				e1 += block_total;
 				wbuf[z] += e1;
-				for (x = 1; x <= 2; ++x)
-				{
-					shuffle_bits(wbuf, sizeof(wbuf), z, x, e1);
-				}
+				shuffle_bits(wbuf, sizeof(wbuf), wbuf[z], z, e1);
 			}
 		}
 do_wrover:
