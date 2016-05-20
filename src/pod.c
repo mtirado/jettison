@@ -76,7 +76,9 @@ static char *g_blacklist_paths[] =
 	"/.Xauthority",
 	"/root",
 	POD_PATH,
-	JETTISON_USERCFG
+	JETTISON_USERCFG,
+	JETTISON_BLACKLIST,
+	IPVLAN_COUNT_LOCKFILE
 };
 #define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
 
