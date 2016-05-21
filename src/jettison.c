@@ -1483,7 +1483,7 @@ static int trace_fork(char **argv)
  */
 int process_user_permissions()
 {
-	enum { IPLIMIT = 0, IP, NEWPTS, DEVICE, MACADDR };
+	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR };
 	char *pwline;
 	char *pwuser;
 	char path[MAX_SYSTEMPATH];
@@ -1548,8 +1548,8 @@ int process_user_permissions()
 		++lncount;
 		if (strncmp(privln, "iplimit ", 8) == 0)
 			type = IPLIMIT;
-		else if (strncmp(privln, "ip ", 3) == 0)
-			type = IP;
+		else if (strncmp(privln, "ipaddr ", 3) == 0)
+			type = IPADDR;
 		else if (strncmp(privln, "netdev ", 7) == 0)
 			type = DEVICE;
 		else if (strncmp(privln, "macaddr ", 8) == 0)
@@ -1583,11 +1583,11 @@ int process_user_permissions()
 			break;
 
 		/* single string parameter */
-		case IP:
+		case IPADDR:
 		case DEVICE:
 		case MACADDR:
-			if (type == IP)
-				param = &privln[3]; /* ip */
+			if (type == IPADDR)
+				param = &privln[7]; /* ipaddr */
 			else if (type == DEVICE)
 				param = &privln[7]; /* netdev */
 			else if (type == MACADDR)
@@ -1616,7 +1616,7 @@ int process_user_permissions()
 			strncpy(str, param, len);
 			str[len] = '\0';
 
-			if (type == IP) {
+			if (type == IPADDR) {
 				if (strncmp(str, netaddr, sizeof(netaddr))==0)
 					ipmatch = 1;
 			}
