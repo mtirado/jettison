@@ -437,14 +437,14 @@ struct sc_translate sc_table[] = {
 /* 3.10 */
 
 /* 4.1 */
-/*{ "__NR_sched_setattr", __NR_sched_setattr },
+{ "__NR_sched_setattr", __NR_sched_setattr },
 { "__NR_sched_getattr", __NR_sched_getattr },
 { "__NR_renameat2", __NR_renameat2 },
 { "__NR_seccomp", __NR_seccomp },
 { "__NR_getrandom", __NR_getrandom },
 { "__NR_memfd_create", __NR_memfd_create },
 { "__NR_bpf", __NR_bpf },
-{ "__NR_execveat", __NR_execveat },*/
+{ "__NR_execveat", __NR_execveat },
 
 /* 4.3 fine grained socket calls */
 /*{ "__NR_socket", __NR_socket },
