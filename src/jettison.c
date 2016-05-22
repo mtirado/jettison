@@ -1519,36 +1519,40 @@ int process_user_permissions()
 		return -1;
 	}
 
-	/* ipvlan needs some constraints */
 	if (g_newnet.kind==ESRTNL_KIND_IPVLAN || g_newnet.kind==ESRTNL_KIND_MACVLAN) {
 		ipvlan_check = 1;
 	}
 	/* re-attach prefix for string compare */
 	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
+
 	/*
-	 *  parse privilege file, read all ip's and iplimit
-	 *  iplimit <number>    - maximum number of ip's user can consume
-	 *  ip <address/prefix> - allow user to use this ip/prefix
-	 *  newpts              - user may create new pts isntances
+	 *  parse privilege file
+	 *  ipaddr  <address/mask> - can occupy this ip/netmask
+	 *  macaddr <address>      - can occupy this macaddr
+	 *  iplimit <count>        - maximum number of ip's user can use.
+	 *  newpts                 - create new pts instances
 	 */
 	while (1)
 	{
 		char str[256];
 		char *param;
 		char *err;
-		char *c;
 		long lim;
 		int type = -1;
 		unsigned int len = 0;
+
 		/* read line */
 		memset(privln, 0, MAX_PRIVLN);
 		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
 			break;
 		}
 		++lncount;
+		if (chop_trailing(privln, sizeof(privln), '\n'))
+			goto print_errline;
+		/* keyword */
 		if (strncmp(privln, "iplimit ", 8) == 0)
 			type = IPLIMIT;
-		else if (strncmp(privln, "ipaddr ", 3) == 0)
+		else if (strncmp(privln, "ipaddr ", 7) == 0)
 			type = IPADDR;
 		else if (strncmp(privln, "netdev ", 7) == 0)
 			type = DEVICE;
@@ -1557,7 +1561,7 @@ int process_user_permissions()
 		else if (strncmp(privln, "newpts", 6) == 0)
 			type = NEWPTS;
 		else {
-			printf("invalid keyword: %s\n", privln);
+			printf("bad keyword or missing parameter: %s\n", privln);
 			goto print_errline;
 		}
 
@@ -1571,8 +1575,6 @@ int process_user_permissions()
 				printf("duplicate limit entries\n");
 				goto print_errline;
 			}
-			if (chop_trailing(privln, sizeof(privln), '\n'))
-				goto print_errline;
 			errno = 0;
 			lim = strtol(param, &err, 10);
 			if (err == NULL || *err || errno || lim <= 0) {
@@ -1594,20 +1596,18 @@ int process_user_permissions()
 				param = &privln[8]; /* macaddr */
 			else
 				goto print_errline;
-			c = param;
-			len = 0;
 
 			/* get string length */
+			len = 0;
 			while (1)
 			{
-				if (*c == '\0' || *c == '\n') {
+				if (param[len] == '\0' || param[len] == '\n') {
 					break;
 				}
 				if (++len >= sizeof(str)) {
 					printf("param len error\n");
 					goto print_errline;
 				}
-				++c;
 			}
 			if (len == 0) {
 				goto print_errline;
