@@ -370,7 +370,8 @@ static int check_blacklisted(char *path)
 		if (len >= MAX_SYSTEMPATH)
 			return -1;
 		if (strncmp(path, g_blacklist_paths[i], len) == 0) {
-			return 1;
+			if (path[len] <= 32) /* space */
+				return 1;
 		}
 
 	}
