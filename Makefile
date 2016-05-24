@@ -14,9 +14,6 @@ JETTISON_LIBS := -lXau
 #newnet namespace device hookups. you may want to roll your own if
 #allowing random users to run jettison, some of these obtain new net
 #resources. ip address, mac address, ip forwarding on a bridge, etc.
-
-# XXX this is experimental right now until we can manage
-# network resources (ip/mac addr's) we hand out to user.
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
