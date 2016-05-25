@@ -455,7 +455,7 @@ int jettison_clone_func(void *data)
 			return -1;
 #ifdef PODROOT_HOME_OVERRIDE
 		if (execve(((char **)data)[1], ((char **)data)+2, environ) < 0)
-			printf("jettison_init exec error: %s\n", strerror(errno));
+			printf("execv failure: %s\n", strerror(errno));
 #else
 		if (execve(INIT_PATH, (char **)data, environ) < 0)
 			printf("jettison_init exec error: %s\n", strerror(errno));
