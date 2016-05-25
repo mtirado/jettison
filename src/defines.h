@@ -10,6 +10,8 @@
  *  -DX11OPT            -- x11 support
  *  -DNEWNET_IPVLAN     -- can create ipvlans
  *  -DNEWNET_MACVLAN    -- can create macvlans
+ *  -DPODROOT_HOME_OVERRIDE -- developer hack to let user control podroot directories.
+ *
  *  TODO there are possibly more
  */
 
