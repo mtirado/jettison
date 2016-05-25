@@ -17,6 +17,8 @@ JETTISON_LIBS := -lXau
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
+# for system building, this should NOT be compiled by default, please.
+#DEFINES += -DPODROOT_HOME_OVERRIDE
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 DEFLANG := -ansi

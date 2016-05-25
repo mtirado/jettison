@@ -510,18 +510,14 @@ static int prep_bind(struct path_node *node)
 		return -1;
 
 	/* create home paths as user */
-	if (node->nodeflags & NODE_HOME) {
+	if (node->nodetype == NODE_HOME) {
 		setuid(g_ruid);
 	}
 
 	src = node->src;
 	dest = node->dest;
 
-	if (node->nodeflags & NODE_HOMEROOT) {
-		if (node->nodeflags & NODE_HOME)
-			return -1;
-	}
-	else if (eslib_file_path_check(src) || eslib_file_path_check(dest)) {
+	if (eslib_file_path_check(src) || eslib_file_path_check(dest)) {
 		return -1;
 	}
 	if (strncmp(dest, g_chroot_path, strnlen(g_chroot_path, MAX_SYSTEMPATH-1))) {
@@ -575,7 +571,7 @@ static int prep_bind(struct path_node *node)
 		}
 	}
 
-	if (node->nodeflags & NODE_HOME) {
+	if (node->nodetype == NODE_HOME) {
 		if (setuid(0)) {
 			printf("setuid: %s\n", strerror(errno));
 			return -1;
@@ -585,7 +581,7 @@ static int prep_bind(struct path_node *node)
 }
 
 /* user is mounting entire $HOME to /podhome */
-static int create_homeroot(unsigned long mntflags, unsigned long nodeflags)
+static int create_homeroot(unsigned long mntflags, unsigned long nodetype)
 {
 	struct path_node *node;
 	char *homepath;
@@ -607,7 +603,7 @@ static int create_homeroot(unsigned long mntflags, unsigned long nodeflags)
 	node->srclen = strnlen(node->src, MAX_SYSTEMPATH-1);
 	node->destlen = strnlen(node->dest, MAX_SYSTEMPATH-1);
 	node->mntflags = mntflags;
-	node->nodeflags = nodeflags|NODE_HOMEROOT;
+	node->nodetype = nodetype;
 	g_homeroot = node;
 	return 0;
 }
@@ -621,6 +617,7 @@ int create_pathnode(char *params, size_t size, int home)
 	struct path_node *node;
 	unsigned int i, len;
 	unsigned long remountflags;
+	unsigned long nodetype = 0;
 	char c;
 
 	if (params == NULL || size == 0)
@@ -637,6 +634,8 @@ int create_pathnode(char *params, size_t size, int home)
 			| MS_NOSUID
 			| MS_NODEV
 			| MS_UNBINDABLE;
+	if (home)
+		nodetype = NODE_HOME;
 
 	/* read mount permissions from parameters */
 	for (i = 0; i < size; ++i)
@@ -670,6 +669,12 @@ int create_pathnode(char *params, size_t size, int home)
 				remountflags &= ~MS_NODEV;
 				break;
 			default:
+#ifdef PODROOT_HOME_OVERRIDE
+			if (home && c == 'R') {
+				nodetype = NODE_PODROOT_HOME_OVERRIDE;
+				break;
+			}
+#endif
 				goto bad_param;
 		}
 	}
@@ -690,18 +695,20 @@ int create_pathnode(char *params, size_t size, int home)
 
 	path = &params[i];
 
-	if (path[1] != '\0') {
-		/* eslib doesn't want trailing slashes */
-		if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+
+	/* check for case where user mounts entire home into pod */
+	if (path[0] == '/' && path[1] == '\0') {
+		if (!home) {
+			printf("cannot mount filesystem root directory\n");
 			return -1;
+		}
+		else {
+			return create_homeroot(remountflags, 0);
+		}
 	}
-	else if (!home) {
-		printf("cannot mount filesystem root directory\n");
+	/* eslib doesn't want trailing slashes */
+	if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
 		return -1;
-	}
-	else {
-		return create_homeroot(remountflags, 0);
-	}
 
 	if (eslib_file_path_check(path)) {
 		printf("bad path\n");
@@ -712,15 +719,27 @@ int create_pathnode(char *params, size_t size, int home)
 		return -1;
 	}
 
-	/* setup mount assuming / == /$HOME/user to be mounted in /podhome
+	/* setup mount as / == /$HOME/user/ to be mounted at /podhome
 	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
 	 */
 	if (home) {
 		homepath = gethome();
 		if (homepath == NULL)
 			return -1;
-		snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
-		snprintf(dest, MAX_SYSTEMPATH-1, "%s/podhome%s", g_chroot_path, path);
+
+		if (nodetype != NODE_PODROOT_HOME_OVERRIDE) {
+			snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
+			snprintf(dest, MAX_SYSTEMPATH-1, "%s/podhome%s",
+					g_chroot_path, path);
+		}
+		else {
+#ifdef PODROOT_HOME_OVERRIDE
+			snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
+			snprintf(dest, MAX_SYSTEMPATH-1, "%s%s", g_chroot_path, path);
+#else
+			return -1;
+#endif
+		}
 	}
 	else { /* setup mount normally */
 		strncpy(src , path, MAX_SYSTEMPATH-1);
@@ -756,9 +775,7 @@ int create_pathnode(char *params, size_t size, int home)
 	node->dest[len] = '\0';
 	node->destlen = len;
 
-	if (home) {
-		node->nodeflags |= NODE_HOME;
-	}
+	node->nodetype = nodetype;
 	node->mntflags = remountflags;
 	node->next = g_mountpoints;
 	g_mountpoints = node;
@@ -833,6 +850,63 @@ static struct path_node *get_pathnode(char *path)
 	return ret;
 }
 
+static int do_podroot_home_override()
+{
+#ifdef PODROOT_HOME_OVERRIDE
+	struct path_node *n, *prev, *tmp;
+	struct path_node *ovr_list = NULL;
+	if (g_mountpoints == NULL)
+		return -1;
+
+	/* enumerate override nodes */
+	n = g_mountpoints;
+	while (n)
+	{
+		if (n->nodetype == NODE_PODROOT_HOME_OVERRIDE) {
+			tmp = malloc(sizeof(struct path_node));
+			if (tmp == NULL) {
+				return -1;
+			}
+			memcpy(tmp, n, sizeof(struct path_node));
+			tmp->next = ovr_list;
+			ovr_list = tmp;
+		}
+		n = n->next;
+	}
+
+	/* remove nodes that are being replaced */
+	while (ovr_list)
+	{
+		n = g_mountpoints;
+		prev = NULL;
+		while (n)
+		{
+			if (strncmp(ovr_list->dest, n->dest, n->destlen+1) == 0
+					&& n->nodetype != NODE_PODROOT_HOME_OVERRIDE) {
+				if (prev == NULL) {
+					g_mountpoints = n->next;
+				}
+				else {
+					prev->next = n->next;
+				}
+				tmp = n->next;
+				free(n);
+				n = tmp;
+			}
+			else {
+				prev = n;
+				n = n->next;
+			}
+		}
+		tmp = ovr_list;
+		ovr_list = tmp->next;
+		free(tmp);
+	}
+
+#endif
+	return 0;
+}
+
 /* sort mountpoints by length
  *
  * sort paths shortest to longest and check for duplicate entries.
@@ -879,9 +953,12 @@ static int prepare_mountpoints()
 			printf("couldn't create rdonly path(%s)\n", opt);
 			return -1;
 		}
-		g_mountpoints->nodeflags |= NODE_EMPTY;
+		g_mountpoints->nodetype = NODE_EMPTY;
 		printf("rdonly node marked as empty: %s\n", opt);
 	}
+
+	if (do_podroot_home_override())
+		return -1;
 
 	/* sort mountpoints in hierarchical order */
 	count = 0;
@@ -1513,7 +1590,7 @@ static int pass2_finalize()
 	memset(&tnode, 0, sizeof(tnode));
 	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
-	tnode.nodeflags = NODE_EMPTY;
+	tnode.nodetype = NODE_EMPTY;
 	if (pathnode_bind(&tnode)) {
 		printf("pathnode_bind(%s, %s) failed\n", tnode.src, tnode.dest);
 		return -1;

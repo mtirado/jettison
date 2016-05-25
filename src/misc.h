@@ -35,13 +35,14 @@ struct user_privs {
 #define NODE_HOME     1 /* node created using home option */
 #define NODE_EMPTY    2 /* mounted on itself(dest/dest) instead of (src/dest)*/
 #define NODE_HOMEROOT 4 /* home root is a special case that must be sorted */
+#define NODE_PODROOT_HOME_OVERRIDE 8 /* dev hack that gives user control over pod root */
 struct path_node
 {
 	struct path_node *next;
 	char src[MAX_SYSTEMPATH];
 	char dest[MAX_SYSTEMPATH];
 	unsigned long mntflags;
-	unsigned long nodeflags;
+	unsigned long nodetype;
 	/* strlens, no null terminator */
 	unsigned int srclen;
 	unsigned int destlen;
