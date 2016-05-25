@@ -1014,10 +1014,36 @@ static int prepare_mountpoints()
 }
 
 #ifdef X11OPT
+static int do_X11_socketbind(char *displaynum)
+{
+	struct path_node xsock;
+
+	memset(&xsock, 0, sizeof(xsock));
+	/* bind mount X11 socket into pod */
+	snprintf(xsock.src, MAX_SYSTEMPATH,
+			"/tmp/.X11-unix/X%s", displaynum);
+	snprintf(xsock.dest, MAX_SYSTEMPATH,
+			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
+	xsock.mntflags = MS_UNBINDABLE;
+	if (prep_bind(&xsock)) {
+		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	setuid(0);
+	if (pathnode_bind(&xsock)) {
+		printf("pathnode_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	if (chown(xsock.dest, g_ruid, g_rgid)) {
+		printf("error setting x11 socket group\n");
+		return -1;
+	}
+	return 0;
+}
+
 static int X11_hookup()
 {
 	char newpath[MAX_SYSTEMPATH];
-	struct path_node xsock;
 	char displaynum[24];
 	char *start = NULL;
 	char *end = NULL;
@@ -1027,8 +1053,8 @@ static int X11_hookup()
 	char *display = eslib_proc_getenv("DISPLAY");
 	int dlen;
 	int found = 0;
-	setuid(g_ruid);
 
+	setuid(g_ruid);
 	if (xauth_file == NULL) {
 		printf("missing XAUTHORITY env var\n");
 		return -1;
@@ -1061,6 +1087,22 @@ static int X11_hookup()
 		goto disp_err;
 	strncpy(displaynum, start, dlen);
 	displaynum[dlen] = '\0';
+
+	/* don't bother trying to copy auth file if mounting entire dir */
+	if (g_homeroot->nodetype != NODE_EMPTY) {
+		printf("------------------------------------------------------------\n");
+		printf("WARNING: you are mounting entire home directory with X11\n");
+		printf("option selected. this will leak X11 auth data for every\n");
+		printf("screen this user controls. if you only use a single X11\n");
+		printf("screen, this is no problem.\n");
+		printf("\n");
+		printf("if user has many screens, this could be bad depending on\n");
+		printf("where the X11 sockets are listening. you should make sure\n");
+		printf("socket is only available through /tmp. it is best practice\n");
+		printf("to avoid mounting entire home directory.\n");
+		printf("------------------------------------------------------------\n");
+		return do_X11_socketbind(displaynum);
+	}
 
 	snprintf(newpath, sizeof(newpath),
 			"%s/podhome/.Xauthority", g_chroot_path);
@@ -1102,27 +1144,8 @@ static int X11_hookup()
 	fclose(fin);
 	fclose(fout);
 
-	memset(&xsock, 0, sizeof(xsock));
-	/* bind mount X11 socket into pod */
-	snprintf(xsock.src, MAX_SYSTEMPATH,
-			"/tmp/.X11-unix/X%s", displaynum);
-	snprintf(xsock.dest, MAX_SYSTEMPATH,
-			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
-	xsock.mntflags = MS_UNBINDABLE;
-	if (prep_bind(&xsock)) {
-		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
-		return -1;
-	}
-	setuid(0);
-	if (pathnode_bind(&xsock)) {
-		printf("pathnode_bind(%s, %s) failed\n", xsock.src, xsock.dest);
-		return -1;
-	}
-	if (chown(xsock.dest, g_ruid, g_rgid)) {
-		printf("error setting x11 socket group\n");
-		return -1;
-	}
-	return 0;
+	/* sets uid back to 0 */
+	return do_X11_socketbind(displaynum);
 
 disp_err:
 	printf("DISPLAY env error\n");
@@ -1569,6 +1592,7 @@ static int pass1_finalize()
 			return -1;
 		}
 	}
+	/* g_homeroot must always exist after pass1 */
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
 
