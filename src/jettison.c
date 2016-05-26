@@ -1224,7 +1224,7 @@ static int relay_io(int stdout_logfd)
 			/* read input from our side, and buffer it */
 			if (FD_ISSET(ours, &rds)) {
 				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
-				if (r == -1) {
+				if (r == -1 || r == 0) {
 					goto fatal;
 				}
 				wbytes = r;

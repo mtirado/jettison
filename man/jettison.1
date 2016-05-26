@@ -3,9 +3,16 @@
 .\"
 
 .TH JETTISON 1
+
+
+.\" NAME
 .SH NAME
+
 jettison \- launch program into a predefined chroot environment with a new
 mount namespace, pid namespace, and optional net namespace.
+
+
+.\" SYNOPSIS
 .SH SYNOPSIS
 
 .BI jettison
@@ -29,8 +36,10 @@ jettison /bin/bash ~/podconfigs/bash2.pod --lognet 0 0 --strict
 jettison /bin/echo ~/podconfigs/echo.pod 'argument 1'
 .RE
 
-.\"JETTISON OPTIONS
+
+.\" OPTIONS
 .SH OPTIONS
+
 --procname, -p
 .RI [ process_name ]
 .RS
@@ -109,6 +118,8 @@ Set new cloned threads stack
 in kilobytes.
 .RE
 
+
+.\" DESCRIPTION
 .SH DESCRIPTION
 
 Launches program into a chroot environment. Typically located somewhere like
@@ -128,6 +139,7 @@ File capabilities can be permitted with the trade-off of NO_NEW_PRIVS not being
 set, and the capabilities requested will be left in bounding set. This feature
 can be disabled, see the customization section.
 
+
 .\" POD CONFIG FILE
 .SH POD CONFIG OPTIONS
 
@@ -142,6 +154,7 @@ Provide access to file at
 can be thought of as a new set of access controls in addition to standard DAC:
 .RB ( r )ead,\ ( w )rite,\ e( x )ecute,\ ( d )evice,\ ( s )uid.
 .RE
+
 .\" home
 .P
 .B home
@@ -220,6 +233,7 @@ You can specify
 .RS
 Mount a new pts instance in pod.
 .RE
+
 .\" noproc
 .P
 .B noproc
@@ -234,7 +248,6 @@ Do not mount /proc filesystem.
 Remount /podhome directory with execute flag.
 .RE
 
-
 .\" X11
 .P
 .B X11
@@ -246,9 +259,9 @@ launched under. This works assuming system only provides X11 socket through
 best way to protect a pod's X11 session.
 .RE
 
+
 .\" FILES
 .SH FILES
-
 
 .B Pod Roots --
 .I /opt/pods/<username>
@@ -283,7 +296,7 @@ best way to protect a pod's X11 session.
 - user can occupy this ip address.
 
 
-
+.\" EXAMPLES
 .SH EXAMPLE FILES
 .RS 8
 .SH --------------------------------------------------------------------------
@@ -326,40 +339,44 @@ __NR_ptrace
 __NR_reboot
 
 etc, etc, etc...
-
+.RE
 .RE
 
-
-.RE
 
 .\" NOTES
 .SH NOTES
+
 The users pod directory is not tracked, and is generated using the config
 file name. Best practice is to always use unique pod config names.
 .P
-It can take a few minutes before a macvlan address will become
-available for use again after process exits.
-.P
-Ipvlan requires ipv6 kernel.
-.P
 Some directories are either blacklisted, or can only be mounted as MS_RDONLY.
-.B Pod Roots --
-.I /opt/pods/<username>
 These can be expanded by adding entries to the arrays near the top of src/pod.c
+.P
+jettison uses an init program and sets seccomp filter before exec, so the
+following system calls are effectively unblockable: sigaction, sigreturn,
+clone, waitpid, kill, nanosleep, exit, exit_group, execve.
 
+
+.\" BUGS
 .SH BUGS
+
 If using --daemon with --logoutput, LD_PRELOAD is used to set stdio to line
 buffered mode since it is piped and not a regular log file. If the daemon
 uses file capabilites this will not be allowed for security reasons, so you
 may have to patch these daemons yourself to write in line buffered mode or
 there will be log data loss.
 
+
+.\" CUSTOMIZATION
 .SH CUSTOMIZATION
+
 There are a bunch of defines for changing paths and various other parameters
 see src/defines.h and makefile for more details.
 
 
+.\" SEE ALSO
 .SH SEE ALSO
+
 .BR jettison_destruct (1).
 .BR iptables (8).
 .BR tcpdump (1).
@@ -368,9 +385,15 @@ see src/defines.h and makefile for more details.
 .BR prctl (2).
 
 
-
+.\" HISTORY
 .SH HISTORY
-Spun off a minimal "service manager" for low powered systems in early 2015
 
+Spun off a minimal service-manager for low powered dev boards in early 2015.
+
+
+.\" AUTHOR
 .SH AUTHOR
+
 Michael R. Tirado <mtirado418@gmail.com>
+
+
