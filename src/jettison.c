@@ -454,7 +454,7 @@ int jettison_clone_func(void *data)
 		if (print_options())
 			return -1;
 #ifdef PODROOT_HOME_OVERRIDE
-		if (execve(((char **)data)[1], ((char **)data)+2, environ) < 0)
+		if (execve(((char **)data)[1], ((char **)data)+1, environ) < 0)
 			printf("execv failure: %s\n", strerror(errno));
 #else
 		if (execve(INIT_PATH, (char **)data, environ) < 0)
@@ -959,10 +959,8 @@ static int fillbuf(int fd, char *buf, unsigned int size)
 	while (1)
 	{
 		r = read(fd, buf, size);
-		if (r > 0)
+		if (r >= 0)
 			return r;
-		else if (r == 0)
-			break;
 		else if (r < 0 && errno == EAGAIN)
 			break;
 		else if (r < 0 && errno == EINTR)
@@ -1206,16 +1204,6 @@ static int relay_io(int stdout_logfd)
 					continue;
 				}
 			}
-			/* read input from our side, and buffer it */
-			if (FD_ISSET(ours, &rds)) {
-				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
-				if (r == -1) {
-					goto fatal;
-				}
-				wbytes = r;
-				wpos = 0;
-			}
-
 			/* read output from their side and print it */
 			if (FD_ISSET(theirs, &rds)) {
 				r = fillbuf(theirs, rbuf, sizeof(rbuf)-1);
@@ -1232,6 +1220,15 @@ static int relay_io(int stdout_logfd)
 						}
 					}
 				}
+			}
+			/* read input from our side, and buffer it */
+			if (FD_ISSET(ours, &rds)) {
+				r = fillbuf(ours, wbuf, sizeof(wbuf)-1);
+				if (r == -1) {
+					goto fatal;
+				}
+				wbytes = r;
+				wpos = 0;
 			}
 		}
 	}
