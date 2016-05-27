@@ -1017,8 +1017,11 @@ static int prepare_mountpoints()
 static int do_X11_socketbind(char *displaynum)
 {
 	struct path_node xsock;
+	char destdir[MAX_SYSTEMPATH];
 
 	memset(&xsock, 0, sizeof(xsock));
+	memset(&destdir, 0, sizeof(destdir));
+
 	/* bind mount X11 socket into pod */
 	snprintf(xsock.src, MAX_SYSTEMPATH,
 			"/tmp/.X11-unix/X%s", displaynum);
@@ -1029,7 +1032,15 @@ static int do_X11_socketbind(char *displaynum)
 		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
 	}
-	setuid(0);
+	snprintf(destdir, MAX_SYSTEMPATH, "%s/tmp/.X11-unix", g_chroot_path);
+	if (chown(destdir, 0, 0)) {
+		printf("chown: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chmod(destdir, 01777)) {
+		printf("chmod: %s\n", strerror(errno));
+		return -1;
+	}
 	if (pathnode_bind(&xsock)) {
 		printf("pathnode_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
@@ -1038,6 +1049,7 @@ static int do_X11_socketbind(char *displaynum)
 		printf("error setting x11 socket group\n");
 		return -1;
 	}
+
 	return 0;
 }
 
@@ -1101,6 +1113,7 @@ static int X11_hookup()
 		printf("socket is only available through /tmp. it is best practice\n");
 		printf("to avoid mounting entire home directory.\n");
 		printf("------------------------------------------------------------\n");
+		setuid(0);
 		return do_X11_socketbind(displaynum);
 	}
 
@@ -1144,7 +1157,7 @@ static int X11_hookup()
 	fclose(fin);
 	fclose(fout);
 
-	/* sets uid back to 0 */
+	setuid(0);
 	return do_X11_socketbind(displaynum);
 
 disp_err:
