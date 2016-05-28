@@ -253,7 +253,7 @@ Remount /podhome directory with execute flag.
 .B X11
 .RS
 This does not sandbox X11 in any profound way other than it's intended purpose
-of filtering auth data/socket so pod can only access the $SCREEN it was
+of filtering auth data/socket so pod can only access the $DISPLAY it was
 launched under. This works assuming system only provides X11 socket through
 /tmp. So something like `startx -- -nolisten local -nolisten tcp` would be the
 best way to protect a pod's X11 session.
