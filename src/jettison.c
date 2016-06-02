@@ -43,6 +43,10 @@
 #define MAX_PROCNAME 17
 #define MAX_OPTLEN 32
 
+#ifdef X11OPT
+	extern char *x11meta_setup(char *x11meta);
+#endif
+
 extern char **environ;
 extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
 extern int netns_setup(); /* netns_helper.c */
@@ -122,7 +126,7 @@ char *jettison_get_newroot()
 	return g_newroot;
 }
 
-static int create_nullspace()
+int create_nullspace()
 {
 	memset(g_nullspace, 0, sizeof(g_nullspace));
 	snprintf(g_nullspace, sizeof(g_nullspace), "%s/.nullspace", POD_PATH);
@@ -148,7 +152,7 @@ static int create_nullspace()
 		printf("could not create: %s\n", g_nullspace);
 		return -1;
 	}
-	chmod(g_nullspace, 0755);
+	chmod(g_nullspace, 0555);
 	return 0;
 }
 
@@ -389,12 +393,25 @@ int jettison_clone_func(void *data)
 	}
 	close(g_pty_notify[1]);
 
+
+#ifdef X11OPT
+	/* TODO add Xnest, it's not working right now
+	 * i have a really weird setup at the moment. */
+	if (g_podflags & (1 << OPTION_XEPHYR)) {
+		/* setup nested server */
+		if (x11meta_setup("xephyr")) {
+			printf("couldn't set up x11 meta display\n");
+			return -1;
+		}
+	}
+#endif
+
 	/* enter pod environment */
 	if (jettison_initiate()) {
 		return -1;
 	}
-
 	change_environ();
+
 	/* either call func, or exec */
 	if (g_entry) {
 		return -1; /* TODO g_entry(data);*/

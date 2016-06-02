@@ -20,6 +20,7 @@ enum
 	OPTION_HOME_EXEC,
 #ifdef X11OPT
 	OPTION_X11,
+	OPTION_XEPHYR,
 #endif
 	/*
 	 * anything above here is a pod flag that caller

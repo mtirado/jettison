@@ -1,7 +1,5 @@
 /* (c) Michael R. Tirado -- GPLv3 -- Gnu General Public License version 3
  *
- * namespace init.
- *
  * we register at least SIGTERM to let a user gracefully shut down entire
  * running pod without any messy plumbing. give programs 10 seconds to exit
  * before pid1 exits.
@@ -26,8 +24,10 @@
 #define MAX_PROCNAME 17
 
 extern char **environ;
+
 char g_procname[MAX_PROCNAME];
 sig_atomic_t terminating;
+
 static void sighand(int signum)
 {
 	switch (signum)
@@ -96,6 +96,7 @@ re_sleep:
 	kill(-1, SIGKILL);
 	_exit(0);
 }
+
 
 /* arg[1] should be full program path */
 int main(int argc, char *argv[])

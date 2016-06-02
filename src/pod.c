@@ -31,6 +31,10 @@
 
 #ifdef X11OPT
 	#include <X11/Xauth.h>
+	extern char *x11get_displaynum(char *display, unsigned int *outlen);
+	extern char g_x11meta_sockdir[MAX_SYSTEMPATH];
+	extern unsigned int g_x11meta_width;
+	extern unsigned int g_x11meta_height;
 #endif
 
 /*
@@ -134,17 +138,19 @@ static char keywords[KWCOUNT][KWLEN] =
 	/*{ "slog"	},*//* pod wants to write to system log */
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
 #ifdef X11OPT
-	{ "X11"         },  /* bind mount X11 socket and generate auth file */
+	{ "x11"         },  /* bind mount X11 socket and generate auth file */
+	{ "xephyr"	},  /* isolate X11 session using Xephyr */
 #endif
-	/* podflags cutoff, don't actually use this... */
-	{ "|||||||||||||" },
-	{ "seccomp_allow" },/* add a syscall to seccomp whitelist.
+
+	{ "- - - - - - -" }, /* cutoff for podflags */
+
+	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
 			       otherwise, everything is allowed. */
-	{ "seccomp_block" },/* block syscall without sigkill (if using --strict) */
-	{ "file"        },  /* bind mount file with options w,r,x,d,s */
-	{ "home"	},  /* ^  -- but $HOME/file is rooted in /podhome  */
-	{ "capability"	},  /* allow file capability in bounding set */
-	{ "machine-id"	},  /* specify or generate a /etc/machine-id string */
+	{ "seccomp_block" }, /* block syscall without sigkill (if using --strict) */
+	{ "file"          }, /* bind mount file with options w,r,x,d,s */
+	{ "home"	  }, /* ^  -- but $HOME/file is rooted in /podhome  */
+	{ "capability"	  }, /* leave capability in bounding set */
+	{ "machine-id"	  }, /* specify or generate a /etc/machine-id string */
 };
 
 static void free_pathnodes()
@@ -194,6 +200,11 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		printf("MAX_SYSTEMPATH is too small (<256)\n");
 		return -1;
 	}
+
+#ifdef X11OPT
+	g_x11meta_width = 0;
+	g_x11meta_height = 0;
+#endif
 
 	g_podflags = 0;
 	g_allow_dev = 0;
@@ -1014,22 +1025,30 @@ static int prepare_mountpoints()
 }
 
 #ifdef X11OPT
-static int do_X11_socketbind(char *displaynum)
+static int do_x11_socketbind(char *socket_src, char *socket_dest)
 {
 	struct path_node xsock;
 	char destdir[MAX_SYSTEMPATH];
 
 	memset(&xsock, 0, sizeof(xsock));
-	memset(&destdir, 0, sizeof(destdir));
+	memset(destdir, 0, sizeof(destdir));
+
+	if (!socket_src || !socket_dest)
+		return -1;
 
 	/* bind mount X11 socket into pod */
-	snprintf(xsock.src, MAX_SYSTEMPATH,
-			"/tmp/.X11-unix/X%s", displaynum);
-	snprintf(xsock.dest, MAX_SYSTEMPATH,
-			"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum);
+	strncpy(xsock.src,  socket_src, sizeof(xsock.src));
+	strncpy(xsock.dest, socket_dest, sizeof(xsock.dest));
+	xsock.src[sizeof(xsock.src)-1] = '\0';
+	xsock.dest[sizeof(xsock.dest)-1] = '\0';
+
 	xsock.mntflags = MS_UNBINDABLE;
 	if (prep_bind(&xsock)) {
 		printf("prep_bind(%s, %s) failed\n", xsock.src, xsock.dest);
+		return -1;
+	}
+	if (chown(xsock.dest, g_ruid, 0)) {
+		printf("error setting x11 socket group\n");
 		return -1;
 	}
 	snprintf(destdir, MAX_SYSTEMPATH, "%s/tmp/.X11-unix", g_chroot_path);
@@ -1045,60 +1064,59 @@ static int do_X11_socketbind(char *displaynum)
 		printf("pathnode_bind(%s, %s) failed\n", xsock.src, xsock.dest);
 		return -1;
 	}
-	if (chown(xsock.dest, g_ruid, g_rgid)) {
-		printf("error setting x11 socket group\n");
-		return -1;
-	}
 
 	return 0;
+}
+
+static int x11meta_hookup(char *sock_src, char *sock_dest, char *displaynum)
+{
+	snprintf(sock_src, MAX_SYSTEMPATH, "%s/X%s", g_x11meta_sockdir, displaynum);
+	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X0", g_chroot_path);
+	if (eslib_proc_setenv("DISPLAY", ":0.0")) {
+		return -1;
+	}
+	return do_x11_socketbind(sock_src, sock_dest);
 }
 
 static int X11_hookup()
 {
 	char newpath[MAX_SYSTEMPATH];
-	char displaynum[24];
-	char *start = NULL;
-	char *end = NULL;
+	char sock_src[MAX_SYSTEMPATH];
+	char sock_dest[MAX_SYSTEMPATH];
+	char *displaynum;
 	Xauth *xau = NULL;
 	FILE *fin, *fout;
 	char *xauth_file = eslib_proc_getenv("XAUTHORITY");
 	char *display = eslib_proc_getenv("DISPLAY");
-	int dlen;
+	unsigned int dlen;
 	int found = 0;
+
+	memset(newpath, 0, MAX_SYSTEMPATH);
+	memset(sock_src, 0, MAX_SYSTEMPATH);
+	memset(sock_dest, 0, MAX_SYSTEMPATH);
+
+	displaynum = x11get_displaynum(display, &dlen);
+	if (displaynum == NULL)
+		goto disp_err;
+
+	if (g_x11meta_sockdir[0] != '\0') {
+		return x11meta_hookup(sock_src, sock_dest, displaynum);
+	}
 
 	setuid(g_ruid);
 	if (xauth_file == NULL) {
 		printf("missing XAUTHORITY env var\n");
 		return -1;
 	}
-	if (display == NULL) {
-		printf("missing DISPLAY env var\n");
-		return -1;
-	}
 	if (eslib_file_path_check(xauth_file)) {
 		printf("XAUTHORITY bad path\n");
 		return -1;
 	}
-	/* extract xauth display number from env var */
-	start = display;
-	if (*start != ':')
-		goto disp_err;
-	end = ++start;
-	while(1)
-	{
-		if (*end == '\0')
-			goto disp_err;
-		if (*end == '.')
-			break;
-		++end;
-	}
-	dlen = end - start;
-	if (dlen <= 0)
-		goto disp_err;
-	else if (dlen >= (int)sizeof(displaynum) - 1)
-		goto disp_err;
-	strncpy(displaynum, start, dlen);
-	displaynum[dlen] = '\0';
+
+	snprintf(sock_src, MAX_SYSTEMPATH, "/tmp/.X11-unix/X%s", displaynum);
+	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X%s",
+			g_chroot_path, displaynum);
+
 
 	/* don't bother trying to copy auth file if mounting entire dir */
 	if (g_homeroot->nodetype != NODE_EMPTY) {
@@ -1114,7 +1132,7 @@ static int X11_hookup()
 		printf("to avoid mounting entire home directory.\n");
 		printf("------------------------------------------------------------\n");
 		setuid(0);
-		return do_X11_socketbind(displaynum);
+		return do_x11_socketbind(sock_src, sock_dest);
 	}
 
 	snprintf(newpath, sizeof(newpath),
@@ -1158,7 +1176,7 @@ static int X11_hookup()
 	fclose(fout);
 
 	setuid(0);
-	return do_X11_socketbind(displaynum);
+	return do_x11_socketbind(sock_src, sock_dest);
 
 disp_err:
 	printf("DISPLAY env error\n");
@@ -1360,6 +1378,60 @@ fail:
 	return -1;
 }
 
+#ifdef X11OPT
+int read_x11meta_params(char *params, unsigned int size)
+{
+	char *err;
+	char *wstr = NULL;
+	char *hstr = NULL;
+	unsigned long width, height;
+	unsigned int i = 0;
+
+	if (params == NULL || size == 0)
+		return -1;
+
+	/* get width/height strings */
+	while (++i < size)
+	{
+		if (params[i] == ' ') {
+			if (++i >= size) {
+				return -1;
+			}
+			wstr = params;
+			hstr = &params[i];
+			params[i-1] = '\0';
+			break;
+		}
+	}
+	if (wstr == NULL || hstr == NULL) {
+		printf("couldn't find x11 display width and/or height\n");
+		return -1;
+	}
+
+	err = NULL;
+	errno = 0;
+	width = strtoul(wstr, &err, 10);
+	if (err == NULL || *err || errno) {
+		printf("bad width\n");
+		return -1;
+	}
+	err = NULL;
+	errno = 0;
+	height = strtoul(hstr, &err, 10);
+	if (err == NULL || *err || errno) {
+		printf("bad height\n");
+		return -1;
+	}
+	if (height <= 1 || height > 32000 || width <= 1 || width > 32000) {
+		printf("bad width and/or height value\n");
+		return -1;
+	}
+	g_x11meta_width  = width;
+	g_x11meta_height = height;
+	return 0;
+}
+#endif
+
 /* some things need action on first pass. like setting flags, paths need to be
  * enumerated for sorting, newnet is handled completely in main thread */
 static int pod_enact_option_pass1(unsigned int option, char *params, size_t size)
@@ -1368,25 +1440,46 @@ static int pod_enact_option_pass1(unsigned int option, char *params, size_t size
 		/* set flag if below cutoff */
 		g_podflags |= (1 << option);
 	}
+	switch (option)
+	{
 	/* file mount points need to be sorted after first pass */
-	if (option == OPTION_FILE) {
+	case OPTION_FILE:
 		if (create_pathnode(params, size, 0)) {
 			printf("file :%s\n", params);
 			return -1;
 		}
-	}
-	else if (option == OPTION_HOME) {
+		break;
+
+	case OPTION_HOME:
 		if (create_pathnode(params, size, 1)) {
 			printf("home :%s\n", params);
 			return -1;
 		}
-	}
-	else if (option == OPTION_NEWNET) {
+		break;
+
+	case OPTION_NEWNET:
 		if (parse_newnet(params, size))
 			return -1;
+		break;
+
+#ifdef X11OPT
+	case OPTION_XEPHYR:
+		if (params == NULL || size == 0) {
+			printf("missing parameters, e.g: `xephyr 1024 768`\n");
+			printf("params(%s)\n", params);
+			return -1;
+		}
+		if (read_x11meta_params(params, size)) {
+			printf("couldn't load x11meta display parameters\n");
+			return -1;
+		}
+		break;
+#endif
 	}
 	return 0;
 }
+
+
 /* returns negative on error,
  *  0 if ok,
  *  1 when first pass chroot was found
@@ -1518,6 +1611,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 #endif
 #ifdef X11OPT
 	case OPTION_X11:
+	case OPTION_XEPHYR:
 		break;
 #endif
 
@@ -1580,7 +1674,6 @@ static int find_keyword(char *kwcmp)
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
-
 	/* whitelist jettison init program */
 	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
 	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
@@ -1612,7 +1705,7 @@ static int pass1_finalize()
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
 	mkdir(pathbuf, 0770);
-	chmod(pathbuf, 0777);
+	chmod(pathbuf, 01777);
 
 	return 0;
 }
@@ -1689,9 +1782,11 @@ static int pass2_finalize()
 
 #ifdef X11OPT
 	/* hookup x11 */
-	if ((g_podflags & (1 << OPTION_X11)) && X11_hookup()) {
-		printf("X11 hookup failed\n");
-		return -1;
+	if (g_podflags & ((1 << OPTION_X11) | (1 << OPTION_XEPHYR))) {
+		if (X11_hookup()) {
+			printf("X11 hookup failed\n");
+			return -1;
+		}
 	}
 #endif
 
@@ -1906,7 +2001,6 @@ SINGLE_KEYWORD:		/* no parameters */
 			printf("pass1_finalize()\n");
 			return -1;
 		}
-
 		/* add rdonly dirs, sort all path nodes */
 		if (prepare_mountpoints()) {
 			printf("prepare_mountpoints()\n");

@@ -80,5 +80,11 @@
 	#define NETLOG_GROUP "nobody"
 #endif
 
+#ifndef X11META_XNEST
+	#define X11META_XNEST "/usr/bin/Xnest"
+#endif
+#ifndef X11META_XEPHYR
+	#define X11META_XEPHYR "/usr/bin/Xephyr"
+#endif
 
 #endif

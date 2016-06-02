@@ -237,11 +237,11 @@ static int do_fw_exec(char *argv[],/* program args */
 	i = 0;
 	while (1)
 	{
-		int r = waitpid(p, &status, WNOHANG);
-		if (r == p) {
+		pid_t pr = waitpid(p, &status, WNOHANG);
+		if (pr == p) {
 			break;
 		}
-		else if (r != 0) {
+		else if (pr != 0) {
 			printf("waitpid(%d) error: %s\n", p, strerror(errno));
 			return -1;
 		}
@@ -250,7 +250,7 @@ static int do_fw_exec(char *argv[],/* program args */
 			kill(p, SIGKILL);
 			return -1;
 		}
-		usleep(99999);
+		usleep(100000);
 	}
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 		return bytesread;
@@ -904,9 +904,10 @@ static pid_t do_netlog_exec(char *argv[])
 	/* detect early failures */
 	while(++i <= 30)
 	{
+		pid_t pr;
 		usleep(10000);
-		r = waitpid(p, &status, WNOHANG);
-		if (r != 0) {
+		pr = waitpid(p, &status, WNOHANG);
+		if (pr) {
 			printf("netlog waitpid!");
 			return -1;
 		}

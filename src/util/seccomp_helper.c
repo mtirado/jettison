@@ -437,7 +437,7 @@ struct sc_translate sc_table[] = {
 /* 3.10 */
 
 /* 4.1 */
-{ "__NR_sched_setattr", __NR_sched_setattr },
+/*{ "__NR_sched_setattr", __NR_sched_setattr },
 { "__NR_sched_getattr", __NR_sched_getattr },
 { "__NR_renameat2", __NR_renameat2 },
 { "__NR_seccomp", __NR_seccomp },
@@ -445,7 +445,7 @@ struct sc_translate sc_table[] = {
 { "__NR_memfd_create", __NR_memfd_create },
 { "__NR_bpf", __NR_bpf },
 { "__NR_execveat", __NR_execveat },
-
+*/
 /* 4.3 fine grained socket calls */
 /*{ "__NR_socket", __NR_socket },
 { "__NR_socketpair", __NR_socketpair },
@@ -1145,7 +1145,7 @@ int jail_process(char *chroot_path,
 		return -1;
 	}
 	if (mount(NULL, chroot_path, NULL, MS_PRIVATE|MS_REC, NULL)) {
-		printf("could not make slave: %s\n", strerror(errno));
+		printf("could not make private: %s\n", strerror(errno));
 		return -1;
 	}
 	if (chdir(chroot_path) < 0) {
@@ -1184,15 +1184,17 @@ int jail_process(char *chroot_path,
 		return -1;
 	}
 
-	if (whitelist && filter_syscalls(SYSCALL_ARCH, whitelist, NULL,
+	if (whitelist) {
+	       if (filter_syscalls(SYSCALL_ARCH, whitelist, NULL,
 				 count_syscalls(whitelist, MAX_SYSCALLS), 0,
 				 seccomp_opts, SECCOMP_RET_ERRNO)) {
-		/* TODO eventually set this to RET_KILL */
-		printf("unable to apply seccomp filter\n");
-		return -1;
+			/* TODO eventually set this to RET_KILL */
+			printf("unable to apply seccomp filter\n");
+			return -1;
+	       }
 	}
-	else if (whitelist) {
-		printf("seccomp filter set \r\n");
+	else { /* TODO load system blacklist */
+		printf("jail running without seccomp\n");
 	}
 	return 0;
 }
