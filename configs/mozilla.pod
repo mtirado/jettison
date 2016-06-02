@@ -1,7 +1,8 @@
 # mozilla web browser whitelist
 
 # manage x11 credentials
-X11
+x11
+#xephyr 1024 768
 machine-id
 
 # net namespace
