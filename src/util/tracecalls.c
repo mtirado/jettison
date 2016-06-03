@@ -268,13 +268,12 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
     unknown[0] = 0;
     unknown[1] = 0;
     sc_init(info, count);
-    status = 0;
 
     /* open pod template in cwd before we jail process */
     podfile = open("podtemplate.pod", O_CREAT|O_TRUNC|O_RDWR, S_IRWXU);
     if (podfile == -1) {
 	printf("error creating template.pod: %s\r\n", strerror(errno));
-	status = -errno;
+	return -1;
     }
     /* we attached, jail ourselves */
     if (downgrade_tracer(jailpath)) {
@@ -282,6 +281,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	    return -1;
     }
 
+    status = 0;
     while(1)
     {
 	    ret = ptrace(PTRACE_SEIZE, p, NULL,

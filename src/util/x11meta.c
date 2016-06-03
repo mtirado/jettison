@@ -19,11 +19,12 @@
 #include <errno.h>
 #include <unistd.h>
 #include <malloc.h>
+#include "seccomp_helper.h"
 #include "../misc.h"
 #include "../eslib/eslib.h"
-
 #define X11META_MAXARGS 10
 
+int syscalls[MAX_SYSCALLS];
 unsigned int g_x11meta_width;
 unsigned int g_x11meta_height;
 char g_x11meta_sockdir[MAX_SYSTEMPATH];
@@ -41,84 +42,81 @@ extern int jail_process(char *chroot_path,
 		 int *cap_i,
 		 int can_write,
 		 int can_exec);
-#if 0
 /*
  *  this is a lot, may move it to a second blacklist instead of this whitelist,
- *  i haven't done enough testing yet to get the complete list
+ *  i haven't done enough testing yet to get the complete list, this is for xephyr
+ *  without shm at the moment
  */
-static int x11meta_apply_seccomp()
+static int x11meta_setup_seccomp()
 {
-	int syscalls[MAX_SYSCALLS];
 	unsigned int i;
-
 	/* set up new seccomp filter */
 	for (i = 0; i < sizeof(syscalls) / sizeof(syscalls[0]); ++i)
 	{
 		syscalls[i] = -1;
 	}
-
 	i = 0;
-	syscalls[i]   = syscall_getnum("__NR_clock_gettime");
-	syscalls[++i] = syscall_getnum("__NR_recv");
+	syscalls[i]   = syscall_getnum("__NR_recv");
 	syscalls[++i] = syscall_getnum("__NR_poll");
 	syscalls[++i] = syscall_getnum("__NR_writev");
+	syscalls[++i] = syscall_getnum("__NR_clock_gettime");
 	syscalls[++i] = syscall_getnum("__NR_read");
 	syscalls[++i] = syscall_getnum("__NR_setitimer");
 	syscalls[++i] = syscall_getnum("__NR_select");
-	syscalls[++i] = syscall_getnum("__NR_rt_sigprocmask");
 	syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	syscalls[++i] = syscall_getnum("__NR_mmap2");
-	syscalls[++i] = syscall_getnum("__NR_munmap");
-	syscalls[++i] = syscall_getnum("__NR_open");
 	syscalls[++i] = syscall_getnum("__NR_close");
+	syscalls[++i] = syscall_getnum("__NR_open");
 	syscalls[++i] = syscall_getnum("__NR_fstat64");
 	syscalls[++i] = syscall_getnum("__NR_brk");
-	syscalls[++i] = syscall_getnum("__NR_stat64");
-	syscalls[++i] = syscall_getnum("__NR_write");
-	syscalls[++i] = syscall_getnum("__NR_llseek");
-	syscalls[++i] = syscall_getnum("__NR_rt_sigaction");
+	syscalls[++i] = syscall_getnum("__NR_munmap");
 	syscalls[++i] = syscall_getnum("__NR_fcntl64");
-	syscalls[++i] = syscall_getnum("__NR_access");
-	syscalls[++i] = syscall_getnum("__NR_mprotect");
-	syscalls[++i] = syscall_getnum("__NR_geteuid32");
-	syscalls[++i] = syscall_getnum("__NR_getegid32");
-	syscalls[++i] = syscall_getnum("__NR_getuid32");
-	syscalls[++i] = syscall_getnum("__NR_getgid32");
-	syscalls[++i] = syscall_getnum("__NR_uname");
+	syscalls[++i] = syscall_getnum("__NR_rt_sigprocmask");
+	syscalls[++i] = syscall_getnum("__NR_write");
+	syscalls[++i] = syscall_getnum("__NR__llseek");
+	syscalls[++i] = syscall_getnum("__NR_rt_sigaction");
 	syscalls[++i] = syscall_getnum("__NR_accept");
 	syscalls[++i] = syscall_getnum("__NR_getsockopt");
 	syscalls[++i] = syscall_getnum("__NR_shutdown");
-	syscalls[++i] = syscall_getnum("__NR_unlink");
-	syscalls[++i] = syscall_getnum("__NR_getrlimit");
-	syscalls[++i] = syscall_getnum("__NR_socket");
-	syscalls[++i] = syscall_getnum("__NR_execve");
-	syscalls[++i] = syscall_getnum("__NR_set_thread_area");
-	syscalls[++i] = syscall_getnum("__NR_setsockopt");
-	syscalls[++i] = syscall_getnum("__NR_bind");
+	syscalls[++i] = syscall_getnum("__NR_mprotect");
+	syscalls[++i] = syscall_getnum("__NR_access");
+	syscalls[++i] = syscall_getnum("__NR_stat64");
+	syscalls[++i] = syscall_getnum("__NR_uname");
 	syscalls[++i] = syscall_getnum("__NR_recvmsg");
-	syscalls[++i] = syscall_getnum("__NR_time");
+	syscalls[++i] = syscall_getnum("__NR_socket");
+	syscalls[++i] = syscall_getnum("__NR_getrlimit");
+	syscalls[++i] = syscall_getnum("__NR_setsockopt");
+	syscalls[++i] = syscall_getnum("__NR_unlink");
+	syscalls[++i] = syscall_getnum("__NR_getuid32");
+	syscalls[++i] = syscall_getnum("__NR_getgid32");
+	syscalls[++i] = syscall_getnum("__NR_geteuid32");
+	syscalls[++i] = syscall_getnum("__NR_bind");
+	syscalls[++i] = syscall_getnum("__NR_getegid32");
 	syscalls[++i] = syscall_getnum("__NR_getsockname");
 	syscalls[++i] = syscall_getnum("__NR_umask");
-	syscalls[++i] = syscall_getnum("__NR_getppid");
-	syscalls[++i] = syscall_getnum("__NR_getpgrp");
 	syscalls[++i] = syscall_getnum("__NR_mremap");
-	syscalls[++i] = syscall_getnum("__NR_set_robust_list");
 	syscalls[++i] = syscall_getnum("__NR_listen");
 	syscalls[++i] = syscall_getnum("__NR_sendto");
+	syscalls[++i] = syscall_getnum("__NR_execve");
+	syscalls[++i] = syscall_getnum("__NR_time");
+	syscalls[++i] = syscall_getnum("__NR_futex");
+	syscalls[++i] = syscall_getnum("__NR_set_thread_area");
+	syscalls[++i] = syscall_getnum("__NR_getppid");
+	syscalls[++i] = syscall_getnum("__NR_getpgrp");
+	syscalls[++i] = syscall_getnum("__NR_set_robust_list");
+	syscalls[++i] = syscall_getnum("__NR_connect");
 	syscalls[++i] = syscall_getnum("__NR_waitpid");
+	syscalls[++i] = syscall_getnum("__NR_link");
 	syscalls[++i] = syscall_getnum("__NR_chdir");
 	syscalls[++i] = syscall_getnum("__NR_getpid");
 	syscalls[++i] = syscall_getnum("__NR_pipe");
 	syscalls[++i] = syscall_getnum("__NR_dup2");
 	syscalls[++i] = syscall_getnum("__NR_gettimeofday");
+	syscalls[++i] = syscall_getnum("__NR_fchmod");
 	syscalls[++i] = syscall_getnum("__NR_clone");
+	syscalls[++i] = syscall_getnum("__NR_lstat64");
 	syscalls[++i] = syscall_getnum("__NR_setuid32");
 	syscalls[++i] = syscall_getnum("__NR_setgid32");
-	syscalls[++i] = syscall_getnum("__NR_futex");
-	syscalls[++i] = syscall_getnum("__NR_connect");
-	syscalls[++i] = syscall_getnum("__NR_link");
-	syscalls[++i] = syscall_getnum("__NR_fchmod");
-	syscalls[++i] = syscall_getnum("__NR_lstat64");
 	syscalls[++i] = syscall_getnum("__NR_set_tid_address");
 	syscalls[++i] = syscall_getnum("__NR_clock_getres");
 	syscalls[++i] = syscall_getnum("__NR_getpeername");
@@ -126,9 +124,8 @@ static int x11meta_apply_seccomp()
 	syscalls[++i] = syscall_getnum("__NR_shmdt");
 	syscalls[++i] = syscall_getnum("__NR_shmget");
 	syscalls[++i] = syscall_getnum("__NR_shmctl");
-
+	return 0;
 }
-#endif
 
 char x11display_number[32];
 char *x11get_displaynum(char *display, unsigned int *outlen)
@@ -341,11 +338,14 @@ static int jail_x11meta(char *chroot_path, char *progpath, char *mainsocket)
 		return -1;
 	}
 	/* TODO, we need seccomp here!!   */
-	if (jail_process(chroot_path, 0, 0, NULL, 0, NULL, NULL, NULL, 0, 1)) {
+	if (x11meta_setup_seccomp()) {
+		return -1;
+	}
+	if (jail_process(chroot_path, 0, 0, syscalls, 0, NULL, NULL, NULL, 0, 0)) {
 		printf("jail_process failed\n");
 		return -1;
 	}
-	
+
 	chmod("/tmp", 01777);
 	return 0;
 }
@@ -360,42 +360,17 @@ static pid_t x11meta_exec(char *progpath, char *chroot_path,
 		return -1;
 	}
 	else if (p == 0) {
-		int fdcount;
-		int *fdlist;
-		int i;
+		int exempt[] = { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO };
 
 		if (eslib_proc_setenv("XAUTHORITY", "/.Xauthority"))
-			return -1;
-		if (jail_x11meta(chroot_path, progpath, mainsocket)) {
 			_exit(-1);
-		}
-		/*
-		 * close fd's
-		 * */
-		fdcount = eslib_proc_getfds(getpid(), &fdlist);
-		if (fdcount == -1) {
-			for (i = 0; i < 4096; ++i) {
-				if (i != STDIN_FILENO
-					&& i != STDOUT_FILENO
-					&& i != STDERR_FILENO) {
-					close(i);
-				}
-			}
-		}
-		else {
-			for (i = 0; i < fdcount; ++i)
-			{
-				if (fdlist[i] != STDIN_FILENO
-						&& fdlist[i] != STDOUT_FILENO
-						&& fdlist[i] != STDERR_FILENO) {
-					close(fdlist[i]);
-				}
-			}
-			free(fdlist);
-		}
-		if (execve("/x11meta", argv, environ)) {
+		if (close_descriptors(exempt, 3))
+			_exit(-1);
+		if (jail_x11meta(chroot_path, progpath, mainsocket))
+			_exit(-1);
+		if (execve("/x11meta", argv, environ))
 			printf("execve: %s\n", strerror(errno));
-		}
+
 		_exit(-1);
 	}
 	return p;

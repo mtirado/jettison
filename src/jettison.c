@@ -417,6 +417,7 @@ int jettison_clone_func(void *data)
 		return -1; /* TODO g_entry(data);*/
 	}
 	else {
+		int fdexempt[4];
 		/* switch back to real user credentials */
 		if (setregid(g_rgid, g_rgid)) {
 			printf("error setting gid(%d): %s\n",
@@ -465,8 +466,11 @@ int jettison_clone_func(void *data)
 				}
 			}
 		}
-
-		if (close_descriptors())
+		fdexempt[0] = STDIN_FILENO;
+		fdexempt[1] = STDOUT_FILENO;
+		fdexempt[2] = STDERR_FILENO;
+		fdexempt[3] = g_traceipc[1];
+		if (close_descriptors(fdexempt, 4))
 			return -1;
 		if (print_options())
 			return -1;

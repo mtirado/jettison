@@ -137,6 +137,7 @@ static int do_fw_exec(char *argv[],/* program args */
 	else if (p == 0) {
 		struct __user_cap_header_struct hdr;
 		struct __user_cap_data_struct   data[2];
+		int exempt[3];
 		stdo = stdout;
 		if (std_io) {
 			std = dup(STDOUT_FILENO);
@@ -168,8 +169,12 @@ static int do_fw_exec(char *argv[],/* program args */
 			fprintf(stdo, "pid: %d\r\n", hdr.pid);
 			_exit(-1);
 		}
-		if (close_descriptors())
-			return -1;
+		exempt[0] = STDOUT_FILENO;
+		exempt[1] = STDIN_FILENO;
+		exempt[2] = STDERR_FILENO;
+		if (close_descriptors(exempt, 3)) {
+			_exit(-1);
+		}
 		if (execve(FIREWALL_PROG, argv, environ)) {
 			fprintf(stdo, "execve: %s\n", strerror(errno));
 			_exit(-1);
@@ -727,7 +732,7 @@ static int jail_netlog(char *chroot_path, char *logdir)
 	if (netlog_buildfs(chroot_path, logdir)) {
 		return -1;
 	}
-	if (jail_process(chroot_path, 0, 0, NULL, 0, cap_e, cap_p, cap_i, 1, 1)) {
+	if (jail_process(chroot_path, 0, 0, NULL, 0, cap_e, cap_p, cap_i, 1, 0)) {
 		printf("jail_process failed\n");
 		return -1;
 	}

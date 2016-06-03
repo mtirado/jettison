@@ -5,9 +5,6 @@
  *
  * loads configuration file, and enacts options defined therein
  *
- * TODO need some way to tell if a pod is in use, so user does not
- * reconfigure over a running environment
- *
  * bugs: spaces / tabs after parameters may cause failure.
  *
  */

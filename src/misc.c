@@ -611,34 +611,68 @@ gid_t get_group_id(char *groupname)
 	return gid;
 }
 #define FAILSAFE_FLIMIT 4096
-int close_descriptors()
+int close_descriptors(int *exemptions, int exemptcount)
 {
 	int fdcount;
 	int *fdlist;
 	int i;
+
+	if (exemptcount <= 0 || exemptions == NULL) {
+		exemptions = NULL;
+		exemptcount = 0;
+	}
+
 	fdcount = eslib_proc_getfds(getpid(), &fdlist);
-	if (fdcount == -1) {
+	if (fdcount == -1) { /* there was problem reading /proc/PID */
 		struct rlimit rlim;
-		int fdnum = FAILSAFE_FLIMIT;
+		int fdcount = FAILSAFE_FLIMIT;
+
 		memset(&rlim, 0, sizeof(rlim));
 		if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-			if (rlim.rlim_cur >= 3) {
-				fdnum = rlim.rlim_cur;
+			if (rlim.rlim_cur < 128) {
+				rlim.rlim_cur = 128;
 			}
+			fdcount = rlim.rlim_cur;
 		}
-		while (fdnum >= 3) {
-			close(fdnum);
-			--fdnum;
+		for (i = 0; i < fdcount; ++i)
+		{
+			if (exemptions) {
+				int z;
+				for (z = 0; z < exemptcount; ++z)
+				{
+					if (exemptions[z] == i) {
+						z = -1;
+						break;
+					}
+				}
+				if (z == -1) {
+					continue;
+				}
+				close(i);
+			}
+			else {
+				close(i);
+			}
 		}
 		return 0;
 	}
+
 	for (i = 0; i < fdcount; ++i)
 	{
-		if (fdlist[i] != STDIN_FILENO
-				&& fdlist[i] != STDOUT_FILENO
-				&& fdlist[i] != STDERR_FILENO) {
-			close(fdlist[i]);
+		if (exemptions) {
+			int z;
+			for (z = 0; z < exemptcount; ++z)
+			{
+				if(fdlist[i] == exemptions[z]) {
+					z = -1;
+					break;
+				}
+			}
+			if (z == -1) {
+				continue;
+			}
 		}
+		close(fdlist[i]);
 	}
 	free(fdlist);
 	return 0;
