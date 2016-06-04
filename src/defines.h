@@ -49,6 +49,9 @@
 #ifndef JETTISON_BLACKLIST
 	#define JETTISON_BLACKLIST "/etc/jettison/blacklist"
 #endif
+#ifndef JETTISON_STOCKPODS
+	#define JETTISON_STOCKPODS "/etc/jettison/pods"
+#endif
 
 /* hard limit number of ip/macvlan a user can create */
 #ifndef JETTISON_IPVLAN_LIMIT

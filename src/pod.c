@@ -173,7 +173,150 @@ int pod_free()
 	return 0;
 }
 
+/* returns -1 on error
+ * 1 if path starts with blacklisted path string
+ * 0 no match
+ */
+static int check_blacklisted(char *path)
+{
+	unsigned int i, len;
 
+	if (path == NULL)
+		return -1;
+	for (i = 0; i < BLACKLIST_COUNT; ++i)
+	{
+		len = strnlen(g_blacklist_paths[i], MAX_SYSTEMPATH);
+		if (len >= MAX_SYSTEMPATH)
+			return -1;
+		if (strncmp(path, g_blacklist_paths[i], len) == 0) {
+			if (path[len] <= 32) /* space */
+				return 1;
+		}
+
+	}
+	return 0;
+}
+/*
+ * get $HOME string from environment, could make this optional to read
+ * from /etc/passwd instead of letting user set it from environment.
+ */
+extern char **environ;
+char *gethome()
+{
+	char **env = environ;
+	char *path = NULL;
+	int r;
+	ino_t root_ino;
+	ino_t file_ino;
+	unsigned int len;
+	uid_t fuid;
+
+	if (env == NULL) {
+		printf("no environ??\n");
+		return NULL;
+	}
+	while(*env)
+	{
+		if (strncmp(*env, "HOME=", 5) == 0) {
+			path = &(*env)[5];
+			len = strnlen(path, MAX_SYSTEMPATH);
+			if (len >= MAX_SYSTEMPATH || len == 0)
+				goto bad_path;
+			if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+				goto bad_path;
+			if (eslib_file_path_check(path))
+				goto bad_path;
+			r = eslib_file_exists(path);
+			if (r == -1 || r == 0)
+				goto bad_path;
+
+			root_ino = eslib_file_getino("/");
+			file_ino = eslib_file_getino(path);
+			if (root_ino == 0 || file_ino == 0) {
+				printf("inode error\n");
+				return NULL;
+			}
+			if (root_ino == file_ino) {
+				printf("home(%s) cannot be a root inode\n", path);
+				return NULL;
+			}
+			/* validate homepath */
+			if (check_blacklisted(path)) {
+				printf("$HOME is blacklisted: %s\n", path);
+				return NULL;
+			}
+			if (eslib_file_isdir(path) != 1) {
+				printf("$HOME is not a directory: %s\n", path);
+				return NULL;
+			}
+			fuid = eslib_file_getuid(path);
+			if (fuid == (uid_t)-1)
+				return NULL;
+			if (fuid != g_ruid) {
+				printf("$HOME permission denied: %s\n", path);
+				return NULL;
+			}
+			return path;
+		}
+		++env;
+	}
+	printf("could not find $HOME environment variable\n");
+	return NULL;
+
+bad_path:
+	printf("bad $HOME environment variable: %s\n", path);
+	return NULL;
+}
+
+/* looks in ~/.pods then /etc/jettison/pods as fallback path */
+static FILE *get_configfile(char *filepath)
+{
+	char fallback[MAX_SYSTEMPATH];
+	FILE *file = NULL;
+	char *filename = NULL;
+	char *home = NULL;
+
+	filename = eslib_file_getname(filepath);
+	if (filename == NULL) {
+		printf("bad filename\n");
+		return NULL;
+	}
+
+	/* try absolute path */
+	file = fopen(filepath, "r");
+	if (file == NULL && errno == ENOENT) {
+		memset(fallback, 0, sizeof(fallback));
+		home = gethome();
+		if (home == NULL) {
+			return NULL;
+		}
+		/* try home pod directory */
+		snprintf(fallback, sizeof(fallback), "%s/.pods/%s", home, filename);
+		file = fopen(fallback, "r");
+		if (file == NULL && errno == ENOENT) {
+			/* try stock pod directory */
+			snprintf(fallback, sizeof(fallback),
+					"%s/%s", JETTISON_STOCKPODS, filename);
+			file = fopen(fallback, "r");
+			if (file == NULL) {
+				goto err_ret;
+			}
+			else {
+				return file;
+			}
+		}
+		else if (file != NULL) {
+			return file;
+		}
+	}
+	else if (file != NULL) {
+		return file;
+	}
+err_ret:
+	printf("could not locate pod file %s.\nprovide the full path to file",filename);
+	printf("or create a new one at ~/.pods or %s\n", JETTISON_STOCKPODS);
+	return NULL;
+}
 
 /*
  * load config file into memory,
@@ -272,7 +415,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
-	file = fopen(filepath, "r");
+	file = get_configfile(filepath);
 	if (file == NULL) {
 		printf("could not read pod configuration file: %s\n", filepath);
 		return -1;
@@ -362,30 +505,6 @@ static int do_chroot_setup()
 }
 
 
-/* returns -1 on error
- * 1 if path starts with blacklisted path string
- * 0 no match
- */
-static int check_blacklisted(char *path)
-{
-	unsigned int i, len;
-
-	if (path == NULL)
-		return -1;
-	for (i = 0; i < BLACKLIST_COUNT; ++i)
-	{
-		len = strnlen(g_blacklist_paths[i], MAX_SYSTEMPATH);
-		if (len >= MAX_SYSTEMPATH)
-			return -1;
-		if (strncmp(path, g_blacklist_paths[i], len) == 0) {
-			if (path[len] <= 32) /* space */
-				return 1;
-		}
-
-	}
-	return 0;
-}
-
 static int check_pathperms(char *path)
 {
 	char tmpath[MAX_SYSTEMPATH];
@@ -434,78 +553,6 @@ static int check_pathperms(char *path)
 esrch:
 	printf("could not find file: %s\n", path);
 	return -1;
-}
-
-/*
- * get $HOME string from environment, could make this optional to read
- * from /etc/passwd instead of letting user set it from environment.
- */
-extern char **environ;
-char *gethome()
-{
-	char **env = environ;
-	char *path = NULL;
-	int r;
-	ino_t root_ino;
-	ino_t file_ino;
-	unsigned int len;
-	uid_t fuid;
-
-	if (env == NULL) {
-		printf("no environ??\n");
-		return NULL;
-	}
-	while(*env)
-	{
-		if (strncmp(*env, "HOME=", 5) == 0) {
-			path = &(*env)[5];
-			len = strnlen(path, MAX_SYSTEMPATH);
-			if (len >= MAX_SYSTEMPATH || len == 0)
-				goto bad_path;
-			if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
-				goto bad_path;
-			if (eslib_file_path_check(path))
-				goto bad_path;
-			r = eslib_file_exists(path);
-			if (r == -1 || r == 0)
-				goto bad_path;
-
-			root_ino = eslib_file_getino("/");
-			file_ino = eslib_file_getino(path);
-			if (root_ino == 0 || file_ino == 0) {
-				printf("inode error\n");
-				return NULL;
-			}
-			if (root_ino == file_ino) {
-				printf("home(%s) cannot be a root inode\n", path);
-				return NULL;
-			}
-			/* validate homepath */
-			if (check_blacklisted(path)) {
-				printf("$HOME is blacklisted: %s\n", path);
-				return NULL;
-			}
-			if (eslib_file_isdir(path) != 1) {
-				printf("$HOME is not a directory: %s\n", path);
-				return NULL;
-			}
-			fuid = eslib_file_getuid(path);
-			if (fuid == (uid_t)-1)
-				return NULL;
-			if (fuid != g_ruid) {
-				printf("$HOME permission denied: %s\n", path);
-				return NULL;
-			}
-			return path;
-		}
-		++env;
-	}
-	printf("could not find $HOME environment variable\n");
-	return NULL;
-
-bad_path:
-	printf("bad $HOME environment variable: %s\n", path);
-	return NULL;
 }
 
 

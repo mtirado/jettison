@@ -21,7 +21,6 @@
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];
 
-
 /* setup some console termios defaults */
 int console_setup(int fd_tty)
 {
