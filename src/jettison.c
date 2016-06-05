@@ -816,8 +816,7 @@ err_usage:
 	printf("        <size> is individual log file size in megabytes, if 0\n");
 	printf("        the log file will not be limited.\n");
 	printf("        <count> >= 2 means log will be rotated and numbered\n");
-	printf("        with up to <count> files backlog. currently this just execs\n");
-	printf("        tcpdump and jails in CWD/.podlog\n");
+	printf("        with up to <count> files backlog.\n");
 	printf("\n");
 	printf("--blacklist\n");
 	printf("        use system blacklist instead of pod config file\n");
