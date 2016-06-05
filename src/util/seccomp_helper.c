@@ -819,8 +819,15 @@ int filter_syscalls(int arch, int *whitelist, int *blocklist,
 	if (!whitelist && !blocklist)
 		return -1;
 	else if (!whitelist) {
-		filter = build_blacklist_filter(arch, blocklist,
-				bcount, &instr_count, retaction);
+		if (bcount > 0) {
+			filter = build_blacklist_filter(arch, blocklist,
+					bcount, &instr_count, retaction);
+		}
+		else {
+			printf("WARNING! blacklist(%s) is empty, no seccomp in use\n",
+					JETTISON_BLACKLIST);
+			return 0;
+		}
 	}
 	else {
 		if (!blocklist) {
