@@ -788,6 +788,9 @@ err_usage:
 	printf("--strict\n");
 	printf("        seccomp fail kills process instead of ENOSYS error\n");
 	printf("\n");
+	printf("--listcalls\n");
+	printf("        list all systemcalls jettison knows about\n");
+	printf("\n");
 	printf("--tracecalls\n");
 	printf("        print all known system calls made. creates a template\n");
 	printf("        configuration file in cwd with optimized whitelist\n");

@@ -53,6 +53,12 @@ Seccomp rejection kills process.
 .RE
 .P
 
+--listcalls
+.RS
+Print the list of all systemcalls jettison knows about.
+.RE
+.P
+
 --tracecalls
 .RS
 Count each system call made and generate an optimized seccomp whitelist.
@@ -248,15 +254,21 @@ Do not mount /proc filesystem.
 Remount /podhome directory with execute flag.
 .RE
 
-.\" X11
+.\" x11
 .P
-.B X11
+.B x11
 .RS
-This does not sandbox X11 in any profound way other than it's intended purpose
-of filtering auth data/socket so pod can only access the $DISPLAY it was
-launched under. This works assuming system only provides X11 socket through
-/tmp. So something like `startx -- -nolisten local -nolisten tcp` would be the
-best way to protect a pod's X11 session.
+Provide pod with auth data and socket for only the current $DISPLAY.
+for best isolation, server should only provides x11 socket through /tmp.
+So something like `startx -- -nolisten local -nolisten tcp` is ideal.
+.RE
+
+.\" xephyr
+.P
+.B xephyr
+.RS
+Use xephyr to run a sanboxed x11 server instead of giving pods direct
+access to the real x11 server socket.
 .RE
 
 
