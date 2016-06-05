@@ -563,8 +563,13 @@ int process_arguments(int argc, char *argv[])
 	int argnew;
 
 	/* must have executable path, and pod config file present */
-	if (argc < 3)
+	if (argc < 3) {
+		if (argc > 1 && strncmp(argv[1], "--listcalls", 12) == 0) {
+			syscall_printknown();
+			return -1;
+		}
 		goto err_usage;
+	}
 
 	g_stacksize = 0;
 	g_retaction = SECCOMP_RET_KILL;
@@ -715,6 +720,10 @@ int process_arguments(int argc, char *argv[])
 			else if (strncmp(argv[i], "--blacklist", len) == 0) {
 				g_blacklist = 1;
 				argidx  += 1;
+			}
+			else if (strncmp(argv[i], "--listcalls", len) == 0) {
+				syscall_printknown();
+				return -1;
 			}
 			else {
 				/* program arguments begin here, break loop */

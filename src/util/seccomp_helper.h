@@ -64,6 +64,15 @@ int syscall_getnum(char *defstring);
  */
 char *syscall_getname(long syscall_nr);
 
+/* print systemcalls that we know about */
+void syscall_printknown();
+
+/* return the highest system call number */
+unsigned int syscall_gethighest();
+
+/* returns total number of systemcall entries in sc_translate table */
+unsigned int syscall_tablesize();
+
 /*
  * return value of capability, defined in <linux/capability.h>
  * -1/NULL is an error
@@ -71,11 +80,6 @@ char *syscall_getname(long syscall_nr);
 int cap_getnum(char *defstring);
 char *cap_getname(int cap_nr);
 
-/* return the highest system call number */
-unsigned int syscall_gethighest();
-
-/* returns total number of systemcall entries in sc_translate table */
-unsigned int syscall_tablesize();
 
 
 #endif

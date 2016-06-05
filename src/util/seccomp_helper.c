@@ -485,6 +485,17 @@ unsigned int syscall_gethighest()
 	return high;
 }
 
+void syscall_printknown()
+{
+	unsigned int i;
+	printf("-----------------------------------------------------\n");
+	printf("known system calls: \n");
+	printf("-----------------------------------------------------\n");
+	for (i = 0; i < sizeof(sc_table)/sizeof(struct sc_translate); ++i)
+	{
+		printf("%d\t%s\n", sc_table[i].nr, sc_table[i].name);
+	}
+}
 
 int syscall_getnum(char *defstring)
 {
