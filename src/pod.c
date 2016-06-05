@@ -379,46 +379,45 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		return -1;
 	}
 
+	file = get_configfile(filepath);
+	if (file == NULL) {
+		printf("could not read pod configuration file: %s\n", filepath);
+		return -1;
+	}
 	/* check chroot path */
 	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
 	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
 		printf("chroot path too long: %s\n", g_chroot_path);
-		return -1;
+		goto err_close;
 	}
 	if (eslib_file_path_check(g_chroot_path)) {
 		printf("bad chroot path\n");
-		return -1;
+		goto err_close;
 	}
 	r = stat(g_chroot_path, &st);
 	if (r == 0) {
 		if (!S_ISDIR(st.st_mode)) {
 			printf("chroot path(%s) is not a directory\n", g_chroot_path);
-			return -1;
+			goto err_close;
 		}
 		if (st.st_uid != 0 || st.st_gid != 0) {
 			printf("chroot path(%s) must be owned by root\n", g_chroot_path);
-			return -1;
+			goto err_close;
 		}
 	}
 	else if (r == -1 && errno == ENOENT) {
 		if (mkdir(g_chroot_path, 0770)) {
 			printf("chroot path(%s) couldn't be created\n", g_chroot_path);
-			return -1;
+			goto err_close;
 		}
 		if (chmod(g_chroot_path, 0770)) {
 			printf("chmod(%s): %s\n", g_chroot_path, strerror(errno));
-			return -1;
+			goto err_close;
 		}
 	}
 	else {
 		printf("stat: %s\n", strerror(errno));
-		return -1;
-	}
-
-	file = get_configfile(filepath);
-	if (file == NULL) {
-		printf("could not read pod configuration file: %s\n", filepath);
-		return -1;
+		goto err_close;
 	}
 
 	printf("filename: %s\r\n", filename);
@@ -431,13 +430,10 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	g_filedata = (char *)malloc(g_filesize+1); /* + terminator */
 	if (g_filedata == NULL) {
 		printf("malloc error\n");
-		fclose(file);
-		return -1;
+		goto err_close;
 	}
 	if (fread(g_filedata, 1, g_filesize, file) != g_filesize){
-		fclose(file);
-		pod_free();
-		return -1;
+		goto err_free_close;
 	}
 	fclose(file);
 	g_filedata[g_filesize] = '\0';
@@ -449,12 +445,18 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		pod_free();
 		return -1;
 	}
-	g_firstpass = 0;
 
+	g_firstpass = 0;
 	*outflags = g_podflags;
 	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
 	outpath[MAX_SYSTEMPATH-1] = '\0';
 	return 0;
+
+err_free_close:
+	pod_free();
+err_close:
+	fclose(file);
+	return -1;
 }
 
 static int do_chroot_setup()
