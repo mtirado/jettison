@@ -342,6 +342,9 @@ int print_options()
 			return -1;
 		}
 	}
+	else {
+		printf("notice: using default system network settings\n");
+	}
 	printf("\n");
 
 #ifdef PODROOT_HOME_OVERRIDE
