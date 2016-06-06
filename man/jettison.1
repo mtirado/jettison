@@ -21,7 +21,8 @@ mount namespace, pid namespace, and optional net namespace.
 .I program_path
 is the full path to program,
 .I pod_config
-file defines the new environment, and
+file defines the new environment. If file is not found relative to cwd,
+~/.pods will be searched, followed by /etc/jettison/pods.
 .I options
 are described below.
 .I program_arguments
