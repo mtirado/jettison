@@ -472,12 +472,6 @@ int x11meta_setup(char *x11meta)
 			"%s/tmp/.X11-unix/X%s",chroot_path, randnum);
 	snprintf(metadisplay, sizeof(metadisplay), ":%s.0", randnum);
 
-	/* TODO -- clean up stale X11 sockets (no matching lock file) */
-	/*if (unlink(metasocket) && errno != ENOENT) {
-		printf("unlink existing x11 socket(%s): %s\n",
-				metasocket, strerror(errno));
-		return -1;
-	}*/
 	argv[i] = metadisplay;
 	if (++i >= X11META_MAXARGS)
 		return -1;
