@@ -29,7 +29,7 @@
 #ifdef X11OPT
 	#include <X11/Xauth.h>
 	extern char *x11get_displaynum(char *display, unsigned int *outlen);
-	extern char g_x11meta_sockdir[MAX_SYSTEMPATH];
+	extern char g_x11meta_sockname[MAX_SYSTEMPATH];
 	extern unsigned int g_x11meta_width;
 	extern unsigned int g_x11meta_height;
 #endif
@@ -1116,7 +1116,8 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 
 static int x11meta_hookup(char *sock_src, char *sock_dest, char *displaynum)
 {
-	snprintf(sock_src, MAX_SYSTEMPATH, "%s/X%s", g_x11meta_sockdir, displaynum);
+	snprintf(sock_src, MAX_SYSTEMPATH, "%s/.x11meta/tmp/.X11-unix/X%s",
+			POD_PATH, displaynum);
 	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X0", g_chroot_path);
 	if (eslib_proc_setenv("DISPLAY", ":0.0")) {
 		return -1;
@@ -1145,7 +1146,7 @@ static int X11_hookup()
 	if (displaynum == NULL)
 		goto disp_err;
 
-	if (g_x11meta_sockdir[0] != '\0') {
+	if (g_x11meta_sockname[0] != '\0') {
 		return x11meta_hookup(sock_src, sock_dest, displaynum);
 	}
 

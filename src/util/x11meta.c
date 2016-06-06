@@ -27,7 +27,7 @@
 int syscalls[MAX_SYSCALLS];
 unsigned int g_x11meta_width;
 unsigned int g_x11meta_height;
-char g_x11meta_sockdir[MAX_SYSTEMPATH];
+char g_x11meta_sockname[MAX_SYSTEMPATH];
 
 extern gid_t g_rgid;
 extern char g_newroot[MAX_SYSTEMPATH];
@@ -334,10 +334,13 @@ static int jail_x11meta(char *chroot_path, char *progpath, char *mainsocket)
 		printf("minipod mkdir(%s): %s\n", chroot_path, strerror(errno));
 		return -1;
 	}
+	if (chmod(chroot_path, 0770)) {
+		printf("chroot: %s\n", strerror(errno));
+		return -1;
+	}
 	if (x11meta_buildfs(chroot_path, progpath, mainsocket)) {
 		return -1;
 	}
-	/* TODO, we need seccomp here!!   */
 	if (x11meta_setup_seccomp()) {
 		return -1;
 	}
@@ -409,7 +412,7 @@ int x11meta_setup(char *x11meta)
 	memset(resolution, 0, sizeof(resolution));
 	memset(metadisplay, 0, sizeof(metadisplay));
 	memset(chroot_path, 0, sizeof(chroot_path));
-	memset(g_x11meta_sockdir, 0, sizeof(g_x11meta_sockdir));
+	memset(g_x11meta_sockname, 0, sizeof(g_x11meta_sockname));
 	snprintf(chroot_path, sizeof(chroot_path), "%s/.x11meta", POD_PATH);
 
 	/* process name */
@@ -540,8 +543,7 @@ int x11meta_setup(char *x11meta)
 	if (eslib_proc_setenv("DISPLAY", metadisplay)) {
 		return -1;
 	}
-	snprintf(g_x11meta_sockdir, sizeof(g_x11meta_sockdir),
-			"%s/tmp/.X11-unix", chroot_path);
+	snprintf(g_x11meta_sockname, sizeof(g_x11meta_sockname),"X%s", randnum);
 	return 0;
 }
 
