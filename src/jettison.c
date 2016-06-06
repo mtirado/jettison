@@ -45,12 +45,12 @@
 
 #ifdef X11OPT
 	extern char *x11meta_setup(char *x11meta);
+	extern char g_x11meta_sockname[MAX_SYSTEMPATH];
 #endif
 
 extern char **environ;
 extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
 extern int netns_setup();
-extern char g_x11meta_sockname[MAX_SYSTEMPATH];
 
 /* pod.c globals */
 extern int  g_fcaps[NUM_OF_CAPS];
