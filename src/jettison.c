@@ -49,7 +49,7 @@
 
 extern char **environ;
 extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
-extern int netns_setup(); /* netns_helper.c */
+extern int netns_setup();
 
 /* pod.c globals */
 extern int  g_fcaps[NUM_OF_CAPS];
@@ -138,7 +138,6 @@ int create_nullspace()
 	if (eslib_file_path_check(g_nullspace))
 		return -1;
 
-	/* unlink directory, nothing here needs persistent storage */
 	if (eslib_file_exists(g_nullspace) == 1) {
 		if (rmdir(g_nullspace)) {
 			printf("could not rmdir %s\n", strerror(errno));
@@ -147,7 +146,6 @@ int create_nullspace()
 			return -1;
 		}
 	}
-	/* create new nullspace directory */
 	if (eslib_file_mkdirpath(g_nullspace, 0755, 0) != 0) {
 		printf("could not create: %s\n", g_nullspace);
 		return -1;
@@ -1410,7 +1408,6 @@ static int do_trace(pid_t tracee)
 }
 
 /* tracer should be parent of cloned thread
- * (for yama mode 1 TODO test it!)
  */
 static int trace_fork(char **argv)
 {
