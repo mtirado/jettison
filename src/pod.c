@@ -1116,13 +1116,27 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 
 static int x11meta_hookup(char *sock_src, char *sock_dest, char *displaynum)
 {
+	char lockpath[MAX_SYSTEMPATH];
 	snprintf(sock_src, MAX_SYSTEMPATH, "%s/.x11meta/tmp/.X11-unix/X%s",
 			POD_PATH, displaynum);
 	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X0", g_chroot_path);
 	if (eslib_proc_setenv("DISPLAY", ":0.0")) {
 		return -1;
 	}
-	return do_x11_socketbind(sock_src, sock_dest);
+	if(do_x11_socketbind(sock_src, sock_dest)) {
+		return -1;
+	}
+	if (unlink(sock_src)) {
+		printf("unlink(%s): %s\n", sock_src, strerror(errno));
+		return -1;
+	}
+	snprintf(lockpath, sizeof(lockpath), "%s/.x11meta/tmp/.X%s-lock",
+			POD_PATH, displaynum);
+	if (unlink(lockpath)) {
+		printf("unlink(%s): %s\n", lockpath, strerror(errno));
+		return -1;
+	}
+	return 0;
 }
 
 static int X11_hookup()

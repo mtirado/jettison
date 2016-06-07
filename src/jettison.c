@@ -45,7 +45,6 @@
 
 #ifdef X11OPT
 	extern char *x11meta_setup(char *x11meta);
-	extern char g_x11meta_sockname[MAX_SYSTEMPATH];
 #endif
 
 extern char **environ;
@@ -1042,28 +1041,6 @@ static int logwrite(int fd, char *buf, int bytes)
 	return 0;
 }
 
-static int housekeeping()
-{
-#ifdef X11OPT
-	if (g_x11meta_sockname[0] != '\0') {
-		char path[MAX_SYSTEMPATH];
-		snprintf(path, sizeof(path), "%s/.x11meta/tmp/.X11-unix/%s",
-				POD_PATH, g_x11meta_sockname);
-		if (unlink(path)) {
-			printf("unlink: %s\n", strerror(errno));
-			return -1;
-		}
-		snprintf(path, sizeof(path), "%s/.x11meta/tmp/.X%s-lock",
-				POD_PATH, g_x11meta_sockname);
-		if (unlink(path)) {
-			printf("unlink: %s\n", strerror(errno));
-			return -1;
-		}
-	}
-#endif
-	return 0;
-}
-
 /*
  * relay input from ours to theirs,
  * relay output from theirs to ours
@@ -1164,6 +1141,10 @@ static int relay_io(int stdout_logfd)
 
 	/* non-daemon, route tty normally */
 	handle_sigwinch(); /* set terminal size */
+	if(downgrade_relay()) {
+		printf("failed to downgrade relay\n");
+		return -1;
+	}
 	/* wait for other process to switch terminal */
 	while (read(g_pty_notify[0], rbuf, 1) == -1)
 	{
@@ -1174,14 +1155,7 @@ static int relay_io(int stdout_logfd)
 	}
 	close(g_pty_notify[0]);
 	close(g_pty_notify[1]);
-	if (housekeeping()) {
-		printf("housekeeping error\n");
-		return -1;
-	}
-	if(downgrade_relay()) {
-		printf("failed to downgrade relay\n");
-		return -1;
-	}
+
 	canwrite = 1;
 	/* normal pty io relay */
 	while(1)
@@ -1929,7 +1903,14 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 	}
-
+	if (setregid(g_rgid, g_rgid)) {
+		printf("error setting gid(%d): %s\n", g_rgid, strerror(errno));
+		return -1;
+	}
+	if (setreuid(g_ruid, g_ruid)) {
+		printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
+		return -1;
+	}
 	close(g_traceipc[0]);
 	close(g_traceipc[1]);
 	close(g_daemon_pipe[1]);
