@@ -1750,6 +1750,7 @@ static int pass1_finalize()
 		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
+#endif
 
 	/* remount /podhome as empty node unless $HOME is already whitelisted */
 	if (g_homeroot == NULL) {
@@ -1764,7 +1765,6 @@ static int pass1_finalize()
 	/* g_homeroot must always exist after pass1 */
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
-#endif
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
 	mkdir(pathbuf, 0770);
