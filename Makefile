@@ -7,18 +7,27 @@ DEFINES := 							\
 	-DINIT_PATH=\"/usr/local/bin/jettison_init\"		\
 	-DPRELOAD_PATH=\"/usr/local/bin/jettison_preload.so\"
 
+##############################################################################
+# optional features
+##############################################################################
+
 #for X11 auth support
 DEFINES += -DX11OPT
 JETTISON_LIBS := -lXau
 
-#newnet namespace device hookups. you may want to roll your own if
-#allowing random users to run jettison, some of these obtain new net
-#resources. ip address, mac address, ip forwarding on a bridge, etc.
+#newnet namespace device hookups. you may want to roll your own if allowing
+#random users to run jettison, some of these require control of network
+#resources. ip address, mac address, etc. these resources are protected by
+#users permission file located at /etc/jettison/users/<user>
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
 # for system building, this should NOT be compiled by default, please.
 #DEFINES += -DPODROOT_HOME_OVERRIDE
+
+##############################################################################
+
+
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 DEFLANG := -ansi

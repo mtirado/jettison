@@ -1735,6 +1735,8 @@ static int find_keyword(char *kwcmp)
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
+
+#ifndef PODROOT_HOME_OVERRIDE
 	/* whitelist jettison init program */
 	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
 	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
@@ -1762,7 +1764,7 @@ static int pass1_finalize()
 	/* g_homeroot must always exist after pass1 */
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
-
+#endif
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
 	mkdir(pathbuf, 0770);
