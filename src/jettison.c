@@ -82,6 +82,7 @@ char g_pid1name[MAX_PROCNAME];
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
 int g_lognet; /* --lognet */
+int g_clear_environ; /* --clear-environ */
 int g_stdout_logfd;
 int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
 
@@ -205,17 +206,22 @@ static int downgrade_relay()
 static int change_environ()
 {
 
-	if (eslib_proc_getenv("HOME")) {
-		if (eslib_proc_setenv("HOME", "/podhome")) {
-			printf("error setting $HOME\n");
-			return -1;
-		}
-	}
-	else {
+	if (eslib_proc_getenv("HOME") == NULL) {
 		printf("$HOME is not set\n");
 		return -1;
 	}
+	if (g_clear_environ) {
+		char **e = environ;
+		while (*e != NULL) {
+			*e = NULL;
+			++e;
+		}
+	}
 
+	if (eslib_proc_setenv("HOME", "/podhome")) {
+			printf("error setting $HOME\n");
+			return -1;
+		}
 	if (eslib_proc_getenv("XAUTHORITY")) {
 		if (eslib_proc_setenv("XAUTHORITY", "/podhome/.Xauthority")) {
 			printf("error setting $XAUTHORITY\n");
@@ -579,6 +585,7 @@ int process_arguments(int argc, char *argv[])
 	g_allow_ptrace = 0;
 	g_strict = 0;
 	g_blacklist = 0;
+	g_clear_environ = 0;
 
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
@@ -726,6 +733,10 @@ int process_arguments(int argc, char *argv[])
 				syscall_printknown();
 				return -1;
 			}
+			else if (strncmp(argv[i], "--clear-environ", len) == 0) {
+				g_clear_environ = 1;
+				argidx += 1;
+			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -821,6 +832,10 @@ err_usage:
 	printf("\n");
 	printf("--blacklist\n");
 	printf("        use system blacklist instead of pod config file\n");
+	printf("\n");
+	printf("--clear-environ\n");
+	printf("        clear environment before calling exec\n");
+	printf("\n");
 	printf("\n");
 	printf("\n");
 	return -1;
