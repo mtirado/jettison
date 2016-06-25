@@ -78,6 +78,7 @@ void *g_filterdata;
 char *g_progpath;
 char g_procname[MAX_PROCNAME]; /* --procname */
 char g_pid1name[MAX_PROCNAME];
+char g_initscript[MAX_SYSTEMPATH];
 
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
@@ -525,6 +526,10 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	 * if (podflags & (1 << OPTION_ROOTPID))
 		cloneflags &= ~CLONE_NEWPID;*/
 
+	if (g_initscript[0] != '\0') {
+		eslib_proc_setenv("JETTISON_INIT_SCRIPT", g_initscript);
+	}
+
 	/* setup some extra parameters and create new thread */
 	g_progpath = progpath;
 	g_podflags = podflags;
@@ -610,7 +615,7 @@ int process_arguments(int argc, char *argv[])
 			}
 			/* executable path argument */
 			if (i == 1) {
-				strncpy(g_executable_path, argv[i], len);
+				strncpy(g_executable_path, argv[i], MAX_SYSTEMPATH);
 				if (eslib_file_path_check(g_executable_path)) {
 					printf("bad exec path: %s\n", g_executable_path);
 					printf("must be full path to executable\n");
@@ -618,7 +623,7 @@ int process_arguments(int argc, char *argv[])
 				}
 			}
 			else if (i == 2) {
-				strncpy(g_podconfig_path, argv[i], len);
+				strncpy(g_podconfig_path, argv[i], MAX_SYSTEMPATH);
 			}
 			else {
 				return -1;
@@ -737,6 +742,15 @@ int process_arguments(int argc, char *argv[])
 				g_clear_environ = 1;
 				argidx += 1;
 			}
+			else if (strncmp(argv[i], "--init", len) == 0) {
+				++i;
+				strncpy(g_initscript, argv[i], MAX_SYSTEMPATH);
+				if (eslib_file_path_check(g_initscript)) {
+					printf("init script must be an asbolute path\n");
+					return -1;
+				}
+				argidx += 2;
+			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -835,6 +849,9 @@ err_usage:
 	printf("\n");
 	printf("--clear-environ\n");
 	printf("        clear environment before calling exec\n");
+	printf("\n");
+	printf("--init <init-script>\n");
+	printf("        run this script before running executable\n");
 	printf("\n");
 	printf("\n");
 	printf("\n");
@@ -1750,6 +1767,7 @@ int main(int argc, char *argv[])
 	memset(g_procname, 0, sizeof(g_procname));
 	memset(g_pid1name, 0, sizeof(g_pid1name));
 	memset(g_nullspace, 0, sizeof(g_nullspace));
+	memset(g_initscript, 0, sizeof(g_initscript));
 	memset(g_pty_slavepath, 0, sizeof(g_pty_slavepath));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));

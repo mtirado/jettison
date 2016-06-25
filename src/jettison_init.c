@@ -97,6 +97,63 @@ re_sleep:
 	_exit(0);
 }
 
+/* exec init script/program if env var is set */
+int initialize()
+{
+	char *init_script;
+	init_script = eslib_proc_getenv("JETTISON_INIT_SCRIPT");
+
+	if (init_script) {
+		int status;
+		pid_t p;
+
+		if (eslib_file_path_check(init_script)) {
+			printf("init_script bad path\n");
+			return -1;
+		}
+
+		p = fork();
+		if (p == 0) {
+			char *args[] = { NULL, NULL };
+			if (execve(init_script, args, environ)) {
+				printf("exec(%s) error: %s\n", init_script, strerror(errno));
+			}
+			return -1;
+		}
+		else if (p == -1) {
+			printf("fork(): %s\n", strerror(errno));
+			return -1;
+		}
+		while (1)
+		{
+			pid_t rp = waitpid(p, &status, 0);
+			if (rp == -1 && errno != EINTR) {
+				printf("waitpid: %s\n", strerror(errno));
+				return -1;
+			}
+			else if (rp == p) {
+				break;
+			}
+		}
+
+		if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+			printf("initialization failed: %s\n", init_script);
+			if (WIFEXITED(status)) {
+				printf("exited: %d\n", WEXITSTATUS(status));
+			}
+			else if (WIFSIGNALED(status)) {
+				printf("signalled: %d\n", WTERMSIG(status));
+			}
+			else {
+				printf("unknown: %d\n", status);
+			}
+			return -1;
+		}
+	}
+
+	printf("initialized.\n");
+	return 0;
+}
 
 /* arg[1] should be full program path */
 int main(int argc, char *argv[])
@@ -174,6 +231,11 @@ int main(int argc, char *argv[])
 		}
 	}
 	close(ipc);
+
+	if (initialize()) {
+		printf("jettison not calling exec\n");
+		return -1;
+	}
 
 	p = fork();
 	if (p == -1) {

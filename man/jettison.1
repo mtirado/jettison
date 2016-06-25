@@ -16,9 +16,9 @@ mount namespace, pid namespace, and optional net namespace.
 .SH SYNOPSIS
 
 .BI jettison
-.RI [ program_path ] \  [ pod_config ] \  [ options ] \ [program_arguments... ]
+.RI [ program ] \  [ pod_config ] \  [ options ] \ [program_arguments... ]
 .P
-.I program_path
+.I program
 is the full path to program,
 .I pod_config
 file defines the new environment. If file is not found relative to cwd,
@@ -124,20 +124,47 @@ Set new cloned threads stack
 .I size
 in kilobytes.
 .RE
+.P
 
+--clear-environ
+.RS
+Use an empty environment
+.RE
+.P
+
+--init
+.RI [ init_script ]
+.RS
+Execute
+.I init_script
+before
+.IR program .
+if
+.IR init_script 's
+exit status is not 0,
+.I program
+is not executed.
+
+.RE
+.P
 
 .\" DESCRIPTION
 .SH DESCRIPTION
 
 Launches program into a chroot environment. Typically located somewhere like
-/opt/pods/user/config.pod/ using current username and pod filename, this
-new root contains the files and directories specified in pod config. A pod's
-/podhome can be accessed by owner for copying files in and out. Pods are
-otherwise root owned and can usually be destroyed using
+/opt/pods/user/config.pod/ using current username and
+.I pod_config
+filename, this
+new root contains the files and directories specified in
+.IR pod_config .
+A pod's /podhome can be accessed by owner for copying files in and out.
+Pods are otherwise root owned and can usually be destroyed using
 .BR jettison_destruct (1).
 
 .B Seccomp:
-Seccomp filter is specified in the pod config file unless --blacklist is used,
+Seccomp filter is specified in the
+.I pod_config
+file unless --blacklist is used,
 in which case the pod seccomp options are completely replaced by
 .IR /etc/jettison/blacklist .
 
@@ -233,6 +260,7 @@ and new static
 You can specify
 **:**:**:**:**:** to use default mac assigned by the kernel.
 .RE
+
 
 .\" newpts
 .P
@@ -360,7 +388,10 @@ etc, etc, etc...
 .SH NOTES
 
 The users pod directory is not tracked, and is generated using the config
-file name. Best practice is to always use unique pod config names.
+file name. Best practice is to always use unique
+.I pod_config
+names.
+
 .P
 Some directories are either blacklisted, or can only be mounted as MS_RDONLY.
 These can be expanded by adding entries to the arrays near the top of src/pod.c
