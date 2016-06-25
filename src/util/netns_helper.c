@@ -319,6 +319,8 @@ static int netns_enter_and_config(char *ifname)
 	/* setup type specific devices */
 	switch (g_newnet.kind)
 	{
+	case ESRTNL_KIND_UNKNOWN:
+		break;
 	case ESRTNL_KIND_LOOP:
 		if (netns_lo_config()) {
 			printf("loopback config failed\n");
@@ -333,7 +335,7 @@ static int netns_enter_and_config(char *ifname)
 		}
 		break;
 	default:
-		printf("net interface kind: %d\n", g_newnet.kind);
+		printf("bad net interface kind: %d\n", g_newnet.kind);
 		return -1;
 		break;
 	}
@@ -999,6 +1001,7 @@ int netns_setup()
 	/* create new namespace */
 	if (unshare(CLONE_NEWNET)) {
 		printf("unshare(CLONE_NEWNET): %s\n", strerror(errno));
+		close(g_newnet.root_ns);
 		return -1;
 	}
 	/* open new namespace fd */
@@ -1006,6 +1009,7 @@ int netns_setup()
 	g_newnet.new_ns = open(path, O_RDONLY|O_CLOEXEC);
 	if (g_newnet.new_ns == -1) {
 		printf("root netns fd open: %s\n", strerror(errno));
+		close(g_newnet.root_ns);
 		return -1;
 	}
 
@@ -1021,18 +1025,18 @@ int netns_setup()
 		/* check ipvlan count */
 		count = netns_count_ipvlan_devices(&lockfd);
 		if (count < 0) {
-			return -1;
+			goto netns_err;
 		}
 		/* authorize ip/macvlan parameters */
 		if ((unsigned int)count >= g_privs.ipvlan_limit) {
 			printf("user reached ipvlan limit(%d)\n", g_privs.ipvlan_limit);
 			close(lockfd);
-			return -1;
+			goto netns_err;
 		}
 		else if (g_privs.ipvlan_limit == 0) {
 			printf("ip/macvlan permission error\n");
 			close(lockfd);
-			return -1;
+			goto netns_err;
 		}
 		/* create ipvlan/macvlan device */
 		if (g_newnet.kind == ESRTNL_KIND_IPVLAN)
@@ -1047,7 +1051,7 @@ int netns_setup()
 				printf("try swapping macvlan <-> ipvlan option.\n");
 			}
 			close(lockfd);
-			return -1;
+			goto netns_err;
 		}
 		if (g_newnet.kind == ESRTNL_KIND_MACVLAN &&
 				strncmp(g_newnet.hwaddr, "**:**:**:**:**:**", 18)) {
@@ -1082,32 +1086,36 @@ int netns_setup()
 
 	case ESRTNL_KIND_VETHBR:
 		printf("todo\n");
-		return -1;
-	case ESRTNL_KIND_UNKNOWN:
-		close(g_newnet.root_ns);
-		close(g_newnet.new_ns);
-		return 0;
-	case ESRTNL_KIND_LOOP:
+		goto netns_err;
 		break;
+	case ESRTNL_KIND_LOOP:
+	case ESRTNL_KIND_UNKNOWN:
+		break;
+
 	default:
 		printf("netns error\n");
-		return -1;
+		goto netns_err;
 	}
+
 	if (netns_enter_and_config(ifname)) {
 		printf("could not configure new net namespace\n");
-		return -1;
+		goto netns_err;
 	}
 	if (g_lognet) {
 		if (setup_netlog()) {
 			printf("could not setup netlog\n");
-			return -1;
+			goto netns_err;
 		}
 	}
-	/* we don't want to hold on to these */
+
 	close(g_newnet.root_ns);
 	close(g_newnet.new_ns);
-
 	return 0;
+
+netns_err:
+	close(g_newnet.root_ns);
+	close(g_newnet.new_ns);
+	return -1;
 
 ipvlan_err:
 	close(g_newnet.root_ns);

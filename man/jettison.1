@@ -237,20 +237,26 @@ CAP_NET_RAW, CAP_NET_BIND_SERVICE, etc.
 .B newnet
 .RI [ net_type ]
 .RS
+Create a new network namespace using one of the following options. Each
+.I net_type
+inherits netfilter from original namespace.
+.RS
 .TP
-.I none
+.B none
 Create a blank new net namespace.
 .TP
-.I loop
+.B loop
 New net namespace with loopback set up.
 .TP
-.IR ipvlan \ [ device ] \  [ ipaddr ]
+.BR ipvlan
+.RI [ device ] \  [ ipaddr ]
 Create ipvlan interface with same gateway and mac address as
 .IR device ,
 and new static
 .IR ipaddr .
 .TP
-.IR macvlan \ [ device ] \  [ macaddr ] \  [ ipaddr ]
+.BR macvlan
+.RI [ device ] \  [ macaddr ] \  [ ipaddr ]
 Create macvlan interface with same gateway as
 .IR device ,
 a new
@@ -260,7 +266,7 @@ and new static
 You can specify
 **:**:**:**:**:** to use default mac assigned by the kernel.
 .RE
-
+.RE
 
 .\" newpts
 .P
