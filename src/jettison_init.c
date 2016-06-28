@@ -125,7 +125,7 @@ int initialize()
 		if (p == 0) {
 			char *args[] = { NULL, NULL };
 			if (execve(init_script, args, environ)) {
-				printf("exec(%s) error: %s\n", init_script, strerror(errno));
+				printf("exec(%s) %s\n", init_script, strerror(errno));
 			}
 			return -1;
 		}
