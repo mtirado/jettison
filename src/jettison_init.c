@@ -76,17 +76,26 @@ static void terminator()
 		remain.tv_sec   = 0;
 		remain.tv_nsec  = 0;
 re_sleep:
+		errno = 0;
 		if (nanosleep(&request, &remain)) {
-			request.tv_sec = remain.tv_sec;
-			request.tv_nsec = remain.tv_nsec;
-			goto re_sleep;
+			if (errno == EINTR) {
+				request.tv_sec = remain.tv_sec;
+				request.tv_nsec = remain.tv_nsec;
+				goto re_sleep;
+			}
+			else {
+				usleep(5000000);
+				break;
+			}
 		}
+re_wait:
 		p = waitpid(-1, &status, WNOHANG);
 		if (p == 0) {
 			continue;
 		}
 		else if (p != -1) {
 			printf("exited: %d\n", p);
+			goto re_wait;
 		}
 		else if (p == -1 && errno == ECHILD) {
 			break;
