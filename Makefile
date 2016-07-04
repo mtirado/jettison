@@ -2,6 +2,7 @@
 DEFINES := 							\
 	-DUSE_FILE_CAPS						\
 	-DMAX_SYSTEMPATH=2048 					\
+	-D_FILE_OFFSET_BITS=64					\
 	-DDEFAULT_STACKSIZE=4194304				\
 	-DPOD_PATH=\"/opt/pods\"				\
 	-DINIT_PATH=\"/usr/local/bin/jettison_init\"		\

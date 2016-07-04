@@ -149,7 +149,9 @@ static int proc_checkmounts(char *path)
 	char *fbuf;
 	off_t fsize;
 	off_t cur, start, end;
-	unsigned int len, pathlen;
+	off_t len;
+	unsigned int pathlen;
+
 	errno = 0;
 	fsize = eslib_procfs_readfile("/proc/mounts", &fbuf);
 	if (fsize == -1) {
@@ -162,10 +164,12 @@ static int proc_checkmounts(char *path)
 		errno = ESRCH;
 		return -1;
 	}
+
 	pathlen = strnlen(path, MAX_SYSTEMPATH);
 	if (pathlen >= MAX_SYSTEMPATH) {
 		printf("path too long\n");
 		errno = EINVAL;
+		free(fbuf);
 		return -1;
 	}
 
@@ -177,7 +181,7 @@ static int proc_checkmounts(char *path)
 		while (fbuf[start] != ' ' && fbuf[start] != '\t')
 		{
 			if (++start >= fsize) {
-				printf("/proc/mounts error1\n");
+				printf("/proc/mounts e1\n");
 				goto failure;
 			}
 		}
@@ -185,7 +189,7 @@ static int proc_checkmounts(char *path)
 		while (fbuf[start] == ' ' || fbuf[start] == '\t')
 		{
 			if (++start >= fsize) {
-				printf("/proc/mounts error2\n");
+				printf("/proc/mounts e2\n");
 				goto failure;
 			}
 		}
@@ -194,7 +198,7 @@ static int proc_checkmounts(char *path)
 		while (fbuf[end] != ' ' && fbuf[end] != '\t')
 		{
 			if (++end >= fsize) {
-				printf("/proc/mounts error3\n");
+				printf("/proc/mounts e3\n");
 				goto failure;
 			}
 		}
@@ -249,15 +253,17 @@ static int unlink_file(char *path)
 	}
 	return 0;
 }
-
-unsigned char wbuf[512 * 8]; /* 4096 */
+#define CHUNK_SIZE 8 /* 8 == 4096 chunk */
+unsigned char wbuf[512 * CHUNK_SIZE];
 static int overwrite(char *path, unsigned int leaf_action)
 {
-	int testfd, r;
-	blkcnt_t  blocks, i;
+	blkcnt_t blocks;
+	blkcnt_t i;
+	int r;
+	int testfd;
 	struct stat st;
 	struct timespec t;
-	static unsigned int block_total = 0;
+	static unsigned int block_counter = 0;
 	unsigned int e1 = 0;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t);
@@ -281,27 +287,38 @@ static int overwrite(char *path, unsigned int leaf_action)
 		return -1;
 	}
 
-	/* convert blocks to 4096 byte chunks */
-	blocks = st.st_blocks; /* 512 byte blocks */
+	/* convert blocks to larger chunks */
+	blocks = st.st_blocks;
 	if (blocks <= 0) /* always write a chunk */
-		blocks = 8;
-	if (blocks % 8) /* cover remainder */
-		blocks += 8 - (blocks%8);
-	blocks = blocks/8;
+		blocks = CHUNK_SIZE;
+	if (blocks % CHUNK_SIZE) /* cover remainder */
+		blocks += CHUNK_SIZE - (blocks%CHUNK_SIZE);
+	blocks = blocks/CHUNK_SIZE;
 
 	if (leaf_action == ACTION_NUKE)
-		printf("nuking %lu blocks, blocksize: %d\n", blocks, sizeof(wbuf));
+		printf("nuking ");
 	else
-		printf("zeroing %lu blocks, blocksize: %d\n", blocks, sizeof(wbuf));
+		printf("zeroing ");
 
-	for (i = 0; i < blocks; ++i)
+#if (_FILE_OFFSET_BITS == 64)
+	printf("[%lu:%lu] blocks, blocksize: %d\n",
+		((unsigned long *)&blocks)[1],
+		((unsigned long *)&blocks)[0],
+		 sizeof(wbuf));
+#elif (_FILE_OFFSET_BITS == 32)
+	printf("%lu blocks, blocksize: %d\n", blocks, sizeof(wbuf));
+#else
+	printf("unknown sizeof(blkcnt_t), blocksize: %d\n" sizeof(wbuf));
+#endif
+
+	for (i = 0; i < blocks; ++i )
 	{
 		if (leaf_action == ACTION_NUKE) {
 			unsigned int z;
 			for (z = 0; z < sizeof(wbuf); ++z)
 			{
-				++block_total;
-				e1 += block_total;
+				++block_counter;
+				e1 += block_counter;
 				wbuf[z] += e1;
 				shuffle_bits(wbuf, sizeof(wbuf), wbuf[z], z, e1);
 			}
@@ -416,15 +433,20 @@ int main(int argc, char *argv[])
 	struct timespec t;
 	char ch;
 
-	/* protects against a very edgy case when root bind mounts system path
-	 * after this program runs proc_checkmounts. as long as these system
-	 * files lack group write permission and uid is not 0, they should
-	 * be safe. this is why if you noticed, pod files all have 770
-	 * or 775 permission.
-	 */
 	if (getuid() == 0 || geteuid() == 0) {
-	       printf("do not run this program with uid=0\n");
-	       return -1;
+		printf("WARNING you have uid 0, this is *potentially* disasterous.\n");
+		printf("any /proc/mounts we encounter after check will be traversed,\n");
+		printf("potentially your root filesystem. i'm skeptical this will\n");
+		printf("ever happen, but it's worth noting as it is possible.\n");
+		printf("press y to live dangerously.\n\n");
+		if (getch(&ch)) {
+			printf("getch error\n");
+			return -1;
+		}
+		if (ch != 'y' && ch != 'Y') {
+			printf("aborted\n");
+			return 0;
+		}
 	}
 
 #if DEBUG_RAND
