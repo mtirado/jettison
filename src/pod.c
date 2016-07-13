@@ -1770,7 +1770,6 @@ static int pass1_finalize()
 	/* make tmp dir */
 	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
 	mkdir(pathbuf, 0770);
-	chmod(pathbuf, 01777);
 
 	return 0;
 }
@@ -2197,7 +2196,7 @@ int pod_enter()
 		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
 		goto err_free;
 	}
-	if (chmod("/tmp", 0777)) {
+	if (chmod("/tmp", 01777)) {
 		printf("chmod(/tmp): %s\n", strerror(errno));
 		return -1;
 	}
