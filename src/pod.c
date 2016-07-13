@@ -134,6 +134,7 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "noproc"	},  /* do not mount /proc */
 	/*{ "slog"	},*//* pod wants to write to system log */
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
+	{ "tmp_exec"	},  /* mount /tmp dir with exec flag */
 #ifdef X11OPT
 	{ "x11"         },  /* bind mount X11 socket and generate auth file */
 	{ "xephyr"	},  /* isolate X11 session using Xephyr */
@@ -1579,6 +1580,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	case OPTION_NOPROC:
 	/*case OPTION_SLOG:*/
 	case OPTION_HOME_EXEC:
+	case OPTION_TMP_EXEC:
 	case OPTION_NEWNET:
 	case OPTION_NEWPTS:
 		break;
@@ -1784,6 +1786,9 @@ static int pass2_finalize()
 	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
 	tnode.nodetype = NODE_EMPTY;
+	if (g_podflags & (1 << OPTION_TMP_EXEC)) {
+		tnode.mntflags &= ~MS_NOEXEC;
+	}
 	if (pathnode_bind(&tnode)) {
 		printf("pathnode_bind(%s, %s) failed\n", tnode.src, tnode.dest);
 		return -1;
