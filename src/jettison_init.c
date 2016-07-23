@@ -61,12 +61,12 @@ static void sigsetup()
 	sigaction(SIGUSR1,  &sa, NULL);
 	sigaction(SIGUSR2,  &sa, NULL);
 }
-static void terminator()
+static void terminator(int retval)
 {
 	struct timespec request, remain;
 	int i, status;
 	pid_t p;
-	printf("propagating termination signal\n");
+	printf("terminating with exit status: %d\n", retval);
 	kill(-1, SIGTERM);
 	/* give programs 10 seconds to exit before killing */
 	for (i = 0; i < 10; ++i)
@@ -76,7 +76,6 @@ static void terminator()
 		remain.tv_sec   = 0;
 		remain.tv_nsec  = 0;
 re_sleep:
-		errno = 0;
 		if (nanosleep(&request, &remain)) {
 			if (errno == EINTR) {
 				request.tv_sec = remain.tv_sec;
@@ -101,9 +100,10 @@ re_wait:
 			break;
 		}
 	}
-	printf("terminating.\n");
 	kill(-1, SIGKILL);
-	_exit(0);
+	if (terminating)
+		retval = -1;
+	_exit(retval);
 }
 
 /* exec init script/program if env var is set */
@@ -172,6 +172,7 @@ int main(int argc, char *argv[])
 	char *traceline;
 	char *procname;
 	pid_t p;
+	pid_t pid2;
 	int ipc;
 
 	if (argc < 2) {
@@ -246,12 +247,12 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	p = fork();
-	if (p == -1) {
+	pid2 = fork();
+	if (pid2 == -1) {
 		printf("fork(): %s\n", strerror(errno));
 		return -1;
 	}
-	else if (p == 0) {
+	else if (pid2 == 0) {
 		/* that's all folks */
 		if (execve(progpath, &argv[1], environ)) {
 			printf("exec(%s) error: %s\n", argv[1], strerror(errno));
@@ -263,11 +264,28 @@ int main(int argc, char *argv[])
 	while (1)
 	{
 		int status;
-		if (terminating)
-			terminator();
+		if (terminating) {
+			terminator(-1);
+		}
 		p = waitpid(-1, &status, 0);
-		if (p == -1 && errno == ECHILD) {
-			return 0;
+		if (p == pid2) {
+			if (WIFEXITED(status)) {
+				if (WEXITSTATUS(status) == 0) {
+					/*printf("init: program exited gracefully\n");*/
+				}
+				else {
+					printf("init: program exited unexpectedly\n");
+				}
+				terminator(WEXITSTATUS(status));
+			}
+			else {
+				printf("init: program abnormally shut down\n");
+				terminator(-1);
+			}
+		}
+		else if (p == -1 && errno == ECHILD) {
+			printf("error: could not find pid2(%d)\n", pid2);
+			return -1;
 		}
 		else if (p == -1 && errno != EINTR) {
 			printf("waitpid: %s\n", strerror(errno));

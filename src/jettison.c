@@ -372,7 +372,6 @@ int jettison_clone_func(void *data)
 	close(g_pty_notify[0]);
 	close(g_traceipc[0]);
 	close(g_daemon_pipe[0]);
-
 	if (setsid() == -1) {
 		printf("setsid(): %s\n", strerror(errno));
 		return -1;
@@ -871,15 +870,15 @@ void exit_func()
 		kill(g_initpid, SIGTERM);
 	if (g_newnet.log_pid > 0)
 		kill(g_newnet.log_pid, SIGTERM);
-	kill(0, SIGTERM);
 	usleep(500000);
+	/* net logger needs some time to write data */
 	if (g_newnet.log_pid > 0) {
+		int i = 0;
 		int status;
 		/* this is sitting in a new net namespace,
 		 * make sure it's killed if it hangs > 5 seconds */
 		while (1)
 		{
-			int i = 0;
 			pid_t p = waitpid(g_newnet.log_pid, &status, WNOHANG);
 			if (p == g_newnet.log_pid)
 				break;
@@ -887,10 +886,10 @@ void exit_func()
 				break;
 			else if (p != 0 || ++i >= 50) {
 				kill(g_newnet.log_pid, SIGKILL);
-				printf("netlog program was unresponsive to SIGTERM\n");
 				break;
 			}
 			usleep(100000);
+			printf("waiting for netlog(%d) to shutdown\n", g_newnet.log_pid);
 		}
 	}
 
@@ -1097,6 +1096,7 @@ static int relay_io(int stdout_logfd)
 	int ours, theirs;
 	int status;
 	int canwrite = 1;
+	unsigned char estatus = -1;
 
 	ours = STDIN_FILENO;
 	theirs = g_ptym;
@@ -1201,6 +1201,21 @@ static int relay_io(int stdout_logfd)
 			if (p == g_initpid) {
 				wbytes = 0;
 				canwrite = 0;
+				if (WIFEXITED(status)) {
+					estatus = WEXITSTATUS(status);
+					if (estatus == 0) {
+						printf("init exited normally ");
+					}
+					else {
+						printf("init exited abnormally ");
+					}
+					printf("with status: %d\n", estatus);
+				}
+				else {
+					printf("init shut down abnormally\n");
+					estatus = -1;
+				}
+				g_initpid = 0;
 			}
 			else if (p == g_newnet.log_pid) {
 				if (g_initpid > 0) {
@@ -1213,7 +1228,6 @@ static int relay_io(int stdout_logfd)
 								strerror(errno));
 						return -1;
 					}
-					g_initpid = 0;
 					g_newnet.log_pid = 0;
 				}
 			}
@@ -1298,7 +1312,41 @@ static int relay_io(int stdout_logfd)
 	}
 
 fatal:
-	return -1;
+	/*  get exit status */
+	if (g_initpid > 0) {
+		int seconds = 12;
+		kill(g_initpid, SIGTERM);
+		/* give pod enough time to completely shutdown */
+		while (--seconds >= 0)
+		{
+			pid_t p;
+			struct timespec request, remain;
+			request.tv_sec  = 1;
+			request.tv_nsec = 0;
+			remain.tv_sec   = 0;
+			remain.tv_nsec  = 0;
+re_sleep:
+			if (nanosleep(&request, &remain)) {
+				if (errno == EINTR) {
+					request.tv_sec  = remain.tv_sec;
+					request.tv_nsec = remain.tv_nsec;
+					goto re_sleep;
+				}
+			}
+			p = waitpid(g_initpid, &status, WNOHANG);
+			if (p == g_initpid) {
+				if (WIFEXITED(status)) {
+					estatus = WEXITSTATUS(status);
+				}
+				else {
+					estatus = -1;
+				}
+				break;
+			}
+		}
+	}
+	/*printf("relay_done: exit status=%d\n", estatus);*/
+	return estatus;
 }
 
 static int create_logfile()
@@ -1948,9 +1996,7 @@ int main(int argc, char *argv[])
 	close(g_traceipc[1]);
 	close(g_daemon_pipe[1]);
 	relayio_sigsetup();
-	relay_io(stdout_logfd);
-
-	return 0;
+	return relay_io(stdout_logfd);
 }
 
 
