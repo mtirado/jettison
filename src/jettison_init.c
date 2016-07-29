@@ -64,15 +64,17 @@ static void sigsetup()
 static void terminator(int retval)
 {
 	struct timespec request, remain;
-	int i, status;
+	int status;
+	int millisec;
 	pid_t p;
 	printf("terminating with exit status: %d\n", retval);
 	kill(-1, SIGTERM);
 	/* give programs 10 seconds to exit before killing */
-	for (i = 0; i < 10; ++i)
+	millisec = 10000;
+	while (--millisec >= 0)
 	{
-		request.tv_sec  = 1;
-		request.tv_nsec = 0;
+		request.tv_sec  = 0;
+		request.tv_nsec = 1000000;
 		remain.tv_sec   = 0;
 		remain.tv_nsec  = 0;
 re_sleep:

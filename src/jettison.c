@@ -1314,15 +1314,15 @@ static int relay_io(int stdout_logfd)
 fatal:
 	/*  get exit status */
 	if (g_initpid > 0) {
-		int seconds = 12;
+		int millisec = 12000;
 		kill(g_initpid, SIGTERM);
 		/* give pod enough time to completely shutdown */
-		while (--seconds >= 0)
+		while (--millisec >= 0)
 		{
 			pid_t p;
 			struct timespec request, remain;
-			request.tv_sec  = 1;
-			request.tv_nsec = 0;
+			request.tv_sec  = 0;
+			request.tv_nsec = 1000000;
 			remain.tv_sec   = 0;
 			remain.tv_nsec  = 0;
 re_sleep:
