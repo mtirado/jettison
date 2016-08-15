@@ -80,13 +80,8 @@ static void terminator(int retval)
 re_sleep:
 		if (nanosleep(&request, &remain)) {
 			if (errno == EINTR) {
-				request.tv_sec = remain.tv_sec;
 				request.tv_nsec = remain.tv_nsec;
 				goto re_sleep;
-			}
-			else {
-				usleep(5000000);
-				break;
 			}
 		}
 re_wait:
