@@ -43,9 +43,8 @@ extern int jail_process(char *chroot_path,
 		 int can_write,
 		 int can_exec);
 /*
- *  this is a lot, may move it to a second blacklist instead of this whitelist,
- *  i haven't done enough testing yet to get the complete list, this is for xephyr
- *  without shm at the moment
+ *  XXX this should probably just use a config file
+ *  for sanity sake when something breaks/changes
  */
 static int x11meta_setup_seccomp()
 {
@@ -131,7 +130,7 @@ char x11display_number[32];
 char *x11get_displaynum(char *display, unsigned int *outlen)
 {
 	char *start = NULL;
-	char *end = NULL;
+	char *cur = NULL;
 	unsigned int len = 0;
 	if (!display || !outlen)
 		return NULL;
@@ -148,16 +147,16 @@ char *x11get_displaynum(char *display, unsigned int *outlen)
 	start = display;
 	if (*start != ':')
 		goto disp_err;
-	end = ++start;
+	cur = ++start;
 	while(1)
 	{
-		if (*end == '\0')
-			goto disp_err;
-		if (*end == '.')
+		if (*cur == '.' || *cur == '\0')
 			break;
-		++end;
+		else if (*cur < '0' || *cur > '9')
+			goto disp_err;
+		++cur;
 	}
-	len = end - start;
+	len = cur - start;
 	if (len <= 0)
 		goto disp_err;
 	else if (len >= (int)sizeof(x11display_number) - 1)
@@ -170,6 +169,7 @@ char *x11get_displaynum(char *display, unsigned int *outlen)
 
 disp_err:
 	printf("problem with display environment variable\n");
+	printf("jettison only supports simple display number -- DISPLAY=:0\n");
 	return NULL;
 }
 
