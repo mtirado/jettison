@@ -25,6 +25,7 @@
 #include "eslib/eslib.h"
 #include "eslib/eslib_rtnetlink.h"
 
+#define MAX_PODCFG (1024 * 10)
 
 #ifdef X11OPT
 	#include <X11/Xauth.h>
@@ -427,7 +428,10 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	fseek(file, 0, SEEK_END);
 	g_filesize = ftell(file);
 	fseek(file, 0, SEEK_SET);
-
+	if (g_filesize >= MAX_PODCFG || g_filesize == 0) {
+		printf("file size error\n");
+		goto err_close;
+	}
 	g_filedata = (char *)malloc(g_filesize+1); /* + terminator */
 	if (g_filedata == NULL) {
 		printf("malloc error\n");
