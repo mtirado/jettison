@@ -320,22 +320,20 @@ err_ret:
 	return NULL;
 }
 
+
 /*
  * load config file into memory,
  * call first pass of pod_load_config:
  * copies out chroot path, and pod flags
  * */
-int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
+int pod_prepare(char *filepath, char *chroot_path, unsigned int *outflags)
 {
 	int r;
 	unsigned int i;
 	FILE *file;
-	char *filename;
-	char *pwline;
-	char *pwuser;
 	struct stat st;
 
-	if (outpath == NULL || outflags == NULL)
+	if (chroot_path == NULL || outflags == NULL || filepath == NULL)
 		return -1;
 
 	if (MAX_SYSTEMPATH < 256) {
@@ -347,7 +345,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	g_x11meta_width = 0;
 	g_x11meta_height = 0;
 #endif
-
 	g_podflags = 0;
 	g_allow_dev = 0;
 	g_firstpass = 1;
@@ -365,19 +362,38 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		g_blkcalls[i] = -1;
 	}
 
-	pwline = passwd_fetchline(g_ruid);
-	if (pwline == NULL) {
-		printf("passwd file error\n");
+	/* check chroot path */
+	if (strnlen(chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
+		printf("chroot path too long: %s\n", chroot_path);
 		return -1;
 	}
-	pwuser = passwd_getfield(pwline, PASSWD_USER);
-	if (pwuser == NULL) {
-		printf("could not find your username in passwd file\n");
+	if (eslib_file_path_check(chroot_path)) {
+		printf("bad chroot path\n");
 		return -1;
 	}
-	filename = eslib_file_getname(filepath);
-	if (filename == NULL) {
-		printf("bad filename\n");
+	r = stat(chroot_path, &st);
+	if (r == 0) {
+		if (!S_ISDIR(st.st_mode)) {
+			printf("chroot path(%s) is not a directory\n", chroot_path);
+			return -1;
+		}
+		if (st.st_uid != 0 || st.st_gid != 0) {
+			printf("chroot path(%s) must be owned by root\n", chroot_path);
+			return -1;
+		}
+	}
+	else if (r == -1 && errno == ENOENT) {
+		if (mkdir(chroot_path, 0770)) {
+			printf("chroot path(%s) couldn't be created\n", chroot_path);
+			return -1;
+		}
+		if (chmod(chroot_path, 0770)) {
+			printf("chmod(%s): %s\n", chroot_path, strerror(errno));
+			return -1;
+		}
+	}
+	else {
+		printf("stat: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -386,45 +402,8 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 		printf("could not read pod configuration file: %s\n", filepath);
 		return -1;
 	}
-	/* check chroot path */
-	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
-	if (strnlen(g_chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
-		printf("chroot path too long: %s\n", g_chroot_path);
-		goto err_close;
-	}
-	if (eslib_file_path_check(g_chroot_path)) {
-		printf("bad chroot path\n");
-		goto err_close;
-	}
-	r = stat(g_chroot_path, &st);
-	if (r == 0) {
-		if (!S_ISDIR(st.st_mode)) {
-			printf("chroot path(%s) is not a directory\n", g_chroot_path);
-			goto err_close;
-		}
-		if (st.st_uid != 0 || st.st_gid != 0) {
-			printf("chroot path(%s) must be owned by root\n", g_chroot_path);
-			goto err_close;
-		}
-	}
-	else if (r == -1 && errno == ENOENT) {
-		if (mkdir(g_chroot_path, 0770)) {
-			printf("chroot path(%s) couldn't be created\n", g_chroot_path);
-			goto err_close;
-		}
-		if (chmod(g_chroot_path, 0770)) {
-			printf("chmod(%s): %s\n", g_chroot_path, strerror(errno));
-			goto err_close;
-		}
-	}
-	else {
-		printf("stat: %s\n", strerror(errno));
-		goto err_close;
-	}
-
-	printf("filename: %s\r\n", filename);
-	printf("chroot path: %s\r\n", g_chroot_path);
-
+	printf("chroot path: %s\r\n", chroot_path);
+	strncpy(g_chroot_path, chroot_path, MAX_SYSTEMPATH-1);
 	fseek(file, 0, SEEK_END);
 	g_filesize = ftell(file);
 	fseek(file, 0, SEEK_SET);
@@ -443,7 +422,7 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 	fclose(file);
 	g_filedata[g_filesize] = '\0';
 
-	/* first pass, copy out flags and path */
+	/* first pass, copy out podflags */
 	r = pod_load_config(g_filedata, g_filesize);
 	if (r) {
 		printf("pod_load_config error: on line %d\n", g_lineno);
@@ -453,8 +432,6 @@ int pod_prepare(char *filepath, char *outpath, unsigned int *outflags)
 
 	g_firstpass = 0;
 	*outflags = g_podflags;
-	strncpy(outpath, g_chroot_path, MAX_SYSTEMPATH-1);
-	outpath[MAX_SYSTEMPATH-1] = '\0';
 	return 0;
 
 err_free_close:

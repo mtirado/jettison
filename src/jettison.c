@@ -115,9 +115,32 @@ char g_podconfig_path[MAX_SYSTEMPATH];
 char g_cwd[MAX_SYSTEMPATH]; /* directory jettison was called from */
 size_t g_stacksize;
 
-/* must be called first to obtain podflags and chroot path. */
+/* read and load config, pass1 */
 int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 {
+	char *filename;
+	char *pwline;
+	char *pwuser;
+	filename = eslib_file_getname(cfg_path);
+	if (filename == NULL) {
+		printf("bad filename\n");
+		return -1;
+	}
+	pwline = passwd_fetchline(g_ruid);
+	if (pwline == NULL) {
+		printf("passwd file error\n");
+		return -1;
+	}
+	pwuser = passwd_getfield(pwline, PASSWD_USER);
+	if (pwuser == NULL) {
+		printf("could not find your username in passwd file\n");
+		return -1;
+	}
+	snprintf(g_newroot, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
+	if (eslib_file_path_check(g_newroot)) {
+		printf("bad chroot path\n");
+		return -1;
+	}
 	return pod_prepare(cfg_path, g_newroot, outflags);
 }
 
