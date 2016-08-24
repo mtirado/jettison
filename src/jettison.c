@@ -1381,6 +1381,7 @@ static int create_logfile()
 	time_t stamp;
 	int year, mon, day, hour, min, sec, dlst;
 	int fd;
+	int r;
 
 	fname = eslib_file_getname(g_podconfig_path);
 	if (fname == NULL) {
@@ -1413,7 +1414,12 @@ static int create_logfile()
 	/* create file path */
 	snprintf(logpath, sizeof(logpath), "./log.%s.%04d-%02d-%02dT%02d:%02d:%02d%s",
 				fname, year, mon, day, hour, min, sec, dst_str);
-	if (eslib_file_exists(logpath)) {
+	r = eslib_file_exists(logpath);
+	if (r == -1 ) {
+		printf("logfile error\n");
+		return -1;
+	}
+	else if (r != 0) {
 		printf("log file already exists?\n");
 		return -1;
 	}
