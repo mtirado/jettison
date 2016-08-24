@@ -76,8 +76,11 @@ int pty_create(int *fd_master, int master_flags,
 {
 	int master;
 	int slave;
-	memset(outslave_path, 0, MAX_SYSTEMPATH);
 
+	if (fd_master == NULL || outslave_path == NULL)
+		return -1;
+
+	memset(outslave_path, 0, MAX_SYSTEMPATH);
 	master = posix_openpt(O_RDWR | O_NOCTTY | master_flags);
 
 	if (master == -1) {
@@ -121,7 +124,12 @@ int pty_create(int *fd_master, int master_flags,
 int switch_terminal(char *path, int hangup)
 {
 	int err;
-	int fd_tty = open(path, O_CLOEXEC|O_RDWR|O_NONBLOCK);
+	int fd_tty;
+
+	if (path == NULL)
+		return -1;
+
+	fd_tty = open(path, O_CLOEXEC|O_RDWR|O_NONBLOCK);
 	if (fd_tty == -1) {
 		printf("open(%s): %s\n", path, strerror(errno));
 		return -1;
@@ -190,10 +198,12 @@ char *passwd_fetchline_byname(char *username, const char *filename)
 	char rdline[FMAXLINE+1];
 	FILE *file;
 
+	if (username == NULL || filename == NULL)
+		return NULL;
 	if (strnlen(username, FMAXLINE) >= FMAXLINE)
-		goto err_return;
+		return NULL;
 	if (strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
-		goto err_return;
+		return NULL;
 
 	file = fopen(filename, "r");
 	if (file == NULL)
@@ -393,7 +403,7 @@ int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cyc
 		return -1;
 	}
 	iterations = size * cycles;
-	if (iterations == 0)
+	if (iterations == 0 || out == NULL)
 		return -1;
 
 	entropy += 99;
@@ -557,6 +567,9 @@ uid_t get_user_id(char *username)
 	char *err = NULL;
 	unsigned long uid;
 
+	if (username == NULL)
+		return -1;
+
 	pwline = passwd_fetchline_byname(username, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("could not find user: %s\n", username);
@@ -586,6 +599,9 @@ gid_t get_group_id(char *groupname)
 	char *grgid;
 	char *err = NULL;
 	unsigned long gid;
+
+	if (groupname == NULL)
+		return -1;
 
 	grline = passwd_fetchline_byname(groupname, GROUP_FILE);
 	if (grline == NULL) {
