@@ -2,6 +2,9 @@
 #define SECCOMP_HELPER_H__
 
 
+#include <linux/audit.h>
+#include <linux/seccomp.h>
+
 #define MAX_SYSCALL_DEFLEN 64
 #define MAX_CAP_DEFLEN 64
 #define MAX_SYSCALLS 2000

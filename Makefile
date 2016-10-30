@@ -16,10 +16,13 @@ DEFINES := 							\
 DEFINES += -DX11OPT
 JETTISON_LIBS := -lXau
 
-#newnet namespace device hookups. you may want to roll your own if allowing
-#random users to run jettison, some of these require control of network
-#resources. ip address, mac address, etc. these resources are protected by
-#users permission file located at /etc/jettison/users/<user>
+
+# newnet namespace device hookups
+# these options require control of network resources. ip address,
+# mac address, etc. these resources are protected by
+# users permission file located at /etc/jettison/users/<user>
+# underlying drivers may be new; ipvlan requires ipv6.
+# TODO veth bridge and even more possiblities
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
@@ -30,7 +33,7 @@ DEFINES += -DNEWNET_MACVLAN
 
 
 
-CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
+CFLAGS  := -pedantic -Wall -Wextra -Werror
 DEFLANG := -ansi
 #DBG	:= -g
 
@@ -65,7 +68,6 @@ INIT_SRCS :=	./src/jettison_init.c			\
 		./src/eslib/eslib_proc.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
-
 ########################################
 #	PROGRAM FILENAMES
 ########################################
@@ -75,7 +77,7 @@ INIT	  		:= jettison_init
 UTIL_PRELOAD		:= jettison_preload.so
 
 %.o: 		%.c
-			$(CC) -c $(DEFLANG) $(CFLAGS) $(DBG) -o $@ $<
+			$(CC) -c $(DEFLANG) $(CFLAGS) $(DEFINES) $(DBG) -o $@ $<
 
 
 all:				\
@@ -115,7 +117,7 @@ $(INIT):		$(INIT_OBJS)
 
 $(UTIL_PRELOAD):
 			@echo ""
-			$(CC) $(CFLAGS) -shared -o $@ -fPIC 		\
+			$(CC) $(CFLAGS) $(DEFLANG) $(DEFINES) -shared -o $@ -fPIC \
 					./src/util/jettison_preload.c
 			@echo ""
 			@echo "x--------------------x"
@@ -123,13 +125,14 @@ $(UTIL_PRELOAD):
 			@echo "x--------------------x"
 			@echo ""
 
+
 ########################################
 #	CLEAN UP THE MESS
 ########################################
 clean:
 	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
 	@$(foreach obj, $(DESTRUCT_OBJS), rm -fv $(obj);)
-	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(INIT_OBJS),     rm -fv $(obj);)
 
 	@-rm -fv ./$(JETTISON)
 	@-rm -fv ./$(DESTRUCT)

@@ -20,8 +20,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
-#include <linux/audit.h>
-#include <linux/seccomp.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -141,7 +139,8 @@ int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 		printf("bad chroot path\n");
 		return -1;
 	}
-	return pod_prepare(cfg_path, g_newroot, outflags);
+	return pod_prepare(cfg_path, g_newroot, &g_newnet,
+			g_blacklist, &g_privs, outflags);
 }
 
 
@@ -462,6 +461,15 @@ int jettison_clone_func(void *data)
 
 		chdir("/podhome");
 
+		fdexempt[0] = STDIN_FILENO;
+		fdexempt[1] = STDOUT_FILENO;
+		fdexempt[2] = STDERR_FILENO;
+		fdexempt[3] = g_traceipc[1];
+		if (close_descriptors(fdexempt, 4))
+			return -1;
+		if (print_options())
+			return -1;
+
 		/* install seccomp filter. block ptrace if no options specified */
 		if (g_syscall_idx == 0 && !g_blocknew && g_allow_ptrace) {
 			printf("**calling exec without seccomp filter**\n");
@@ -496,14 +504,6 @@ int jettison_clone_func(void *data)
 				}
 			}
 		}
-		fdexempt[0] = STDIN_FILENO;
-		fdexempt[1] = STDOUT_FILENO;
-		fdexempt[2] = STDERR_FILENO;
-		fdexempt[3] = g_traceipc[1];
-		if (close_descriptors(fdexempt, 4))
-			return -1;
-		if (print_options())
-			return -1;
 #ifdef PODROOT_HOME_OVERRIDE
 		if (execve(((char **)data)[1], ((char **)data)+1, environ) < 0)
 			printf("execv failure: %s\n", strerror(errno));
@@ -1838,7 +1838,7 @@ int main(int argc, char *argv[])
 	g_daemon_pipe[0] = -1;
 	g_daemon_pipe[1] = -1;
 	memset(g_cwd, 0, sizeof(g_cwd));
-	memset(g_fcaps, 0, NUM_OF_CAPS);
+	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(&g_newnet, 0, sizeof(g_newnet));
 	memset(g_newroot, 0, sizeof(g_newroot));
 	memset(g_procname, 0, sizeof(g_procname));

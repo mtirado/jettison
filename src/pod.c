@@ -89,15 +89,11 @@ struct path_node *g_mountpoints;
 /* external variables from jettison.c
  * non-jettison.c C callers will have to define these.
  */
-extern char g_pty_slavepath[MAX_SYSTEMPATH];
 extern gid_t g_rgid;
 extern uid_t g_ruid;
-extern int g_tracecalls;
-extern pid_t g_mainpid;
-extern int g_daemon;
-extern int g_blacklist;
+/*extern int g_daemon;
+extern char g_pty_slavepath[MAX_SYSTEMPATH];*/
 #define MAX_PARAM (MAX_SYSTEMPATH * 4)
-char g_params[MAX_PARAM];
 
 /* much globals */
 unsigned int g_lineno;
@@ -105,8 +101,10 @@ size_t g_filesize;
 char *g_filedata;
 int g_allow_dev;
 int g_firstpass;
+int g_useblacklist;
 unsigned int g_podflags;
-
+/*gid_t g_rgid;
+uid_t g_ruid;*/
 int g_fcaps[NUM_OF_CAPS];
 int g_syscalls[MAX_SYSCALLS];
 int g_blkcalls[MAX_SYSCALLS];
@@ -115,8 +113,8 @@ unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
 
-extern struct newnet_param g_newnet;
-extern struct user_privs g_privs;
+struct newnet_param *g_podnewnet;
+struct user_privs *g_podprivs;
 
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
@@ -326,14 +324,16 @@ err_ret:
  * call first pass of pod_load_config:
  * copies out chroot path, and pod flags
  * */
-int pod_prepare(char *filepath, char *chroot_path, unsigned int *outflags)
+int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
+		unsigned int blacklist, struct user_privs *privs, unsigned int *outflags)
 {
 	int r;
 	unsigned int i;
 	FILE *file;
 	struct stat st;
 
-	if (chroot_path == NULL || outflags == NULL || filepath == NULL)
+	if (chroot_path == NULL || outflags == NULL
+			|| filepath == NULL || newnet == NULL || privs == NULL)
 		return -1;
 
 	if (MAX_SYSTEMPATH < 256) {
@@ -355,6 +355,11 @@ int pod_prepare(char *filepath, char *chroot_path, unsigned int *outflags)
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
+	g_podnewnet = newnet;
+	g_useblacklist = blacklist;
+	g_podprivs = privs;
+	/*g_ruid = getuid();
+	g_rgid = getgid();*/
 
 	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
 	{
@@ -454,6 +459,7 @@ static int do_chroot_setup()
 
 	setuid(g_ruid);
 	setgid(g_rgid);
+
 	r = eslib_file_exists(g_chroot_path);
 	if (r == -1)
 		return -1;
@@ -475,12 +481,12 @@ static int do_chroot_setup()
 	}
 	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
 	mkdir(podhome, 0770);
-	if (chown(g_chroot_path, 0, 0)) {
-		printf("chown %s failed\n", podhome);
-		return -1;
-	}
 	setuid(0);
 	setgid(0);
+	if (chown(g_chroot_path, 0, 0)) {
+		printf("chown %s failed: %s\n", g_chroot_path, strerror(errno));
+		return -1;
+	}
 	if (chmod(g_chroot_path, 0775)) {
 		printf("chmod %s: %s\n", g_chroot_path, strerror(errno));
 		return -1;
@@ -1242,7 +1248,7 @@ static int parse_newnet(char *params, size_t size)
 
 	if (size <= 1)
 		return -1;
-	if (g_newnet.active) {
+	if (g_podnewnet->active) {
 		printf("only one newnet is supported\n");
 		return -1;
 	}
@@ -1259,23 +1265,23 @@ static int parse_newnet(char *params, size_t size)
 
 	/* get kind */
 	if (strncmp(type, "none", 5) == 0)
-		g_newnet.kind = ESRTNL_KIND_UNKNOWN;
+		g_podnewnet->kind = ESRTNL_KIND_UNKNOWN;
 	else if (strncmp(type, "loop", 5) == 0)
-		g_newnet.kind = ESRTNL_KIND_LOOP;
+		g_podnewnet->kind = ESRTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
 	else if (strncmp(type, "vethbr", 7) == 0)
-		g_newnet.kind = ESRTNL_KIND_VETHBR;
+		g_podnewnet->kind = ESRTNL_KIND_VETHBR;
 #endif
 #ifdef NEWNET_IPVLAN
 	else if (strncmp(type, "ipvlan", 7) == 0)
-		g_newnet.kind = ESRTNL_KIND_IPVLAN;
+		g_podnewnet->kind = ESRTNL_KIND_IPVLAN;
 #endif
 #ifdef NEWNET_MACVLAN
 	else if (strncmp(type, "macvlan", 8) == 0)
-		g_newnet.kind = ESRTNL_KIND_MACVLAN;
+		g_podnewnet->kind = ESRTNL_KIND_MACVLAN;
 #endif
 
-	switch (g_newnet.kind)
+	switch (g_podnewnet->kind)
 	{
 	case ESRTNL_KIND_IPVLAN:
 	case ESRTNL_KIND_MACVLAN:
@@ -1289,14 +1295,14 @@ static int parse_newnet(char *params, size_t size)
 			return -1;
 		}
 		devlen = i - z;
-		if (devlen == 0 || devlen >= sizeof(g_newnet.dev)) {
+		if (devlen == 0 || devlen >= sizeof(g_podnewnet->dev)) {
 			printf("bad master devlen: %d\n", devlen);
 			return -1;
 		}
-		strncpy(g_newnet.dev, &params[z], devlen);
+		strncpy(g_podnewnet->dev, &params[z], devlen);
 
 		/* read hwaddr string */
-		if (g_newnet.kind == ESRTNL_KIND_MACVLAN) {
+		if (g_podnewnet->kind == ESRTNL_KIND_MACVLAN) {
 			int cnt = 0;
 			z = ++i;
 			for (; i < size; ++i) {
@@ -1313,11 +1319,11 @@ static int parse_newnet(char *params, size_t size)
 			if (i >= size)
 				return -1;
 			addrlen = i - z;
-			if (addrlen == 0 || addrlen >= sizeof(g_newnet.hwaddr)) {
+			if (addrlen == 0 || addrlen >= sizeof(g_podnewnet->hwaddr)) {
 				printf("bad hwaddr: %d\n", addrlen);
 				return -1;
 			}
-			strncpy(g_newnet.hwaddr, &params[z], addrlen);
+			strncpy(g_podnewnet->hwaddr, &params[z], addrlen);
 		}
 
 		/* read ipaddr string */
@@ -1326,24 +1332,24 @@ static int parse_newnet(char *params, size_t size)
 			if (params[i] == ' ' || params[i] == '\0')
 				break;
 		addrlen = i - z;
-		if (addrlen == 0 || addrlen >= sizeof(g_newnet.addr)) {
+		if (addrlen == 0 || addrlen >= sizeof(g_podnewnet->addr)) {
 			printf("bad addr: %d\n", addrlen);
 			return -1;
 		}
-		strncpy(g_newnet.addr, &params[z], addrlen);
+		strncpy(g_podnewnet->addr, &params[z], addrlen);
 
 		/* does addr have subnet mask? */
 		for (i = 0; i < addrlen; ++i) {
-			if (g_newnet.addr[i] == '/') {
+			if (g_podnewnet->addr[i] == '/') {
 				char *err = NULL;
 				long netmask;
-				g_newnet.addr[i] = '\0';
+				g_podnewnet->addr[i] = '\0';
 				if (++i >= addrlen) { /* slash was last char */
 					printf("bad subnet mask\n");
 					return -1;
 				}
 				errno = 0;
-				netmask = strtol(&g_newnet.addr[i], &err, 10);
+				netmask = strtol(&g_podnewnet->addr[i], &err, 10);
 				if (err == NULL || *err || errno) {
 					printf("bad subnet mask value\n");
 					return -1;
@@ -1352,15 +1358,15 @@ static int parse_newnet(char *params, size_t size)
 					printf("invalid netmask\n");
 					return -1;
 				}
-				g_newnet.netmask = netmask;
-				strncpy(g_newnet.prefix, &g_newnet.addr[i], 2);
-				g_newnet.prefix[2] = '\0';
+				g_podnewnet->netmask = netmask;
+				strncpy(g_podnewnet->prefix, &g_podnewnet->addr[i], 2);
+				g_podnewnet->prefix[2] = '\0';
 				break;
 			}
 		}
 		if (i >= addrlen) {
-			snprintf(g_newnet.prefix, 3, "%d", DEFAULT_NETMASK_PREFIX);
-			g_newnet.netmask = DEFAULT_NETMASK_PREFIX;
+			snprintf(g_podnewnet->prefix, 3, "%d", DEFAULT_NETMASK_PREFIX);
+			g_podnewnet->netmask = DEFAULT_NETMASK_PREFIX;
 		}
 		break;
 	case ESRTNL_KIND_VETHBR:
@@ -1374,7 +1380,7 @@ static int parse_newnet(char *params, size_t size)
 		return -1;
 	}
 
-	g_newnet.active = 1;
+	g_podnewnet->active = 1;
 	return 0;
 }
 
@@ -1568,7 +1574,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* add a systemcall to the whitelist */
 	case OPTION_SECCOMP_ALLOW:
-		if (g_blacklist)
+		if (g_useblacklist)
 			break;
 
 		if (params == NULL) {
@@ -1596,7 +1602,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	/* add a systemcall to the blocklist */
 	case OPTION_SECCOMP_BLOCK:
-		if (g_blacklist)
+		if (g_useblacklist)
 			break;
 
 		if (params == NULL) {
@@ -1682,8 +1688,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			/* assumes overflows are not saturated */
 			if (create_machineid(path, NULL, 0x0f0f0f0f
 							+(unsigned int)t.tv_nsec
-							+(unsigned int)t.tv_sec
-							+(unsigned int)g_mainpid)) {
+							+(unsigned int)t.tv_sec)) {
 				printf("create_machineid(NULL)\n");
 				return -1;
 			}
@@ -1776,7 +1781,7 @@ static int pass2_finalize()
 
 	/* hookup new pts instance */
 	if (g_podflags & (1 << OPTION_NEWPTS)) {
-		if (g_privs.newpts == 0) {
+		if (g_podprivs->newpts == 0) {
 			printf("user is not authorized for newpts instance\n");
 			printf("add newpts option to privilege file\n");
 			return -1;
@@ -1846,7 +1851,7 @@ static int pass2_finalize()
 	}
 
 	/* override pod config seccomp options with systemwide blacklist */
-	if (g_blacklist) {
+	if (g_useblacklist) {
 		if (load_seccomp_blacklist(JETTISON_BLACKLIST)) {
 			return -1;
 		}

@@ -12,7 +12,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
-#include <sys/capability.h>
+#include "capability.h"
 #include <unistd.h>
 #include <string.h>
 #include <dirent.h>
@@ -303,7 +303,7 @@ static int netns_enter_and_config(char *ifname)
 	/* save current firewall for new net namespace */
 	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
 	if (r <= 0) {
-		if (r == 0 && (g_newnet.kind != ESRTNL_KIND_LOOP)) {
+		if (r == 0) {
 			printf("couldn't save firewall rules\n");
 			return -1;
 		}

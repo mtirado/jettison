@@ -132,16 +132,13 @@ char *x11get_displaynum(char *display, unsigned int *outlen)
 	char *start = NULL;
 	char *cur = NULL;
 	unsigned int len = 0;
+
 	if (!display || !outlen)
 		return NULL;
 
 	memset(x11display_number, 0, sizeof(x11display_number));
 	*outlen = 0;
 
-	if (display == NULL) {
-		printf("missing DISPLAY env var\n");
-		return NULL;
-	}
 
 	/* extract xauth display number from env var */
 	start = display;

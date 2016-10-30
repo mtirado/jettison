@@ -8,6 +8,8 @@
 #ifndef POD_H__
 #define POD_H__
 
+struct newnet_param;
+struct user_privs;
 
 /* put all podflag options near top, they are used as
  * bit flags, and we should keep their value as low as possible */
@@ -41,14 +43,22 @@ enum
 
 
 /* reads configuration for flags and chroot path
- * filepath - pod configuration file
- * outpath  - path to new chroot,
- * outflags - option flags
+ * filepath  - pod configuration file
+ * outpath   - path to new chroot,
+ * newnet    - network namespace options
+ * blacklist - if non-zero, use systemwide blacklist
+ * outflags  - option flags
  *
  * outpath must be <= MAX_SYSTEMPATH for a safe memcpy
  */
-int pod_prepare(char *filepath, char *outpath, unsigned int *outflags);
+int pod_prepare(char *filepath,
+		char *outpath,
+		struct newnet_param *newnet,
+		unsigned int blacklist,
+		struct user_privs *privs,
+		unsigned int *outflags);
 
+int pod_config_netns();
 /*
  * if any failure occurs after pod_prepare or on pod_enter
  * we need to free the file data.
