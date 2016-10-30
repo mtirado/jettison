@@ -1153,14 +1153,6 @@ static int X11_hookup()
 	}
 
 	setuid(g_ruid);
-	if (xauth_file == NULL) {
-		printf("missing XAUTHORITY env var\n");
-		return -1;
-	}
-	if (eslib_file_path_check(xauth_file)) {
-		printf("XAUTHORITY bad path\n");
-		return -1;
-	}
 
 	snprintf(sock_src, MAX_SYSTEMPATH, "/tmp/.X11-unix/X%s", displaynum);
 	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X%s",
@@ -1186,44 +1178,51 @@ static int X11_hookup()
 
 	snprintf(newpath, sizeof(newpath),
 			"%s/podhome/.Xauthority", g_chroot_path);
-	fin = fopen(xauth_file, "r");
-	if (fin == NULL) {
-		printf("fopen(%s): %s\n", xauth_file, strerror(errno));
-		return -1;
-	}
-	fout = fopen(newpath, "w+");
-	if (fout == NULL) {
-		printf("fopen(%s): %s\n", newpath, strerror(errno));
-		goto fail_close;
-	}
 
-	/* copy auth info for current display */
-	while(1)
-	{
-		xau = XauReadAuth(fin);
-		if (xau == NULL) {
-			if (!found) {
-				printf("xauth entry for display not found\n");
-				goto fail_close;
-			}
-			else {
-				break;
-			}
+	if (xauth_file != NULL) {
+		if (eslib_file_path_check(xauth_file)) {
+			printf("XAUTHORITY bad path\n");
+			return -1;
 		}
-		else if (xau->number_length == dlen
-				&& strncmp(xau->number, displaynum, dlen) == 0) {
-			if (XauWriteAuth(fout, xau) != 1) {
-				printf("XauWriteAuth failed\n");
-				goto fail_close;
-			}
-			found = 1;
+		fin = fopen(xauth_file, "r");
+		if (fin == NULL) {
+			printf("fopen(%s): %s\n", xauth_file, strerror(errno));
+			return -1;
 		}
-		XauDisposeAuth(xau);
+		fout = fopen(newpath, "w+");
+		if (fout == NULL) {
+			printf("fopen(%s): %s\n", newpath, strerror(errno));
+			goto fail_close;
+		}
 
+		/* copy auth info for current display */
+		while(1)
+		{
+			xau = XauReadAuth(fin);
+			if (xau == NULL) {
+				if (!found) {
+					printf("xauth entry for display not found\n");
+					goto fail_close;
+				}
+				else {
+					break;
+				}
+			}
+			else if (xau->number_length == dlen
+					&& strncmp(xau->number, displaynum, dlen) == 0) {
+				if (XauWriteAuth(fout, xau) != 1) {
+					printf("XauWriteAuth failed\n");
+					XauDisposeAuth(xau);
+					goto fail_close;
+				}
+				found = 1;
+			}
+			XauDisposeAuth(xau);
+
+		}
+		fclose(fin);
+		fclose(fout);
 	}
-	fclose(fin);
-	fclose(fout);
-
 	setuid(0);
 	return do_x11_socketbind(sock_src, sock_dest);
 
