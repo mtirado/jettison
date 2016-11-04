@@ -5,11 +5,14 @@
  * wrapper for whitelist pod configuration file.
  *
  * read pod configuration file.
+ * prepare pod
  * clone
- * setup pod environment
+ * enter pod
  * drop privs
  * exec.
  *
+ * TODO: reduce dependency on optional external programs
+ * 	 such as tcpdump, xtables, xephyr
  */
 
 #define _GNU_SOURCE
