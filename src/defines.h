@@ -11,6 +11,7 @@
  *  -DNEWNET_IPVLAN     -- can create ipvlans
  *  -DNEWNET_MACVLAN    -- can create macvlans
  *  -DPODROOT_HOME_OVERRIDE -- developer hack to let user control podroot directories.
+ *  				use with pkg-autopod.sh for automated build containers.
  *
  *  TODO there are possibly more
  */

@@ -986,7 +986,7 @@ int netns_setup()
 		printf("root netns fd open: %s\n", strerror(errno));
 		return -1;
 	}
-	/* save current firewall for new net namespace */
+	/* save current firewall */
 	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
 	if (r <= 0) {
 		if (r == 0) {
