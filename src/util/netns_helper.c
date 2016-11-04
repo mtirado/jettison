@@ -298,18 +298,6 @@ static int netns_enter_proc(char *pid)
  */
 static int netns_enter_and_config(char *ifname)
 {
-	int r;
-
-	/* save current firewall for new net namespace */
-	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
-	if (r <= 0) {
-		if (r == 0) {
-			printf("couldn't save firewall rules\n");
-			return -1;
-		}
-	}
-	g_newnet.filtersize = r;
-
 	/* enter new namespace */
 	if (setns(g_newnet.new_ns, CLONE_NEWNET)) {
 		printf("set new_ns: %s\n", strerror(errno));
@@ -998,6 +986,16 @@ int netns_setup()
 		printf("root netns fd open: %s\n", strerror(errno));
 		return -1;
 	}
+	/* save current firewall for new net namespace */
+	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
+	if (r <= 0) {
+		if (r == 0) {
+			printf("couldn't save firewall rules\n");
+			return -1;
+		}
+	}
+	g_newnet.filtersize = r;
+
 	/* create new namespace */
 	if (unshare(CLONE_NEWNET)) {
 		printf("unshare(CLONE_NEWNET): %s\n", strerror(errno));
@@ -1008,8 +1006,13 @@ int netns_setup()
 	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
 	g_newnet.new_ns = open(path, O_RDONLY|O_CLOEXEC);
 	if (g_newnet.new_ns == -1) {
-		printf("root netns fd open: %s\n", strerror(errno));
+		printf("new_ns fd open: %s\n", strerror(errno));
 		close(g_newnet.root_ns);
+		return -1;
+	}
+	/* back to root namespace */
+	if (setns(g_newnet.root_ns, CLONE_NEWNET)) {
+		printf("set root_ns : %s\n", strerror(errno));
 		return -1;
 	}
 
