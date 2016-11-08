@@ -50,7 +50,7 @@ Set name of process at argv[0] before calling execve.
 
 --strict
 .RS
-Seccomp rejection kills process.
+Seccomp rejection kills process, unless that particular systemcall is blocked
 .RE
 .P
 
@@ -141,9 +141,11 @@ before
 .IR program .
 if
 .IR init_script 's
-exit status is not 0,
+exit status is non-zero,
 .I program
-is not executed.
+is not executed. The path is pod-local so it will need to be whitelisted
+using e.g: `home rx /.pods/init/browserA.sh` specified to this option by
+--init /podhome/.pods/init/browserA.sh
 
 .RE
 .P
