@@ -131,7 +131,6 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "newnet"	},  /* create new network namespace */
 	{ "newpts"	},  /* creates a new /dev/pts instance */
 	{ "noproc"	},  /* do not mount /proc */
-	/*{ "slog"	},*//* pod wants to write to system log */
 	{ "home_exec"	},  /* mount empty home dir with exec flag */
 	{ "tmp_exec"	},  /* mount /tmp dir with exec flag */
 #ifdef X11OPT
@@ -139,7 +138,7 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "xephyr"	},  /* isolate X11 session using Xephyr */
 #endif
 
-	{ "- - - - - - -" }, /* cutoff for podflags */
+	{ "- - - - - - -" }, /* cutoff for podflags, disregard */
 
 	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
 			       otherwise, everything is allowed. */
@@ -358,8 +357,6 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_podnewnet = newnet;
 	g_useblacklist = blacklist;
 	g_podprivs = privs;
-	/*g_ruid = getuid();
-	g_rgid = getgid();*/
 
 	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
 	{
