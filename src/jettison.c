@@ -771,7 +771,8 @@ int process_arguments(int argc, char *argv[])
 				++i;
 				strncpy(g_initscript, argv[i], MAX_SYSTEMPATH);
 				if (eslib_file_path_check(g_initscript)) {
-					printf("init script must be an asbolute path\n");
+					printf("init script must be an asbolute ");
+					printf("pod-local path, eg: /podhome/init.sh\n");
 					return -1;
 				}
 				argidx += 2;
@@ -876,7 +877,9 @@ err_usage:
 	printf("        clear environment before calling exec\n");
 	printf("\n");
 	printf("--init <init-script>\n");
-	printf("        run this script before running executable\n");
+	printf("        run this script before running executable.\n");
+	printf("        must be a pod-local path, eg: /podhome/.pods/browserA.sh\n");
+	printf("        which should be whitelisted using home rx /.pods/browserA.sh\n");
 	printf("\n");
 	printf("\n");
 	printf("\n");

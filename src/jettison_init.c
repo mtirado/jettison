@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
 	char *traceline;
 	char *procname;
 	pid_t p;
-	pid_t pid2;
+	pid_t progpid;
 	int ipc;
 
 	if (argc < 2) {
@@ -184,7 +184,6 @@ int main(int argc, char *argv[])
 
 	/* set process name */
 	procname = eslib_proc_getenv("JETTISON_PROCNAME");
-	printf("init got procname: %s\n", procname);
 	if (procname != NULL) {
 		int len = strnlen(procname, MAX_PROCNAME);
 		if (len >= MAX_PROCNAME) {
@@ -197,6 +196,7 @@ int main(int argc, char *argv[])
 	}
 
 	ipc = -1;
+	errno = 0;
 	traceline = eslib_proc_getenv("JETTISON_TRACEFD");
 	if (traceline == NULL) {
 		if (errno == ENOTUNIQ) {
@@ -204,9 +204,8 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 	}
-	else if (traceline) {
+	else {
 		errno = 0;
-		printf("traceline: %s\n", traceline);
 		ipc = strtol(traceline, &err, 10);
 		if (err == NULL || *err || errno) {
 			printf("strtol error\n");
@@ -214,7 +213,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* wait for ack over ipc before execution */
+	/* if tracing, wait for ack over ipc before exec */
 	while(ipc != -1)
 	{
 		int r;
@@ -222,7 +221,6 @@ int main(int argc, char *argv[])
 		r = read(ipc, &buf, 1);
 		if (r == -1) {
 			if (errno == EINTR || errno == EAGAIN) {
-				printf("ticking\n");
 				continue;
 			}
 			printf("trace ipc error: %s\n",	strerror(errno));
@@ -244,12 +242,12 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	pid2 = fork();
-	if (pid2 == -1) {
+	progpid = fork();
+	if (progpid == -1) {
 		printf("fork(): %s\n", strerror(errno));
 		return -1;
 	}
-	else if (pid2 == 0) {
+	else if (progpid == 0) {
 		/* that's all folks */
 		if (execve(progpath, &argv[1], environ)) {
 			printf("exec(%s) error: %s\n", argv[1], strerror(errno));
@@ -265,7 +263,7 @@ int main(int argc, char *argv[])
 			terminator(-1);
 		}
 		p = waitpid(-1, &status, 0);
-		if (p == pid2) {
+		if (p == progpid) {
 			if (WIFEXITED(status)) {
 				if (WEXITSTATUS(status) == 0) {
 					/*printf("init: program exited gracefully\n");*/
@@ -281,7 +279,7 @@ int main(int argc, char *argv[])
 			}
 		}
 		else if (p == -1 && errno == ECHILD) {
-			printf("error: could not find pid2(%d)\n", pid2);
+			printf("error: could not find progpid(%d)\n", progpid);
 			return -1;
 		}
 		else if (p == -1 && errno != EINTR) {
