@@ -71,9 +71,13 @@
 #ifndef FIREWALL_RESTORE
 	#define FIREWALL_RESTORE "iptables-restore"
 #endif
-#ifndef FIREWALL_RULE
-	#define FIREWALL_RULE "iptables"
+#ifndef FIREWALL6_SAVE
+	#define FIREWALL6_SAVE "ip6tables-save"
 #endif
+#ifndef FIREWALL6_RESTORE
+	#define FIREWALL6_RESTORE "ip6tables-restore"
+#endif
+
 #ifndef FIREWALL_PROG
 	#define FIREWALL_PROG "/usr/sbin/xtables-multi"
 #endif
@@ -84,6 +88,7 @@
 	#define NETLOG_GROUP "nobody"
 #endif
 
+enum { X11META_TYPE_XNEST = 1, X11META_TYPE_XEPHYR };
 #ifndef X11META_XNEST
 	#define X11META_XNEST "/usr/bin/Xnest"
 #endif

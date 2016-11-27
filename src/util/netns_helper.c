@@ -38,8 +38,8 @@ extern char g_cwd[MAX_SYSTEMPATH];
 extern pid_t g_mainpid;
 extern char g_chroot_path[MAX_SYSTEMPATH];
 
-int netns_restore_firewall(char *buf, int size);
-int netns_save_firewall(char *buf, int size);
+int netns_restore_firewall(char *buf, int size, char *cmd);
+int netns_save_firewall(char *buf, int size, char *cmd);
 
 static int netns_lo_config()
 {
@@ -328,9 +328,17 @@ static int netns_enter_and_config(char *ifname)
 		break;
 	}
 
-	/* restore firewall */
+	/* restore firewalls */
 	if (g_newnet.filtersize) {
-		if (netns_restore_firewall(g_newnet.netfilter, g_newnet.filtersize)) {
+		if (netns_restore_firewall(g_newnet.netfilter,
+					g_newnet.filtersize, FIREWALL_RESTORE)) {
+			printf("couldn't install netfilter\n");
+			return -1;
+		}
+	}
+	if (g_newnet.filter6size) {
+		if (netns_restore_firewall(g_newnet.netfilter6,
+					g_newnet.filter6size, FIREWALL6_RESTORE)) {
 			printf("couldn't install netfilter\n");
 			return -1;
 		}
@@ -342,13 +350,14 @@ static int netns_enter_and_config(char *ifname)
  *  read current firewall configuration so we can copy it to new namespace
  *  assumes firewall save program writes to stdout.
  */
-int netns_save_firewall(char *buf, int size)
+int netns_save_firewall(char *buf, int size, char *cmd)
 {
 	int ipc[2];
 	int bytes;
-	char *argv[] = { "fwsave", FIREWALL_SAVE, NULL };
+	char *argv[] = { "fwsave", NULL, NULL };
 	if (buf == NULL || size <= 0)
 		return -1;
+	argv[1] = cmd;
 	memset(buf, 0, size);
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, ipc)) {
@@ -371,11 +380,11 @@ int netns_save_firewall(char *buf, int size)
 /*
  * restore firewall rules, assumes firewall program's restore reads from stdin.
  */
-int netns_restore_firewall(char *buf, int size)
+int netns_restore_firewall(char *buf, int size, char *cmd)
 {
 	int ipc[2];
-	char *argv[] = { "fwrestore", FIREWALL_RESTORE, NULL };
-
+	char *argv[] = { "fwrestore", NULL, NULL };
+	argv[1] = cmd;
 	if (buf == NULL || size <= 0)
 		return -1;
 
@@ -986,15 +995,26 @@ int netns_setup()
 		printf("root netns fd open: %s\n", strerror(errno));
 		return -1;
 	}
-	/* save current firewall */
-	r = netns_save_firewall(g_newnet.netfilter, sizeof(g_newnet.netfilter));
+
+	/* save current firewalls */
+	r = netns_save_firewall(g_newnet.netfilter,
+			sizeof(g_newnet.netfilter), FIREWALL_SAVE);
 	if (r <= 0) {
-		if (r == 0) {
+		if (r == 0)
 			printf("couldn't save firewall rules\n");
-			return -1;
-		}
+		return -1;
 	}
 	g_newnet.filtersize = r;
+
+	/* ipv6 */
+	r = netns_save_firewall(g_newnet.netfilter6,
+			sizeof(g_newnet.netfilter6), FIREWALL6_SAVE);
+	if (r <= 0) {
+		if (r == 0)
+			printf("couldn't save firewall rules\n");
+		return -1;
+	}
+	g_newnet.filter6size = r;
 
 	/* create new namespace */
 	if (unshare(CLONE_NEWNET)) {

@@ -10,7 +10,8 @@
 #define MAX_PRIVLN 1024
 struct newnet_param {
 	int  active;
-	char netfilter[FIREWALL_MAXFILTER]; /* firewall rules */
+	char netfilter[FIREWALL_MAXFILTER];  /* firewall rules */
+	char netfilter6[FIREWALL_MAXFILTER]; /* ipv6 firewall rules */
 	char addr[19];         /* ipv4 addr */
 	char hwaddr[18];       /* mac addr */
 	char gateway[16];      /* to net  */
@@ -24,6 +25,7 @@ struct newnet_param {
 	int root_ns;           /* initial net namespace */
 	int new_ns;            /* new net namespace */
 	int filtersize;        /* firewall */
+	int filter6size;       /* ipv6 firewall */
 };
 struct user_privs {
 	unsigned int newpts;        /* can create newpts instances */
