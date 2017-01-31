@@ -140,7 +140,7 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 			continue;
 
 		if (info[i].sigsys[0] != 0 || info[i].sigsys[1] != 0)
-			printf(" *BLOCKED* "); /* seccomp_block */
+			printf("  **BLOCKED**  ");
 
 		printf("[%lu:%lu] %s\r\n", info[i].counter[1], info[i].counter[0],
 				syscall_getname(info[i].callnum));
