@@ -649,7 +649,7 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	  */
 	if (!(options & SECCOPT_PTRACE)) {
 		SECBPF_JEQ(prog, i, __NR_ptrace, 0, 1);
-		SECBPF_RET(prog, i, SECCOMP_RET_TRAP);
+		SECBPF_RET(prog, i, SECCOMP_RET_KILL);
 	}
 	/* has to be done at start of filter, which degrades performance.
 	 * we can eliminate this with a new prctl to block filters
@@ -719,7 +719,9 @@ static struct sock_filter *build_seccomp_filter(int arch, int *whitelist, int *b
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 	SECBPF_JEQ(prog, i, __NR_exit_group, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
-	/* TODO some decent hack to disable exec after init calls it */
+	/* TODO some decent hack to disable exec after init calls it
+	 * though programs could still patch themselves, dlopen, etc...
+	 * on most linux kernels :( */
 	SECBPF_JEQ(prog, i, __NR_execve, 0, 1);
 	SECBPF_RET(prog, i, SECCOMP_RET_ALLOW);
 

@@ -96,11 +96,20 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 
 	for (i = 0; i < count; ++i)
 	{
-		/* only one seccomp filter installed, so this should not happen */
+		/* sigsys is sent when the filter blocks a call, we want to use this
+		 * for the final count. this mismatch should only be possible for
+		 * calls that do not exit; let's write a big ugly note for science */
 		if (info[i].sigsys[1] > 0 || info[i].sigsys[0] > 0) {
-			if (info[i].counter[1] > 0 || info[i].counter[0] > 0) {
-				printf("sigsys/counter error(%d). exiting.\r\n", i);
-				_exit(-1);
+			if ((info[i].counter[1] > 0 || info[i].counter[0] > 0)
+					&& info[i].counter[0] != info[i].sigsys[0]
+					&& info[i].counter[1] != info[i].sigsys[1]) {
+				printf("\r\n");
+				printf("******************************************\r\n");
+				printf("[%lu:%lu] %s -- counter mismatch \r\n",
+						info[i].counter[1],
+						info[i].counter[0],
+						syscall_getname(info[i].callnum));
+				printf("******************************************\r\n");
 			}
 			info[i].counter[0] = info[i].sigsys[0];
 			info[i].counter[1] = info[i].sigsys[1];
@@ -124,14 +133,14 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 	}
 
 	printf("\r\n");
-	printf("---------  system call frequency ---------\r\n");
+	printf("---------  system calls (enter + exit) ---------\r\n");
 	for (i = 0; i < count; ++i)
 	{
 		if (info[i].callnum == -1)
 			continue;
 
 		if (info[i].sigsys[0] != 0 || info[i].sigsys[1] != 0)
-			printf(" *BLOCKED* ");
+			printf(" *BLOCKED* "); /* seccomp_block */
 
 		printf("[%lu:%lu] %s\r\n", info[i].counter[1], info[i].counter[0],
 				syscall_getname(info[i].callnum));
@@ -251,7 +260,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
     int ret;
     pid_t curpid;
     long sigsend;
-    long count;
+    long possible_syscalls;
     struct sc_info *info = NULL;
     unsigned long unknown[2];
 
@@ -259,15 +268,15 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	    return -1;
 
     sigsetup();
-    /* +1 to get count of 0 based syscall count */
-    count = syscall_gethighest() + 1;
-    info = malloc(count * sizeof(struct sc_info));
-    if (info == NULL || count == 0)
+    /* +1 to get count of 0 based syscall numbers */
+    possible_syscalls = syscall_gethighest() + 1;
+    info = malloc(possible_syscalls * sizeof(struct sc_info));
+    if (info == NULL || possible_syscalls == 0)
 	    _exit(-1);
-    memset(info, 0, count * sizeof(struct sc_info));
+    memset(info, 0, possible_syscalls * sizeof(struct sc_info));
     unknown[0] = 0;
     unknown[1] = 0;
-    sc_init(info, count);
+    sc_init(info, possible_syscalls);
 
     /* open pod template in cwd before we jail process */
     podfile = open("podtemplate.pod", O_CREAT|O_TRUNC|O_RDWR, S_IRWXU);
@@ -331,7 +340,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	curpid = waitpid(-1, &status, __WALL);
 	if (curpid == -1) {
 		printf("waitpid: %s\r\n", strerror(errno));
-		print_stats(info, count, podfile);
+		print_stats(info, possible_syscalls, podfile);
 		_exit(-1);
 	}
 	if ((WIFEXITED(status) || WIFSIGNALED(status))) {
@@ -341,7 +350,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 			printf("\r\n\r\n");
 			printf("[%lu:%lu] unknown system calls made\r\n",
 					unknown[1], unknown[0]);
-			print_stats(info, count, podfile);
+			print_stats(info, possible_syscalls, podfile);
 			_exit(0);
 		}
 	}
@@ -353,7 +362,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 			ret = ptrace(PTRACE_GETSIGINFO, curpid, NULL, &sig);
 			if (ret == -1) {
 				printf("ptrace_getsiginfo: %s\r\n", strerror(errno));
-				print_stats(info, count, podfile);
+				print_stats(info, possible_syscalls, podfile);
 				_exit(-1);
 			}
 			if (sig.si_code == SYS_SECCOMP) {
@@ -383,7 +392,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 				ret = ptrace(PTRACE_POKEUSER, curpid, REG_RETVAL,setret);
 				if (ret == -1) {
 					printf("ptrace_pokeuser:%s\r\n",strerror(errno));
-					print_stats(info, count, podfile);
+					print_stats(info, possible_syscalls, podfile);
 					_exit(-1);
 				}
 			}
@@ -397,7 +406,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 		}
 	}
 
-	if (status>>8 == (SIGTRAP|0x80)){
+	if (status>>8 == (SIGTRAP|0x80)) {
 		long callnum;
 
 		sigsend = 0;
@@ -409,7 +418,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 		else if (callnum == -1) {
 			printf("ptrace_peekuser: %s\r\n", strerror(errno));
 		}
-		else if (callnum < count) {
+		else if (callnum < possible_syscalls) {
 			sc_incr(info[callnum].counter);
 		}
 		else {
