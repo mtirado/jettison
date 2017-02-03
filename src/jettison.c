@@ -44,10 +44,6 @@
 #define MAX_PROCNAME 17
 #define MAX_OPTLEN 32
 
-#ifdef X11OPT
-	extern char *x11meta_setup(char *x11meta);
-#endif
-
 extern char **environ;
 extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
 extern int netns_setup();
@@ -298,9 +294,11 @@ int print_options()
 	if (g_podflags & (1 << OPTION_HOME_EXEC) ) {
 		printf("+x /podhome\n");
 	}
+#ifdef OPTION_X11
 	if (g_podflags & (1 << OPTION_X11) ) {
 		printf("X11 enabled\n");
 	}
+#endif
 	if (g_podflags & (1 << OPTION_NOPROC) ) {
 		printf("no /proc\n");
 	}
@@ -425,18 +423,6 @@ int jettison_clone_func(void *data)
 	}
 	close(g_pty_notify[1]);
 
-
-#ifdef X11OPT
-	/* TODO add Xnest, it's not working right now
-	 * i have a really weird setup at the moment. */
-	if (g_podflags & (1 << OPTION_XEPHYR)) {
-		/* setup nested server */
-		if (x11meta_setup("xephyr")) {
-			printf("couldn't set up x11 meta display\n");
-			return -1;
-		}
-	}
-#endif
 
 	/* enter pod environment */
 	if (jettison_initiate()) {
@@ -1370,6 +1356,10 @@ re_sleep:
 				else {
 					estatus = -1;
 				}
+				break;
+			}
+			else if (p == -1 && errno == ECHILD) {
+				estatus = -1;
 				break;
 			}
 		}

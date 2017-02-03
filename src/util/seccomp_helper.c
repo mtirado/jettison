@@ -2,6 +2,8 @@
  * contact: mtirado418@gmail.com
  *
  * helper functions for seccomp filter creation, and capability drop.
+ * TODO move this into eslib, with compile-time variable config locations
+ * non-bpf seccomp scripting would be interesting too.
  */
 
 #define _GNU_SOURCE

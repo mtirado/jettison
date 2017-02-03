@@ -29,10 +29,6 @@
 
 #ifdef X11OPT
 	#include <X11/Xauth.h>
-	extern char *x11get_displaynum(char *display, unsigned int *outlen);
-	extern char g_x11meta_sockname[MAX_SYSTEMPATH];
-	extern unsigned int g_x11meta_width;
-	extern unsigned int g_x11meta_height;
 #endif
 
 /*
@@ -135,7 +131,6 @@ static char keywords[KWCOUNT][KWLEN] =
 	{ "tmp_exec"	},  /* mount /tmp dir with exec flag */
 #ifdef X11OPT
 	{ "x11"         },  /* bind mount X11 socket and generate auth file */
-	{ "xephyr"	},  /* isolate X11 session using Xephyr */
 #endif
 
 	{ "- - - - - - -" }, /* cutoff for podflags, disregard */
@@ -340,10 +335,6 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 		return -1;
 	}
 
-#ifdef X11OPT
-	g_x11meta_width = 0;
-	g_x11meta_height = 0;
-#endif
 	g_podflags = 0;
 	g_allow_dev = 0;
 	g_firstpass = 1;
@@ -1099,31 +1090,49 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 	return 0;
 }
 
-static int x11meta_hookup(char *sock_src, char *sock_dest, char *displaynum)
+char x11display_number[32];
+char *x11get_displaynum(char *display, unsigned int *outlen)
 {
-	char lockpath[MAX_SYSTEMPATH];
-	snprintf(sock_src, MAX_SYSTEMPATH, "%s/.x11meta/tmp/.X11-unix/X%s",
-			POD_PATH, displaynum);
-	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X0", g_chroot_path);
-	if (eslib_proc_setenv("DISPLAY", ":0.0")) {
-		return -1;
-	}
-	if(do_x11_socketbind(sock_src, sock_dest)) {
-		return -1;
-	}
-	if (unlink(sock_src)) {
-		printf("unlink(%s): %s\n", sock_src, strerror(errno));
-		return -1;
-	}
-	snprintf(lockpath, sizeof(lockpath), "%s/.x11meta/tmp/.X%s-lock",
-			POD_PATH, displaynum);
-	if (unlink(lockpath)) {
-		printf("unlink(%s): %s\n", lockpath, strerror(errno));
-		return -1;
-	}
-	return 0;
-}
+	char *start = NULL;
+	char *cur = NULL;
+	unsigned int len = 0;
 
+	if (!display || !outlen)
+		return NULL;
+
+	memset(x11display_number, 0, sizeof(x11display_number));
+	*outlen = 0;
+
+
+	/* extract xauth display number from env var */
+	start = display;
+	if (*start != ':')
+		goto disp_err;
+	cur = ++start;
+	while(1)
+	{
+		if (*cur == '.' || *cur == '\0')
+			break;
+		else if (*cur < '0' || *cur > '9')
+			goto disp_err;
+		++cur;
+	}
+	len = cur - start;
+	if (len <= 0)
+		goto disp_err;
+	else if (len >= (int)sizeof(x11display_number) - 1)
+		goto disp_err;
+
+	strncpy(x11display_number, start, len);
+	x11display_number[len] = '\0';
+	*outlen = len;
+	return x11display_number;
+
+disp_err:
+	printf("problem with display environment variable\n");
+	printf("jettison only supports simple display number -- DISPLAY=:0\n");
+	return NULL;
+}
 static int X11_hookup()
 {
 	char newpath[MAX_SYSTEMPATH];
@@ -1144,10 +1153,6 @@ static int X11_hookup()
 	displaynum = x11get_displaynum(display, &dlen);
 	if (displaynum == NULL)
 		goto disp_err;
-
-	if (g_x11meta_sockname[0] != '\0') {
-		return x11meta_hookup(sock_src, sock_dest, displaynum);
-	}
 
 	setuid(g_ruid);
 
@@ -1423,60 +1428,6 @@ fail:
 	return -1;
 }
 
-#ifdef X11OPT
-int read_x11meta_params(char *params, unsigned int size)
-{
-	char *err;
-	char *wstr = NULL;
-	char *hstr = NULL;
-	unsigned long width, height;
-	unsigned int i = 0;
-
-	if (params == NULL || size == 0)
-		return -1;
-
-	/* get width/height strings */
-	while (++i < size)
-	{
-		if (params[i] == ' ') {
-			if (++i >= size) {
-				return -1;
-			}
-			wstr = params;
-			hstr = &params[i];
-			params[i-1] = '\0';
-			break;
-		}
-	}
-	if (wstr == NULL || hstr == NULL) {
-		printf("couldn't find x11 display width and/or height\n");
-		return -1;
-	}
-
-	err = NULL;
-	errno = 0;
-	width = strtoul(wstr, &err, 10);
-	if (err == NULL || *err || errno) {
-		printf("bad width\n");
-		return -1;
-	}
-	err = NULL;
-	errno = 0;
-	height = strtoul(hstr, &err, 10);
-	if (err == NULL || *err || errno) {
-		printf("bad height\n");
-		return -1;
-	}
-	if (height <= 1 || height > 32000 || width <= 1 || width > 32000) {
-		printf("bad width and/or height value\n");
-		return -1;
-	}
-	g_x11meta_width  = width;
-	g_x11meta_height = height;
-	return 0;
-}
-#endif
-
 /* some things need action on first pass. like setting flags, paths need to be
  * enumerated for sorting, newnet is handled completely in main thread */
 static int pod_enact_option_pass1(unsigned int option, char *params, size_t size)
@@ -1508,16 +1459,7 @@ static int pod_enact_option_pass1(unsigned int option, char *params, size_t size
 		break;
 
 #ifdef X11OPT
-	case OPTION_XEPHYR:
-		if (params == NULL || size == 0) {
-			printf("missing parameters, e.g: `xephyr 1024 768`\n");
-			printf("params(%s)\n", params);
-			return -1;
-		}
-		if (read_x11meta_params(params, size)) {
-			printf("couldn't load x11meta display parameters\n");
-			return -1;
-		}
+	case OPTION_X11:
 		break;
 #endif
 	}
@@ -1657,7 +1599,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 #endif
 #ifdef X11OPT
 	case OPTION_X11:
-	case OPTION_XEPHYR:
 		break;
 #endif
 
@@ -1831,7 +1772,7 @@ static int pass2_finalize()
 
 #ifdef X11OPT
 	/* hookup x11 */
-	if (g_podflags & ((1 << OPTION_X11) | (1 << OPTION_XEPHYR))) {
+	if (g_podflags & (1<<OPTION_X11)) {
 		if (X11_hookup()) {
 			printf("X11 hookup failed\n");
 			return -1;

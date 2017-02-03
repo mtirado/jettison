@@ -47,7 +47,6 @@ JETTISON_SRCS :=					\
 		./src/misc.c				\
 		./src/util/seccomp_helper.c		\
 		./src/util/netns_helper.c		\
-		./src/util/x11meta.c			\
 		./src/eslib/eslib_file.c		\
 		./src/eslib/eslib_sock.c		\
 		./src/eslib/eslib_proc.c		\
