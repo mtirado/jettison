@@ -21,7 +21,6 @@
 #include <linux/if_link.h>
 #include <stdlib.h>
 #include <time.h>
-#include "seccomp_helper.h"
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
 #include "../eslib/eslib_fortify.h"

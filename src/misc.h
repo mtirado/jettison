@@ -6,6 +6,10 @@
 
 #include "defines.h"
 
+#include <linux/audit.h>
+#include <linux/seccomp.h>
+#include "eslib/eslib_fortify.h"
+
 /* maximum line length for user privilege file */
 #define MAX_PRIVLN 1024
 struct newnet_param {
@@ -117,6 +121,8 @@ int randhex(char *out, unsigned int size,
  */
 int create_machineid(char *path, char *newid, unsigned int entropy);
 
+int downgrade_caps();
+int capbset_drop(int fcaps[NUM_OF_CAPS]);
 #endif
 
 

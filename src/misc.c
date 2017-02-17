@@ -14,12 +14,17 @@
 #include <unistd.h>
 #include <termios.h>
 #include <memory.h>
-#include "misc.h"
+#include <linux/capability.h>
+#include <linux/securebits.h>
+#include <sys/prctl.h>
 #include "eslib/eslib.h"
-
+#include "misc.h"
 #define FMAXLINE 4095*4
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];
+
+extern int capset(cap_user_header_t header, cap_user_data_t data);
+extern int capget(cap_user_header_t header, const cap_user_data_t data);
 
 /* setup some console termios defaults */
 int console_setup(int fd_tty)
@@ -690,5 +695,174 @@ int close_descriptors(int *exemptions, int exemptcount)
 		close(fdlist[i]);
 	}
 	free(fdlist);
+	return 0;
+}
+
+int downgrade_caps()
+{
+	struct __user_cap_header_struct hdr;
+	struct __user_cap_data_struct   data[2];
+	int i;
+
+	memset(&hdr, 0, sizeof(hdr));
+	memset(data, 0, sizeof(data));
+	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		/* we need to temporarily hold on to these caps
+		 * TODO drop setuid if not using --lognet, and net_admin
+		 * and net_raw if not using ipvlan / --lognet */
+		if (i == CAP_SYS_CHROOT
+				|| i == CAP_SYS_ADMIN
+				|| i == CAP_NET_ADMIN
+				|| i == CAP_NET_RAW
+				|| i == CAP_CHOWN
+				|| i == CAP_SETGID
+				|| i == CAP_SETUID
+				|| i == CAP_SETPCAP) {
+			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
+			/* these dont need to be in effective set */
+			if (i != CAP_NET_RAW && i != CAP_SETUID) {
+				data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+			}
+		}
+	}
+	/* don't grant caps on uid change */
+	if (prctl(PR_SET_SECUREBITS,
+			SECBIT_KEEP_CAPS_LOCKED		|
+			SECBIT_NO_SETUID_FIXUP		|
+			SECBIT_NO_SETUID_FIXUP_LOCKED)) {
+		printf("prctl(): %s\n", strerror(errno));
+		return -1;
+	}
+
+	if (capset(&hdr, data)) {
+		printf("capset: %s\r\n", strerror(errno));
+		printf("cap version: %p\r\n", (void *)hdr.version);
+		printf("pid: %d\r\n", hdr.pid);
+		return -1;
+	}
+	return 0;
+}
+
+static int cap_blisted(unsigned long cap)
+{
+	if (cap >= NUM_OF_CAPS) {
+		printf("cap out of bounds\n");
+		return 1;
+	}
+
+	switch(cap)
+	{
+		case CAP_MKNOD:
+			printf("CAP_MKNOD is prohibited\n");
+			return 1;
+		case CAP_SYS_MODULE:
+			printf("CAP_SYS_MODULE is prohibited\n");
+			return 1;
+		case CAP_SETPCAP:
+			printf("CAP_SETPCAP is prohibited\n");
+			return 1;
+		case CAP_SETFCAP:
+			printf("CAP_SETFCAP is prohibited\n");
+			return 1;
+		case CAP_DAC_OVERRIDE:
+			printf("CAP_DAC_OVERRIDE is prohibited\n");
+			return 1;
+		case CAP_SYS_ADMIN: /* don't ever allow remounts... */
+			printf("CAP_SYS_ADMIN is prohibited\n");
+			return 1;
+		case CAP_LINUX_IMMUTABLE:
+			printf("CAP_LINUX_IMMUTABLE is prohibited\n");
+			return 1;
+		case CAP_MAC_OVERRIDE:
+			printf("CAP_MAC_OVERRIDE is prohibited\n");
+			return 1;
+		case CAP_MAC_ADMIN:
+			printf("CAP_MAC_ADMIN is prohibited\n");
+			return 1;
+		case CAP_CHOWN:
+			printf("CAP_CHOWN is prohibited\n");
+			return 1;
+		case CAP_BLOCK_SUSPEND:
+			printf("CAP_BLOCK_SUSPEND is prohibited\n");
+			return 1;
+		case CAP_SETUID:
+			printf("CAP_SETUID is prohibited\n");
+			return 1;
+		case CAP_SETGID:
+			printf("CAP_SETGID is prohibited\n");
+			return 1;
+		case CAP_FSETID:
+			printf("CAP_SETFUID is prohibited\n");
+			return 1;
+		case CAP_KILL:
+			printf("CAP_KILL is prohibited\n");
+			return 1;
+		case CAP_SYS_TIME:
+			printf("CAP_SYS_TIME is prohibited\n");
+			return 1;
+		case CAP_SYSLOG:
+			printf("CAP_SYSLOG is prohibited\n");
+			return 1;
+		case CAP_SYS_CHROOT:
+			printf("CAP_SYS_CHROOT is prohibited\n");
+			return 1;
+		case CAP_IPC_OWNER:
+			printf("CAP_IPC_OWNER is prohibited\n");
+			return 1;
+		case CAP_SYS_PTRACE:
+			printf("CAP_SYS_PTRACE is prohibited\n");
+			return 1;
+		/*case CAP_DAC_READ_SEARCH:
+			printf("CAP_DAC_READ_SEARCH is prohibited\n");
+			return 1;*/
+	default:
+		return 0;
+	}
+}
+
+int capbset_drop(int fcaps[NUM_OF_CAPS])
+{
+	unsigned long i;
+	unsigned int c = 0;
+
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		/* allow requested file caps if not blacklisted */
+		if (fcaps[i] && !cap_blisted(i)) {
+			if (i > CAP_LAST_CAP) {
+			       return -1;
+			}
+			++c;
+		}
+		else if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+			if (i > CAP_LAST_CAP)
+				break;
+			else if (errno == EINVAL) {
+				printf("cap not found: %lu\n", i);
+				return -1;
+			}
+			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+	/* if not requesting any file caps, set no new privs process flag */
+	if (!c) {
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			printf("no new privs failed\n");
+			return -1;
+		}
+	}
+	if (prctl(PR_SET_SECUREBITS,
+			 SECBIT_KEEP_CAPS_LOCKED
+			|SECBIT_NO_SETUID_FIXUP
+			|SECBIT_NO_SETUID_FIXUP_LOCKED
+			|SECBIT_NOROOT
+			|SECBIT_NOROOT_LOCKED)) {
+		printf("prctl(): %s\n", strerror(errno));
+		return -1;
+	}
 	return 0;
 }

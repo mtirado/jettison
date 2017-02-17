@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <sched.h>
-#include "seccomp_helper.h"
 #include "../eslib/eslib_fortify.h"
 extern uid_t g_ruid;
 extern gid_t g_rgid;

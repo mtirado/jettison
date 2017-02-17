@@ -21,7 +21,6 @@
 #include <time.h>
 #include "pod.h"
 #include "misc.h"
-#include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
 #include "eslib/eslib_rtnetlink.h"
 
