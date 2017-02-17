@@ -24,6 +24,7 @@
 #include "seccomp_helper.h"
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
+#include "../eslib/eslib_fortify.h"
 #include "../pod.h"
 #include "../misc.h"
 
@@ -427,7 +428,7 @@ static int ipvlan_wrlock()
 		return -1;
 	}
 	else if (r == 0) {
-		if (eslib_file_mkfile(IPVLAN_COUNT_LOCKFILE, 0755, 0)) {
+		if (eslib_file_mkfile(IPVLAN_COUNT_LOCKFILE, 0755)) {
 			return -1;
 		}
 	}
@@ -659,83 +660,62 @@ free_err:
 	return -1;
 }
 
-/* build a minimal environment to exec log program in */
-static int netlog_buildfs(char *chroot_path, char *logdir)
+static int fortify_netlog(char *chroot_path, gid_t log_group, char *logdir)
 {
 	struct path_node node;
-	char *progname;
+	int cap_e[NUM_OF_CAPS];
+	int cap_p[NUM_OF_CAPS];
+	int cap_i[NUM_OF_CAPS];
+	memset(&cap_e, 0, sizeof(cap_e));
+	memset(&cap_p, 0, sizeof(cap_p));
+	memset(&cap_i, 0, sizeof(cap_i));
+	cap_p[CAP_SETGID]  = 1;
+	cap_e[CAP_SETGID]  = 1;
+	cap_p[CAP_SETUID]  = 1;
+	cap_e[CAP_SETUID]  = 1;
+	cap_p[CAP_NET_RAW] = 1;
+	cap_i[CAP_NET_RAW] = 1;
 
 	memset(&node, 0, sizeof(node));
 	node.mntflags = MS_RDONLY|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
 
-	progname = eslib_file_getname(NETLOG_PROG);
-	if (progname == NULL)
+	if (eslib_fortify_prepare(chroot_path, 0)) {
+		printf("fortify failed\n");
 		return -1;
-	snprintf(node.src,  MAX_SYSTEMPATH, "%s", NETLOG_PROG);
-	snprintf(node.dest, MAX_SYSTEMPATH, "%s/%s", chroot_path, progname);
-	eslib_file_mkfile(node.dest, 0755, 0);
-	if (pathnode_bind(&node))
-		goto bind_err;
+	}
 
-	snprintf(node.src,  MAX_SYSTEMPATH, "/lib");
-	snprintf(node.dest, MAX_SYSTEMPATH, "%s/lib", chroot_path);
-	eslib_file_mkdirpath(node.dest, 0755, 0);
-	if (pathnode_bind(&node))
-		goto bind_err;
+	if (eslib_fortify_install_file(chroot_path, NETLOG_PROG, node.mntflags,
+				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
+		goto fail;
+	if (eslib_fortify_install_file(chroot_path, "/lib", node.mntflags,
+				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
+		goto fail;
+	if (eslib_fortify_install_file(chroot_path, "/usr/lib", node.mntflags,
+				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
+		goto fail;
 
-	snprintf(node.src,  MAX_SYSTEMPATH, "/usr/lib");
-	snprintf(node.dest, MAX_SYSTEMPATH, "%s/usr/lib", chroot_path);
-	eslib_file_mkdirpath(node.dest, 0755, 0);
-	if (pathnode_bind(&node))
-		goto bind_err;
-
-	/* bind log directory */
-	node.mntflags = MS_NOEXEC|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
+	/* bind log directory TODO helper function for this, warp_file? */
+	node.mntflags = MS_NOEXEC|MS_NODEV|MS_NOSUID;
 	snprintf(node.src,  MAX_SYSTEMPATH, "%s", logdir);
 	snprintf(node.dest, MAX_SYSTEMPATH, "%s/%s", chroot_path, "logdir");
-	eslib_file_mkdirpath(node.dest, 0770, 0);
+	eslib_file_mkdirpath(node.dest, 0770);
 	if (pathnode_bind(&node))
-		goto bind_err;
+		goto fail;
 
-
+	/* TODO syscall filter  with strict mode */
+	if (eslib_fortify(chroot_path,
+			  0,log_group,
+			  0,0,0,
+			  0,cap_e,cap_p,cap_i,
+			  ESLIB_FORTIFY_IGNORE_CAP_BLACKLIST
+			 |ESLIB_FORTIFY_SHARE_NET)) {
+		printf("fortify failed\n");
+		return -1;
+	}
 	return 0;
-
-bind_err:
-	printf("bind %s ---> %s failed\n", node.src, node.dest);
+fail:
+	printf("fortify_netlog: failed to bind file\n");
 	return -1;
-}
-
-static int jail_netlog(char *chroot_path, char *logdir)
-{
-	int cap_e[NUM_OF_CAPS];
-	int cap_p[NUM_OF_CAPS];
-	int cap_i[NUM_OF_CAPS];
-
-	memset(&cap_e, 0, sizeof(cap_e));
-	memset(&cap_p, 0, sizeof(cap_p));
-	memset(&cap_i, 0, sizeof(cap_i));
-	cap_e[CAP_NET_RAW] = 1;
-	cap_p[CAP_NET_RAW] = 1;
-	cap_i[CAP_NET_RAW] = 1;
-	/* not inherited */
-	cap_e[CAP_SETUID]  = 1;
-	cap_p[CAP_SETUID]  = 1;
-	cap_e[CAP_SETGID]  = 1;
-	cap_p[CAP_SETGID]  = 1;
-
-	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
-		printf("unshare: %s\n", strerror(errno));
-		return -1;
-	}
-
-	if (netlog_buildfs(chroot_path, logdir)) {
-		return -1;
-	}
-	if (jail_process(chroot_path, 0, 0, NULL, 0, cap_e, cap_p, cap_i, 1, 0)) {
-		printf("jail_process failed\n");
-		return -1;
-	}
-	return 0;
 }
 
 static int create_logdir(char *buf, unsigned int size, gid_t log_gid)
@@ -793,8 +773,7 @@ retry:
 static pid_t do_netlog_exec(char *argv[])
 {
 	char chroot_path[MAX_SYSTEMPATH];
-	char path[MAX_SYSTEMPATH];
-	char *progname;
+	char logpath[MAX_SYSTEMPATH];
 	gid_t log_group;
 	pid_t p;
 	int status;
@@ -804,10 +783,6 @@ static pid_t do_netlog_exec(char *argv[])
 	if (!argv)
 		return -1;
 	if (strnlen(NETLOG_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
-		return -1;
-
-	progname = eslib_file_getname(NETLOG_PROG);
-	if (progname == NULL)
 		return -1;
 
 	log_group = get_group_id(NETLOG_GROUP);
@@ -826,9 +801,9 @@ static pid_t do_netlog_exec(char *argv[])
 		return -1;
 	}
 	/* directory logs are written to*/
-	if (create_logdir(path, sizeof(path), log_group))
+	if (create_logdir(logpath, sizeof(logpath), log_group))
 		return -1;
-	printf("netlog directory: %s\n", path);
+	printf("netlog directory: %s\n", logpath);
 
 	if (pipe2(notify, O_CLOEXEC)) {
 		printf("pipe: %s\n", strerror(errno));
@@ -856,7 +831,7 @@ static pid_t do_netlog_exec(char *argv[])
 		close(g_newnet.root_ns);
 		close(g_newnet.new_ns);
 		close(notify[0]);
-		fdcount = eslib_proc_getfds(getpid(), &fdlist);
+		fdcount = eslib_proc_alloc_fdlist(getpid(), &fdlist);
 		if (fdcount == -1) {
 			printf("fdlist error\n");
 			_exit(-1);
@@ -872,21 +847,22 @@ static pid_t do_netlog_exec(char *argv[])
 		}
 		free(fdlist);
 
-		if (jail_netlog(chroot_path, path)) {
-			printf("jail_netlog failed\n");
+		if (fortify_netlog(chroot_path, log_group, logpath)) {
+			printf("fortify_netlog failed\n");
 			_exit(-1);
 		}
+		if (setuid(g_ruid))
+			_exit(-1);
+		if (seteuid(0)) /* inherit cap */
+			_exit(-1);
 
-		/* setuid for after exec, and back to 0 for inherited caps to work. */
-		if (setuid(g_ruid) || seteuid(0) || setgid(log_group) || setegid(0)) {
-			printf("final setuid: %s\n", strerror(errno));
-			_exit(-1);
-		}
 		if (write(notify[1], &ack, 1) != 1) {
 			printf("write: %s\n", strerror(errno));
 			_exit(-1);
 		}
-		if (execve(progname, argv, environ)) {
+		close(notify[1]);
+
+		if (execve(NETLOG_PROG, argv, environ)) {
 			printf("execve: %s\n", strerror(errno));
 		}
 		_exit(-1);
@@ -912,7 +888,7 @@ static pid_t do_netlog_exec(char *argv[])
 		usleep(10000);
 		pr = waitpid(p, &status, WNOHANG);
 		if (pr) {
-			printf("netlog waitpid!");
+			printf("unxpected netlog waitpid\n");
 			return -1;
 		}
 	}
@@ -968,7 +944,6 @@ static pid_t setup_netlog()
 
 	p = do_netlog_exec(args);
 	if (p == -1) {
-		printf("exec(%s) failed\n", NETLOG_PROG);
 		return -1;
 	}
 	g_newnet.log_pid = p;

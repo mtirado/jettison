@@ -637,7 +637,7 @@ int close_descriptors(int *exemptions, int exemptcount)
 		exemptcount = 0;
 	}
 
-	fdcount = eslib_proc_getfds(getpid(), &fdlist);
+	fdcount = eslib_proc_alloc_fdlist(getpid(), &fdlist);
 	if (fdcount == -1) { /* there was problem reading /proc/PID */
 		struct rlimit rlim;
 		int fdcount = FAILSAFE_FLIMIT;

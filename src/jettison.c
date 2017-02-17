@@ -37,6 +37,7 @@
 #include "misc.h"
 #include "util/seccomp_helper.h"
 #include "eslib/eslib.h"
+#include "eslib/eslib_fortify.h"
 #include "eslib/eslib_rtnetlink.h"
 
 #define MAX_ARGV_LEN (1024 * 16) /* 16KB */
@@ -45,7 +46,7 @@
 #define MAX_OPTLEN 32
 
 extern char **environ;
-extern int tracecalls(pid_t p, int ipc, char *jailpath); /* tracecalls.c */
+extern int tracecalls(pid_t p, int ipc, char *fortpath); /* tracecalls.c */
 extern int netns_setup();
 
 /* pod.c globals */
@@ -169,7 +170,7 @@ int create_nullspace()
 			return -1;
 		}
 	}
-	if (eslib_file_mkdirpath(g_nullspace, 0755, 0) != 0) {
+	if (eslib_file_mkdirpath(g_nullspace, 0755) != 0) {
 		printf("could not create: %s\n", g_nullspace);
 		return -1;
 	}
@@ -183,32 +184,36 @@ static int downgrade_relay()
 	int syscalls[MAX_SYSCALLS];
 	unsigned int i;
 	/* set up new seccomp filter */
-	for (i = 0; i < sizeof(syscalls) / sizeof(syscalls[0]); ++i)
+	for (i = 0; i < MAX_SYSCALLS; ++i)
 	{
 		syscalls[i] = -1;
 	}
 
 	i = 0;
 	syscalls[i]   = syscall_getnum("__NR__newselect");
-	syscalls[++i] = syscall_getnum("__NR_close");
-	syscalls[++i] = syscall_getnum("__NR_waitpid");
 	syscalls[++i] = syscall_getnum("__NR_write");
 	syscalls[++i] = syscall_getnum("__NR_read");
+	syscalls[++i] = syscall_getnum("__NR_kill");
+	syscalls[++i] = syscall_getnum("__NR_sigreturn");
+	syscalls[++i] = syscall_getnum("__NR_waitpid");
+	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 	syscalls[++i] = syscall_getnum("__NR_capset");
 	syscalls[++i] = syscall_getnum("__NR_gettid");
+	syscalls[++i] = syscall_getnum("__NR_ioctl");
+	syscalls[++i] = syscall_getnum("__NR_close");
 	syscalls[++i] = syscall_getnum("__NR_exit");
 	syscalls[++i] = syscall_getnum("__NR_exit_group");
-	syscalls[++i] = syscall_getnum("__NR_ioctl");
-	syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
-	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
-		printf("unshare: %s\n", strerror(errno));
+	if (eslib_fortify_prepare(g_nullspace, 0)) {
+		printf("fortify failed\n");
 		return -1;
 	}
 	setgid(g_rgid);
-	if (jail_process(g_nullspace, g_ruid, g_rgid, syscalls, 0, NULL, NULL, NULL, 0, 0)) {
-		printf("jail_process failed\n");
+	if (eslib_fortify(g_nullspace,
+			  g_ruid,g_rgid,
+			  syscalls,NULL,0,
+			  0,0,0,0,  0)) {
+		printf("fortify failed\n");
 		return -1;
 	}
 	return 0;
@@ -471,23 +476,19 @@ int jettison_clone_func(void *data)
 				opts |= SECCOPT_PTRACE;
 			printf("installing sandbox seccomp filter\r\n");
 			if (g_blacklist) {
-				if (filter_syscalls(SYSCALL_ARCH,
-						NULL,
-						g_blkcalls,
-						0,
-						count_syscalls(g_blkcalls,MAX_SYSCALLS),
-						opts, g_retaction)) {
+				if (filter_syscalls(NULL,
+						    g_blkcalls,
+						    opts,
+						    g_retaction)) {
 					printf("unable to apply seccomp filter\n");
 					return -1;
 				}
 			}
 			else {
-				if (filter_syscalls(SYSCALL_ARCH,
-						g_syscalls,
-						g_blkcalls,
-						count_syscalls(g_syscalls,MAX_SYSCALLS),
-						count_syscalls(g_blkcalls,MAX_SYSCALLS),
-						opts, g_retaction)) {
+				if (filter_syscalls(g_syscalls,
+						    g_blkcalls,
+						    opts,
+						    g_retaction)) {
 					printf("unable to apply seccomp filter\n");
 					return -1;
 				}
@@ -841,7 +842,6 @@ err_usage:
 	printf("\n");
 	printf("--allow-ptrace\n");
 	printf("        whitelist ptrace (it's always blacklisted otherwise)\n");
-	printf("        see seccomp documentation, there are security concerns\n");
 	printf("\n");
 	printf("--daemon\n");
 	printf("        orphan process and disconnect tty\n");
@@ -951,7 +951,7 @@ static void relayio_sighand(int signum)
 	}
 }
 
-/* catch everything short of a sigkill */
+/* catch fatal signals, short of a sigkill */
 static void relayio_sigsetup()
 {
 	signal(SIGINT,    relayio_sighand);
@@ -1681,7 +1681,7 @@ int process_user_permissions()
 			break;
 		}
 		++lncount;
-		if (chop_trailing(privln, sizeof(privln), '\n'))
+		if (chop_trailing(privln, sizeof(privln), '\n') < 0)
 			goto print_errline;
 		/* keyword */
 		if (strncmp(privln, "iplimit ", 8) == 0)

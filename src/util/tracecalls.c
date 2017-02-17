@@ -22,7 +22,7 @@
 #include <fcntl.h>
 #include <sched.h>
 #include "seccomp_helper.h"
-
+#include "../eslib/eslib_fortify.h"
 extern uid_t g_ruid;
 extern gid_t g_rgid;
 
@@ -210,36 +210,38 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 
 }
 
-static int downgrade_tracer(char *jailpath)
+static int downgrade_tracer(char *fortpath)
 {
 	int syscalls[MAX_SYSCALLS];
 	unsigned int i;
 
 	/* setup seccomp filter */
-	for (i = 0; i < sizeof(syscalls) / sizeof(syscalls[0]); ++i)
+	for (i = 0; i < MAX_SYSCALLS; ++i)
 	{
 		syscalls[i] = -1;
 	}
 
 	i = 0;
-
 	syscalls[i]   = syscall_getnum("__NR_waitpid");
 	syscalls[++i] = syscall_getnum("__NR_ptrace");
 	syscalls[++i] = syscall_getnum("__NR_read");
 	syscalls[++i] = syscall_getnum("__NR_write");
+	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 	syscalls[++i] = syscall_getnum("__NR_close");
+	syscalls[++i] = syscall_getnum("__NR_sigreturn");
 	syscalls[++i] = syscall_getnum("__NR_exit");
 	syscalls[++i] = syscall_getnum("__NR_exit_group");
-	syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	syscalls[++i] = syscall_getnum("__NR_nanosleep");
 
-	if (unshare(CLONE_NEWNS | CLONE_NEWPID)) {
-		printf("unshare: %s\n", strerror(errno));
+	if (eslib_fortify_prepare(fortpath, 0)) {
+		printf("fortify failed\n");
 		return -1;
 	}
-	if (jail_process(jailpath, g_ruid, g_rgid, syscalls, SECCOPT_PTRACE,
-				NULL, NULL, NULL, 0, 0)) {
-		printf("jail_process failed\n");
+	if (eslib_fortify(fortpath,
+			  g_ruid,g_rgid,
+			  syscalls,0,SECCOPT_PTRACE,
+			  0,0,0,0,
+			  0)){
+		printf("fortify failed\n");
 		return -1;
 	}
 	return 0;
@@ -253,7 +255,7 @@ static void sigsetup()
 	signal(SIGQUIT,   SIG_IGN);
 }
 
-int tracecalls(pid_t p, int ipc, char *jailpath)
+int tracecalls(pid_t p, int ipc, char *fortpath)
 {
     int podfile;
     int status;
@@ -264,7 +266,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
     struct sc_info *info = NULL;
     unsigned long unknown[2];
 
-    if (!jailpath)
+    if (!fortpath)
 	    return -1;
 
     sigsetup();
@@ -285,7 +287,7 @@ int tracecalls(pid_t p, int ipc, char *jailpath)
 	return -1;
     }
     /* we attached, jail ourselves */
-    if (downgrade_tracer(jailpath)) {
+    if (downgrade_tracer(fortpath)) {
 	    printf("downgrade_tracer\n");
 	    return -1;
     }

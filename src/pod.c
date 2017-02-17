@@ -216,7 +216,7 @@ char *gethome()
 			len = strnlen(path, MAX_SYSTEMPATH);
 			if (len >= MAX_SYSTEMPATH || len == 0)
 				goto bad_path;
-			if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+			if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
 				goto bad_path;
 			if (eslib_file_path_check(path))
 				goto bad_path;
@@ -349,7 +349,7 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_useblacklist = blacklist;
 	g_podprivs = privs;
 
-	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
+	for (i = 0; i < MAX_SYSCALLS; ++i)
 	{
 		g_syscalls[i] = -1;
 		g_blkcalls[i] = -1;
@@ -452,7 +452,7 @@ static int do_chroot_setup()
 	if (r == -1)
 		return -1;
 	if (r == 0) { /* did not exist */
-		if (eslib_file_mkdirpath(g_chroot_path, 0775, 0)) {
+		if (eslib_file_mkdirpath(g_chroot_path, 0775)) {
 			printf("couldn't mkdir(%s); %s\n",
 					g_chroot_path, strerror(errno));
 			return -1;
@@ -583,7 +583,7 @@ static int prep_bind(struct path_node *node)
 	}
 	else { /* did not exist */
 		if (isdir == 1) {
-			if (eslib_file_mkdirpath(dest, 0775, 0)  == -1) {
+			if (eslib_file_mkdirpath(dest, 0775)  == -1) {
 				snprintf(g_errbuf, sizeof(g_errbuf),
 					"prep_bind mkdir failed: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
@@ -591,7 +591,7 @@ static int prep_bind(struct path_node *node)
 			}
 		}
 		else {
-			if (eslib_file_mkfile(dest, 0775, 0) == -1) {
+			if (eslib_file_mkfile(dest, 0775) == -1) {
 				snprintf(g_errbuf, sizeof(g_errbuf),
 					"prep_bind mkfile failed: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
@@ -740,7 +740,7 @@ int create_pathnode(char *params, size_t size, int home)
 		}
 	}
 	/* eslib doesn't want trailing slashes */
-	if (chop_trailing(path, MAX_SYSTEMPATH, '/'))
+	if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
 		return -1;
 
 	if (eslib_file_path_check(path)) {
@@ -1385,16 +1385,17 @@ static int parse_newnet(char *params, size_t size)
 	return 0;
 }
 
+/* TODO use eslib version */
 static int load_seccomp_blacklist(const char *file)
 {
-	char rdline[MAX_SYSCALL_DEFLEN*2];
+	char rdline[MAX_SYSCALL_NAME*2];
 	FILE *f;
 	int syscall_nr;
 	unsigned int i;
 
 	g_blkcall_idx = 0;
 	g_syscall_idx = 0;
-	for (i = 0; i < MAX_SYSCALLS / sizeof(unsigned int); ++i)
+	for (i = 0; i < MAX_SYSCALLS; ++i)
 	{
 		g_blkcalls[i] = -1;
 		g_syscalls[i] = -1;
@@ -1478,12 +1479,12 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char src[MAX_SYSTEMPATH];
 	char dest[MAX_SYSTEMPATH];
 	char path[MAX_SYSTEMPATH];
-	char syscall_buf[MAX_SYSCALL_DEFLEN];
+	char syscall_buf[MAX_SYSCALL_NAME];
 	int  syscall_nr;
 	int  r;
 #ifdef USE_FILE_CAPS
 	int  cap_nr;
-	char cap_buf[MAX_CAP_DEFLEN];
+	char cap_buf[MAX_CAP_NAME];
 #endif
 	if (option >= KWCOUNT)
 		return -1;
@@ -1523,7 +1524,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("too many syscalls in whitelist\n");
 			return -1;
 		}
-		if (size >= MAX_SYSCALL_DEFLEN) {
+		if (size >= MAX_SYSCALL_NAME) {
 			printf("seccomp_allow syscall name too long.\n");
 			return -1;
 		}
@@ -1551,7 +1552,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("too many syscalls in blocklist\n");
 			return -1;
 		}
-		if (size >= MAX_SYSCALL_DEFLEN) {
+		if (size >= MAX_SYSCALL_NAME) {
 			printf("seccomp_block syscall name too long.\n");
 			return -1;
 		}
@@ -1610,7 +1611,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		else if (r == 0) {
-			if (eslib_file_mkfile(path, 0775, 0)) {
+			if (eslib_file_mkfile(path, 0775)) {
 				printf("error creating: %s\n", path);
 				return -1;
 			}
@@ -1740,7 +1741,7 @@ static int pass2_finalize()
 					g_chroot_path, g_pty_slavepath);
 			tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID;
 
-			eslib_file_mkfile(tnode.dest, 0775, 0);
+			eslib_file_mkfile(tnode.dest, 0775);
 			if (pathnode_bind(&tnode)) {
 				printf("pathnode_bind(%s,%s) failed\n", tnode.src, tnode.dest);
 				return -1;
