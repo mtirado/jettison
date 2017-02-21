@@ -16,6 +16,7 @@
  */
 
 #define _GNU_SOURCE
+#include <linux/unistd.h>
 #include <sched.h>
 #include <unistd.h>
 #include <malloc.h>
@@ -50,11 +51,8 @@ extern int netns_setup();
 
 /* pod.c globals */
 extern int  g_fcaps[NUM_OF_CAPS];
-extern int  g_syscalls[MAX_SYSCALLS];
-extern int  g_blkcalls[MAX_SYSCALLS];
-extern unsigned int g_syscall_idx;
 struct newnet_param g_newnet;
-
+struct seccomp_program g_seccomp_filter;
 /* user privilege data, stored in /etc/jettison/user by default */
 struct user_privs g_privs;
 
@@ -138,7 +136,7 @@ int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 		printf("bad chroot path\n");
 		return -1;
 	}
-	return pod_prepare(cfg_path, g_newroot, &g_newnet,
+	return pod_prepare(cfg_path, g_newroot, &g_newnet, &g_seccomp_filter,
 			g_blacklist, &g_privs, outflags);
 }
 
@@ -180,38 +178,37 @@ int create_nullspace()
 /* uses POD_PATH/.nullspace as chroot directory */
 static int downgrade_relay()
 {
-	int syscalls[MAX_SYSCALLS];
-	unsigned int i;
-	/* set up new seccomp filter */
-	for (i = 0; i < MAX_SYSCALLS; ++i)
-	{
-		syscalls[i] = -1;
+	struct seccomp_program filter;
+	short syscalls[] = {
+		__NR__newselect,
+		__NR_write,
+		__NR_read,
+		__NR_kill,
+		__NR_waitpid,
+		__NR_nanosleep,
+		__NR_ioctl, /* TODO whitelist only TIOCWINSZ, it's all we need */
+		__NR_close,
+		__NR_sigreturn,
+		__NR_exit,
+		__NR_exit_group,
+		-1
+	};
+	seccomp_program_init(&filter);
+	if (syscall_list_loadarray(&filter.white, syscalls)) {
+		printf("could not load syscalls array\n");
+		return -1;
 	}
-
-	i = 0;
-	syscalls[i]   = syscall_getnum("__NR__newselect");
-	syscalls[++i] = syscall_getnum("__NR_write");
-	syscalls[++i] = syscall_getnum("__NR_read");
-	syscalls[++i] = syscall_getnum("__NR_kill");
-	syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	syscalls[++i] = syscall_getnum("__NR_waitpid");
-	syscalls[++i] = syscall_getnum("__NR_nanosleep");
-	syscalls[++i] = syscall_getnum("__NR_capset");
-	syscalls[++i] = syscall_getnum("__NR_gettid");
-	syscalls[++i] = syscall_getnum("__NR_ioctl");
-	syscalls[++i] = syscall_getnum("__NR_close");
-	syscalls[++i] = syscall_getnum("__NR_exit");
-	syscalls[++i] = syscall_getnum("__NR_exit_group");
+	if (seccomp_program_build(&filter)) {
+		printf("seccomp_build failure\n");
+		return -1;
+	}
 
 	if (eslib_fortify_prepare(g_nullspace, 0)) {
 		printf("fortify failed\n");
 		return -1;
 	}
 	setgid(g_rgid);
-	if (eslib_fortify(g_nullspace,
-			  g_ruid,g_rgid,
-			  syscalls,NULL,0,
-			  0,0,0,0,  0)) {
+	if (eslib_fortify(g_nullspace, g_ruid,g_rgid, &filter, 0,0,0,0,  0)) {
 		printf("fortify failed\n");
 		return -1;
 	}
@@ -335,14 +332,11 @@ int print_options()
 		break;
 	}
 	if (g_blacklist) {
-		printf("    %d blacklisted\n",
-				count_syscalls(g_blkcalls,MAX_SYSCALLS));
+		printf("    %d blacklisted\n", g_seccomp_filter.black.count);
 	}
 	else {
-		printf("    %d whitelisted\n",
-				count_syscalls(g_syscalls,MAX_SYSCALLS));
-		printf("    %d blocked\n",
-				count_syscalls(g_blkcalls,MAX_SYSCALLS));
+		printf("    %d whitelisted\n", g_seccomp_filter.white.count);
+		printf("    %d blocked\n", g_seccomp_filter.black.count);
 	}
 
 	printf("\n");
@@ -463,34 +457,30 @@ int jettison_clone_func(void *data)
 		if (print_options())
 			return -1;
 
-		/* install seccomp filter. block ptrace if no options specified */
-		if (g_syscall_idx == 0 && !g_blocknew && g_allow_ptrace) {
-			printf("**calling exec without seccomp filter**\n");
+		if (g_seccomp_filter.white.count == 0
+				&& g_seccomp_filter.black.count == 0
+				&& !g_blocknew
+				&& g_allow_ptrace) {
+			printf("**********************************************\n");
+			printf("**                WARNING!                  **\n");
+			printf("**  calling exec without seccomp filter     **\n");
+			printf("**  --blacklist loads systemwide blacklist  **\n");
+			printf("**********************************************\n");
 		}
 		else {
-			unsigned int opts = 0;
+			g_seccomp_filter.retaction = g_retaction;
+			g_seccomp_filter.seccomp_opts = 0;
 			if (g_blocknew)
-				opts |= SECCOPT_BLOCKNEW;
+				g_seccomp_filter.seccomp_opts |= SECCOPT_BLOCKNEW;
 			if (g_allow_ptrace)
-				opts |= SECCOPT_PTRACE;
-			printf("installing sandbox seccomp filter\r\n");
-			if (g_blacklist) {
-				if (filter_syscalls(NULL,
-						    g_blkcalls,
-						    opts,
-						    g_retaction)) {
-					printf("unable to apply seccomp filter\n");
-					return -1;
-				}
+				g_seccomp_filter.seccomp_opts |= SECCOPT_PTRACE;
+			if (seccomp_program_build(&g_seccomp_filter)) {
+				printf("couldn't build seccomp program\n");
+				return -1;
 			}
-			else {
-				if (filter_syscalls(g_syscalls,
-						    g_blkcalls,
-						    opts,
-						    g_retaction)) {
-					printf("unable to apply seccomp filter\n");
-					return -1;
-				}
+			if (seccomp_program_install(&g_seccomp_filter)) {
+				printf("unable to install seccomp filter\n");
+				return -1;
 			}
 		}
 #ifdef PODROOT_HOME_OVERRIDE
@@ -1843,6 +1833,7 @@ int main(int argc, char *argv[])
 	memset(g_pty_slavepath, 0, sizeof(g_pty_slavepath));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
 	memset(g_executable_path, 0, sizeof(g_executable_path));
+	seccomp_program_init(&g_seccomp_filter);
 
 	if (process_arguments(argc, argv)) {
 		return -1;

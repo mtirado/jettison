@@ -10,7 +10,7 @@
 
 struct newnet_param;
 struct user_privs;
-
+struct seccomp_program;
 /* put all podflag options near top, they are used as
  * bit flags, and we should keep their value as low as possible */
 enum
@@ -53,6 +53,7 @@ enum
 int pod_prepare(char *filepath,
 		char *outpath,
 		struct newnet_param *newnet,
+		struct seccomp_program *seccfilter,
 		unsigned int blacklist,
 		struct user_privs *privs,
 		unsigned int *outflags);

@@ -22,10 +22,10 @@
 #include "pod.h"
 #include "misc.h"
 #include "eslib/eslib.h"
+#include "eslib/eslib_fortify.h"
 #include "eslib/eslib_rtnetlink.h"
 
-#define MAX_PODCFG (1024 * 10)
-
+#define MAX_PODCFG (1024 * 20)
 #ifdef X11OPT
 	#include <X11/Xauth.h>
 #endif
@@ -98,18 +98,13 @@ int g_allow_dev;
 int g_firstpass;
 int g_useblacklist;
 unsigned int g_podflags;
-/*gid_t g_rgid;
-uid_t g_ruid;*/
 int g_fcaps[NUM_OF_CAPS];
-int g_syscalls[MAX_SYSCALLS];
-int g_blkcalls[MAX_SYSCALLS];
-unsigned int  g_syscall_idx;
-unsigned int  g_blkcall_idx;
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
 
 struct newnet_param *g_podnewnet;
 struct user_privs *g_podprivs;
+struct seccomp_program *g_podseccfilter;
 
 static int pod_load_config(char *data, size_t size);
 static int pod_enact_option(unsigned int option, char *params, size_t size);
@@ -318,14 +313,14 @@ err_ret:
  * copies out chroot path, and pod flags
  * */
 int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
-		unsigned int blacklist, struct user_privs *privs, unsigned int *outflags)
+		struct seccomp_program *seccfilter, unsigned int blacklist,
+		struct user_privs *privs, unsigned int *outflags)
 {
 	int r;
-	unsigned int i;
 	FILE *file;
 	struct stat st;
 
-	if (chroot_path == NULL || outflags == NULL
+	if (chroot_path == NULL || outflags == NULL || seccfilter == NULL
 			|| filepath == NULL || newnet == NULL || privs == NULL)
 		return -1;
 
@@ -337,22 +332,15 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_podflags = 0;
 	g_allow_dev = 0;
 	g_firstpass = 1;
-	g_syscall_idx = 0;
-	g_blkcall_idx = 0;
 	g_homeroot = NULL;
 	g_filedata = NULL;
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	g_podnewnet = newnet;
+	g_podseccfilter = seccfilter;
 	g_useblacklist = blacklist;
 	g_podprivs = privs;
-
-	for (i = 0; i < MAX_SYSCALLS; ++i)
-	{
-		g_syscalls[i] = -1;
-		g_blkcalls[i] = -1;
-	}
 
 	/* check chroot path */
 	if (strnlen(chroot_path, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH-100) {
@@ -1384,48 +1372,14 @@ static int parse_newnet(char *params, size_t size)
 	return 0;
 }
 
-/* TODO use eslib version */
-static int load_seccomp_blacklist(const char *file)
+static int load_seccomp_blacklist(char *file)
 {
-	char rdline[MAX_SYSCALL_NAME*2];
-	FILE *f;
-	int syscall_nr;
-	unsigned int i;
-
-	g_blkcall_idx = 0;
-	g_syscall_idx = 0;
-	for (i = 0; i < MAX_SYSCALLS; ++i)
-	{
-		g_blkcalls[i] = -1;
-		g_syscalls[i] = -1;
-	}
-
-	f = fopen(file, "r");
-	if (f == NULL) {
-		printf("fopen(%s): %s\n", file, strerror(errno));
+	syscall_list_clear(&g_podseccfilter->white);
+	if (syscall_list_loadfile(&g_podseccfilter->black, file)) {
+		printf("could not load blacklist %s\n", file);
 		return -1;
 	}
-	while (1)
-	{
-		if (fgets(rdline, sizeof(rdline), f) == NULL) {
-			break;
-		}
-		chop_trailing(rdline, sizeof(rdline), '\n');
-		if (rdline[0] == '\0')
-			continue;
-		syscall_nr = syscall_getnum(rdline);
-		if (syscall_nr < 0) {
-			printf("could not find syscall: %s\n", rdline);
-			goto fail;
-		}
-		g_blkcalls[g_blkcall_idx] = syscall_nr;
-		++g_blkcall_idx;
-	}
-	fclose(f);
 	return 0;
-fail:
-	fclose(f);
-	return -1;
 }
 
 /* some things need action on first pass. like setting flags, paths need to be
@@ -1479,7 +1433,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 	char dest[MAX_SYSTEMPATH];
 	char path[MAX_SYSTEMPATH];
 	char syscall_buf[MAX_SYSCALL_NAME];
-	int  syscall_nr;
 	int  r;
 #ifdef USE_FILE_CAPS
 	int  cap_nr;
@@ -1519,23 +1472,17 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("null parameter\n");
 			return -1;
 		}
-		if (g_syscall_idx >= MAX_SYSCALLS) {
-			printf("too many syscalls in whitelist\n");
-			return -1;
-		}
 		if (size >= MAX_SYSCALL_NAME) {
 			printf("seccomp_allow syscall name too long.\n");
 			return -1;
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
 		strncpy(syscall_buf, params, size);
-		syscall_nr = syscall_getnum(syscall_buf);
-		if (syscall_nr < 0) {
-			printf("could not find syscall: %s\n", syscall_buf);
+		if (syscall_list_addname(&g_podseccfilter->white, syscall_buf)) {
+			printf("add syscall white error: %s\n", syscall_buf);
+			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
 			return -1;
 		}
-		g_syscalls[g_syscall_idx] = syscall_nr;
-		++g_syscall_idx;
 		break;
 
 	/* add a systemcall to the blocklist */
@@ -1547,23 +1494,17 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("null parameter\n");
 			return -1;
 		}
-		if (g_blkcall_idx >= MAX_SYSCALLS) {
-			printf("too many syscalls in blocklist\n");
-			return -1;
-		}
 		if (size >= MAX_SYSCALL_NAME) {
 			printf("seccomp_block syscall name too long.\n");
 			return -1;
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
 		strncpy(syscall_buf, params, size);
-		syscall_nr = syscall_getnum(syscall_buf);
-		if (syscall_nr < 0) {
-			printf("could not find syscall: %s\n", syscall_buf);
+		if (syscall_list_addname(&g_podseccfilter->black, syscall_buf)) {
+			printf("add syscall block error: %s\n", syscall_buf);
+			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
 			return -1;
 		}
-		g_blkcalls[g_blkcall_idx] = syscall_nr;
-		++g_blkcall_idx;
 		break;
 
 	/* moved to end of second pass */
@@ -1787,7 +1728,7 @@ static int pass2_finalize()
 		return -1;
 	}
 
-	/* override pod config seccomp options with systemwide blacklist */
+	/* overrides pod file seccomp list with a systemwide blacklist */
 	if (g_useblacklist) {
 		if (load_seccomp_blacklist(JETTISON_BLACKLIST)) {
 			return -1;

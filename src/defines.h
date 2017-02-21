@@ -53,7 +53,6 @@
 #ifndef JETTISON_STOCKPODS
 	#define JETTISON_STOCKPODS "/etc/jettison/pods"
 #endif
-
 /* hard limit number of ip/macvlan a user can create */
 #ifndef JETTISON_IPVLAN_LIMIT
 	#define JETTISON_IPVLAN_LIMIT 30

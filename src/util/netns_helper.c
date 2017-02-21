@@ -153,7 +153,6 @@ static int do_fw_exec(char *argv[],/* program args */
 		/* let exec inherit CAP_NET_ADMIN */
 		memset(&hdr, 0, sizeof(hdr));
 		memset(data, 0, sizeof(data));
-		hdr.pid = syscall(__NR_gettid);
 		hdr.version = _LINUX_CAPABILITY_VERSION_3;
 
 		data[CAP_TO_INDEX(CAP_NET_ADMIN)].effective
@@ -704,7 +703,7 @@ static int fortify_netlog(char *chroot_path, gid_t log_group, char *logdir)
 	/* TODO syscall filter  with strict mode */
 	if (eslib_fortify(chroot_path,
 			  0,log_group,
-			  0,0,0,
+			  NULL,
 			  0,cap_e,cap_p,cap_i,
 			  ESLIB_FORTIFY_IGNORE_CAP_BLACKLIST
 			 |ESLIB_FORTIFY_SHARE_NET)) {

@@ -7,6 +7,7 @@
  */
 
 #define _GNU_SOURCE
+#include <linux/unistd.h>
 #include <sys/types.h>
 #include <sys/reg.h>
 #include <sys/wait.h>
@@ -171,39 +172,39 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 	printf("\r\n");
 	printf("\r\n");
 	printf("----------------------------------------------------\r\n");
-	printf(" __NR_socketcall                        kernel (4.3)\r\n");
+	printf(" socketcall                        kernel (4.3)\r\n");
 	printf("----------------------------------------------------\r\n");
-	printf("      __NR_socket\r\n");
-	printf("      __NR_socketpair\r\n");
-	printf("      __NR_connect\r\n");
-	printf("      __NR_accept4\r\n");
-	printf("      __NR_bind\r\n");
-	printf("      __NR_sendto\r\n");
-	printf("      __NR_sendmsg\r\n");
-	printf("      __NR_recvfrom\r\n");
-	printf("      __NR_recvmsg\r\n");
-	printf("      __NR_send\r\n");
-	printf("      __NR_recv\r\n");
-	printf("      __NR_getpeername\r\n");
-	printf("      __NR_getsockname\r\n");
-	printf("      __NR_getsockopt\r\n");
-	printf("      __NR_setsockopt\r\n");
-	printf("      __NR_shutdown\r\n");
+	printf("      socket\r\n");
+	printf("      socketpair\r\n");
+	printf("      connect\r\n");
+	printf("      accept4\r\n");
+	printf("      bind\r\n");
+	printf("      sendto\r\n");
+	printf("      sendmsg\r\n");
+	printf("      recvfrom\r\n");
+	printf("      recvmsg\r\n");
+	printf("      send\r\n");
+	printf("      recv\r\n");
+	printf("      getpeername\r\n");
+	printf("      getsockname\r\n");
+	printf("      getsockopt\r\n");
+	printf("      setsockopt\r\n");
+	printf("      shutdown\r\n");
 	printf("\r\n");
 	printf("----------------------------------------------------\r\n");
-	printf(" __NR_ipc *not available yet  as of     kernel (4.3)\r\n");
+	printf(" ipc *not available yet  as of     kernel (4.3)\r\n");
 	printf("----------------------------------------------------\r\n");*/
-	/*printf("      __NR_shmget\r\n");
-	printf("      __NR_shmat\r\n");
-	printf("      __NR_shmdt\r\n");
-	printf("      __NR_shmctl\r\n");
-	printf("      __NR_msgget\r\n");
-	printf("      __NR_msgctl\r\n");
-	printf("      __NR_msgrcv\r\n");
-	printf("      __NR_msgsnd\r\n");
-	printf("      __NR_semget\r\n");
-	printf("      __NR_semctl\r\n");
-	printf("      __NR_semtimedop\r\n");
+	/*printf("      shmget\r\n");
+	printf("      shmat\r\n");
+	printf("      shmdt\r\n");
+	printf("      shmctl\r\n");
+	printf("      msgget\r\n");
+	printf("      msgctl\r\n");
+	printf("      msgrcv\r\n");
+	printf("      msgsnd\r\n");
+	printf("      semget\r\n");
+	printf("      semctl\r\n");
+	printf("      semtimedop\r\n");
 	*/
 	printf("\r\n");
 
@@ -211,35 +212,35 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 
 static int downgrade_tracer(char *fortpath)
 {
-	int syscalls[MAX_SYSCALLS];
-	unsigned int i;
+	struct seccomp_program filter;
+	short syscalls[] = {
+		__NR_waitpid,
+		__NR_ptrace,
+		__NR_read,
+		__NR_write,
+		__NR_nanosleep,
+		__NR_close,
+		__NR_sigreturn,
+		__NR_exit,
+		__NR_exit_group,
+		-1
+	};
 
-	/* setup seccomp filter */
-	for (i = 0; i < MAX_SYSCALLS; ++i)
-	{
-		syscalls[i] = -1;
+	seccomp_program_init(&filter);
+	if (syscall_list_loadarray(&filter.white, syscalls)) {
+		printf("could not load syscalls array\n");
+		return -1;
 	}
-
-	i = 0;
-	syscalls[i]   = syscall_getnum("__NR_waitpid");
-	syscalls[++i] = syscall_getnum("__NR_ptrace");
-	syscalls[++i] = syscall_getnum("__NR_read");
-	syscalls[++i] = syscall_getnum("__NR_write");
-	syscalls[++i] = syscall_getnum("__NR_nanosleep");
-	syscalls[++i] = syscall_getnum("__NR_close");
-	syscalls[++i] = syscall_getnum("__NR_sigreturn");
-	syscalls[++i] = syscall_getnum("__NR_exit");
-	syscalls[++i] = syscall_getnum("__NR_exit_group");
-
+	filter.seccomp_opts = SECCOPT_PTRACE;
+	if (seccomp_program_build(&filter)) {
+		printf("seccomp_build failure\n");
+		return -1;
+	}
 	if (eslib_fortify_prepare(fortpath, 0)) {
 		printf("fortify failed\n");
 		return -1;
 	}
-	if (eslib_fortify(fortpath,
-			  g_ruid,g_rgid,
-			  syscalls,0,SECCOPT_PTRACE,
-			  0,0,0,0,
-			  0)){
+	if (eslib_fortify(fortpath, g_ruid,g_rgid, &filter, 0,0,0,0, 0)){
 		printf("fortify failed\n");
 		return -1;
 	}
@@ -371,7 +372,7 @@ int tracecalls(pid_t p, int ipc, char *fortpath)
 				char *name;
 				/*seccomp denied a system call */
 				if (sig.si_errno == SECCRET_DENIED) {
-					printf("[%d] blacklisted system call -", curpid);
+					printf("[%d] blacklisted system call: ", curpid);
 				}
 				else {
 					printf("[%d] unknown seccomp trap data %d -",
