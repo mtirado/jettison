@@ -338,11 +338,17 @@ int print_options()
 		printf("    %d whitelisted\n", g_seccomp_filter.white.count);
 		printf("    %d blocked\n", g_seccomp_filter.black.count);
 	}
+	if (g_seccomp_filter.seccomp_opts & SECCOPT_PTRACE || g_allow_ptrace) {
+		printf("    --allow-ptrace\n");
+	}
+	if (g_seccomp_filter.seccomp_opts & SECCOPT_BLOCKNEW) {
+		printf("    --block-new-filters\n");
+	}
 
 	printf("\n");
 	/* new network namespace */
 	if (g_newnet.active) {
-		printf(" newnet ");
+		printf("newnet ");
 		switch(g_newnet.kind)
 		{
 		case ESRTNL_KIND_IPVLAN:
@@ -454,13 +460,13 @@ int jettison_clone_func(void *data)
 		fdexempt[3] = g_traceipc[1];
 		if (close_descriptors(fdexempt, 4))
 			return -1;
-		if (print_options())
-			return -1;
 
 		if (g_seccomp_filter.white.count == 0
 				&& g_seccomp_filter.black.count == 0
 				&& !g_blocknew
 				&& g_allow_ptrace) {
+			if (print_options())
+				return -1;
 			printf("**********************************************\n");
 			printf("**                WARNING!                  **\n");
 			printf("**  calling exec without seccomp filter     **\n");
@@ -478,6 +484,8 @@ int jettison_clone_func(void *data)
 				printf("couldn't build seccomp program\n");
 				return -1;
 			}
+			if (print_options())
+				return -1;
 			if (seccomp_program_install(&g_seccomp_filter)) {
 				printf("unable to install seccomp filter\n");
 				return -1;
