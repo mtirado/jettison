@@ -230,6 +230,8 @@ static int proc_checkmounts(char *path)
 				goto not_found;
 			}
 		}
+		if (fbuf[end] == 0)
+			goto not_found;
 		cur = end;
 	}
 
