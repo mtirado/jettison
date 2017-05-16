@@ -13,8 +13,8 @@ DEFINES := 							\
 ##############################################################################
 
 #for X11 auth support
-DEFINES += -DX11OPT
-JETTISON_LIBS := -lXau
+#DEFINES += -DX11OPT
+#JETTISON_LIBS := -lXau
 
 
 # newnet namespace device hookups
@@ -26,7 +26,7 @@ JETTISON_LIBS := -lXau
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
-# for system building, this should NOT be compiled by default, please.
+# for system building, this should NEVER be compiled with capabilities enabled
 #DEFINES += -DPODROOT_HOME_OVERRIDE
 
 ##############################################################################
@@ -38,6 +38,7 @@ DEFLANG := -ansi
 #DBG	:= -g
 
 #TODO strip debugging info from binaries
+
 #########################################
 #	PROGRAM SOURCE FILES
 #########################################

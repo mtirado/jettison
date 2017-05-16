@@ -18,8 +18,11 @@ other arch's at all yet, so you may have to change this in jettison.c
 
 ##building + installation:
 ```
-#pull eslib
+#initialize eslib
 git submodule update --init --recursive
+
+#or update eslib
+git submodule update --remote
 
 make
 

@@ -30,6 +30,8 @@
 	#include <X11/Xauth.h>
 #endif
 
+extern char **environ;
+
 /*
  *  prevent these exact paths from being mounted without MS_RDONLY.
  *  you can mount writable directories after these locations.
@@ -63,21 +65,6 @@ static char *g_rdonly_dirs[] =
 	"/run"
 };
 #define RDONLY_COUNT (sizeof(g_rdonly_dirs) / sizeof(*g_rdonly_dirs))
-
-/* files at or below these paths can not be mounted to a pod. */
-static char *g_blacklist_paths[] =
-{
-	"/boot",
-	"/proc",
-	"/sys",
-	"/.Xauthority",
-	"/root",
-	POD_PATH,
-	JETTISON_USERCFG,
-	JETTISON_BLACKLIST,
-	IPVLAN_COUNT_LOCKFILE
-};
-#define BLACKLIST_COUNT (sizeof(g_blacklist_paths) / sizeof(*g_blacklist_paths))
 
 struct path_node *g_mountpoints;
 
@@ -161,36 +148,14 @@ int pod_free()
 	return 0;
 }
 
-/* returns -1 on error
- * 1 if path starts with blacklisted path string
- * 0 no match
- */
-static int check_blacklisted(char *path)
-{
-	unsigned int i, len;
-
-	if (path == NULL)
-		return -1;
-	for (i = 0; i < BLACKLIST_COUNT; ++i)
-	{
-		len = strnlen(g_blacklist_paths[i], MAX_SYSTEMPATH);
-		if (len >= MAX_SYSTEMPATH)
-			return -1;
-		if (strncmp(path, g_blacklist_paths[i], len) == 0) {
-			if (path[len] <= 32) /* space */
-				return 1;
-		}
-
-	}
-	return 0;
-}
 /*
  * get $HOME string from environment, could make this optional to read
  * from /etc/passwd instead of letting user set it from environment.
  */
-extern char **environ;
-char *gethome()
+static char *gethome()
 {
+	static char static_home[MAX_SYSTEMPATH];
+	static int once = 0;
 	char **env = environ;
 	char *path = NULL;
 	int r;
@@ -199,6 +164,9 @@ char *gethome()
 	unsigned int len;
 	uid_t fuid;
 
+	if (once) {
+		return static_home;
+	}
 	if (env == NULL) {
 		printf("no environ??\n");
 		return NULL;
@@ -228,11 +196,6 @@ char *gethome()
 				printf("home(%s) cannot be a root inode\n", path);
 				return NULL;
 			}
-			/* validate homepath */
-			if (check_blacklisted(path)) {
-				printf("$HOME is blacklisted: %s\n", path);
-				return NULL;
-			}
 			if (eslib_file_isdir(path) != 1) {
 				printf("$HOME is not a directory: %s\n", path);
 				return NULL;
@@ -244,7 +207,10 @@ char *gethome()
 				printf("$HOME permission denied: %s\n", path);
 				return NULL;
 			}
-			return path;
+			strncpy(static_home, path, MAX_SYSTEMPATH-1);
+			static_home[MAX_SYSTEMPATH-1] = '\0';
+			once = 1;
+			return static_home;
 		}
 		++env;
 	}
@@ -732,10 +698,6 @@ int create_pathnode(char *params, size_t size, int home)
 
 	if (eslib_file_path_check(path)) {
 		printf("bad path\n");
-		return -1;
-	}
-	if (check_blacklisted(path)) {
-		printf("path blacklisted: %s\n", path);
 		return -1;
 	}
 
