@@ -36,7 +36,11 @@ chmod u+s /usr/local/bin/jettison
 #setgid bit
 chmod g+s /usr/local/bin/jettison_destruct
 
+#pod path
 mkdir /opt/pods
+mkdir /opt/pods/user
+chown user:root /opt/pods/user
+chmod 0770 /opt/pods/user
 ```
 
 ##usage
