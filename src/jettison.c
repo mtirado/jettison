@@ -1847,13 +1847,6 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-#ifndef USE_FILE_CAPS
-	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
-		printf("set no new privs failed\n");
-		return -1;
-	}
-#endif
-
 	/* create files in root group */
 	if (setgid(0)) {
 		printf("error setting gid(%d): %s\n", 0, strerror(errno));

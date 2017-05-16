@@ -1,6 +1,5 @@
 # some global defines
 DEFINES := 							\
-	-DUSE_FILE_CAPS						\
 	-DMAX_SYSTEMPATH=2048 					\
 	-D_FILE_OFFSET_BITS=64					\
 	-DDEFAULT_STACKSIZE=4194304				\
@@ -11,6 +10,9 @@ DEFINES := 							\
 ##############################################################################
 # optional features
 ##############################################################################
+
+#support file capabilities (possibly dangerous, not advised for untrusted users)
+#DEFINES += -DUSE_FILE_CAPS
 
 #for X11 auth support
 #DEFINES += -DX11OPT
