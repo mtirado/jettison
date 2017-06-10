@@ -4,15 +4,8 @@
  * jettison.c
  * wrapper for whitelist pod configuration file.
  *
- * read pod configuration file.
- * prepare pod
- * clone
- * enter pod
- * drop privs
- * exec.
- *
  * TODO: reduce dependency on optional external programs
- * 	 such as tcpdump, xtables, xephyr
+ * 	 such as tcpdump, xtables
  */
 
 #define _GNU_SOURCE
@@ -56,19 +49,8 @@ struct seccomp_program g_seccomp_filter;
 /* user privilege data, stored in /etc/jettison/user by default */
 struct user_privs g_privs;
 
-/* entry and  filter function type */
-typedef int (*main_entry)(void *);
-typedef int (*filter_func)(void *);
-
 /* input to clone func */
 unsigned int g_podflags;
-main_entry g_entry;
-
-/* for closing fd's and whatnot if we
- * forked directly from some other process
- */
-filter_func g_filter;
-void *g_filterdata;
 
 char *g_progpath;
 char g_procname[MAX_PROCNAME]; /* --procname */
@@ -260,24 +242,6 @@ static int change_environ()
 	return 0;
 }
 
-/* called from within new thread */
-int jettison_initiate()
-{
-	/* filter callback, for closing fd's and whatnot */
-	if (g_filter && g_filter(g_filterdata)) {
-		printf("clone filter failed\n");
-		return -1;
-	}
-
-	/* enter pod environment */
-	if (pod_enter()) {
-		printf("pod_enter failure\n");
-		return -1;
-	}
-
-	return 0;
-}
-
 int print_options()
 {
 	char *podfile;
@@ -395,6 +359,8 @@ int print_options()
 /* new thread function */
 int jettison_clone_func(void *data)
 {
+	int fdexempt[4];
+
 	close(g_ptym);
 	close(g_pty_notify[0]);
 	close(g_traceipc[0]);
@@ -429,77 +395,71 @@ int jettison_clone_func(void *data)
 
 
 	/* enter pod environment */
-	if (jettison_initiate()) {
+	if (pod_enter()) {
+		printf("pod_enter failure\n");
 		return -1;
 	}
 	change_environ();
 
-	/* either call func, or exec */
-	if (g_entry) {
-		return -1; /* TODO g_entry(data);*/
-	}
-	else {
-		int fdexempt[4];
-		/* switch back to real user credentials */
-		if (setregid(g_rgid, g_rgid)) {
-			printf("error setting gid(%d): %s\n",
-					g_rgid, strerror(errno));
-			return -1;
-		}
-	        if (setreuid(g_ruid, g_ruid)) {
-			printf("error setting uid(%d): %s\n",
-					g_ruid, strerror(errno));
-			return -1;
-		}
-
-		chdir("/podhome");
-
-		fdexempt[0] = STDIN_FILENO;
-		fdexempt[1] = STDOUT_FILENO;
-		fdexempt[2] = STDERR_FILENO;
-		fdexempt[3] = g_traceipc[1];
-		if (close_descriptors(fdexempt, 4))
-			return -1;
-
-		if (g_seccomp_filter.white.count == 0
-				&& g_seccomp_filter.black.count == 0
-				&& !g_blocknew
-				&& g_allow_ptrace) {
-			if (print_options())
-				return -1;
-			printf("**********************************************\n");
-			printf("**                WARNING!                  **\n");
-			printf("**  calling exec without seccomp filter     **\n");
-			printf("**  --blacklist loads systemwide blacklist  **\n");
-			printf("**********************************************\n");
-		}
-		else {
-			g_seccomp_filter.retaction = g_retaction;
-			g_seccomp_filter.seccomp_opts = 0;
-			if (g_blocknew)
-				g_seccomp_filter.seccomp_opts |= SECCOPT_BLOCKNEW;
-			if (g_allow_ptrace)
-				g_seccomp_filter.seccomp_opts |= SECCOPT_PTRACE;
-			if (seccomp_program_build(&g_seccomp_filter)) {
-				printf("couldn't build seccomp program\n");
-				return -1;
-			}
-			if (print_options())
-				return -1;
-			if (seccomp_program_install(&g_seccomp_filter)) {
-				printf("unable to install seccomp filter\n");
-				return -1;
-			}
-		}
-#ifdef PODROOT_HOME_OVERRIDE
-		if (execve(((char **)data)[1], ((char **)data)+1, environ) < 0)
-			printf("execv failure: %s\n", strerror(errno));
-#else
-		if (execve(INIT_PATH, (char **)data, environ) < 0)
-			printf("jettison_init exec error: %s\n", strerror(errno));
-#endif
+	/* switch back to real user credentials */
+	if (setregid(g_rgid, g_rgid)) {
+		printf("error setting gid(%d): %s\n",
+				g_rgid, strerror(errno));
 		return -1;
 	}
+        if (setreuid(g_ruid, g_ruid)) {
+		printf("error setting uid(%d): %s\n",
+				g_ruid, strerror(errno));
+		return -1;
+	}
+
+	chdir("/podhome");
+
+	fdexempt[0] = STDIN_FILENO;
+	fdexempt[1] = STDOUT_FILENO;
+	fdexempt[2] = STDERR_FILENO;
+	fdexempt[3] = g_traceipc[1];
+	if (close_descriptors(fdexempt, 4))
+		return -1;
+
+	if (g_seccomp_filter.white.count == 0
+			&& g_seccomp_filter.black.count == 0
+			&& !g_blocknew
+			&& g_allow_ptrace) {
+		if (print_options())
+			return -1;
+		printf("**********************************************\n");
+		printf("**                WARNING!                  **\n");
+		printf("**  calling exec without seccomp filter     **\n");
+		printf("**  --blacklist loads systemwide blacklist  **\n");
+		printf("**********************************************\n");
+	}
+	else {
+		g_seccomp_filter.retaction = g_retaction;
+		g_seccomp_filter.seccomp_opts = 0;
+		if (g_blocknew)
+			g_seccomp_filter.seccomp_opts |= SECCOPT_BLOCKNEW;
+		if (g_allow_ptrace)
+			g_seccomp_filter.seccomp_opts |= SECCOPT_PTRACE;
+		if (seccomp_program_build(&g_seccomp_filter)) {
+			printf("couldn't build seccomp program\n");
+			return -1;
+		}
+		if (print_options())
+			return -1;
+		if (seccomp_program_install(&g_seccomp_filter)) {
+			printf("unable to install seccomp filter\n");
+			return -1;
+		}
+	}
+#ifdef PODROOT_HOME_OVERRIDE
+	if (execve(((char **)data)[1], ((char **)data)+1, environ) < 0)
+		printf("execv failure: %s\n", strerror(errno));
+#else
+	if (execve(INIT_PATH, (char **)data, environ) < 0)
+		printf("jettison_init exec error: %s\n", strerror(errno));
+#endif
+	return -1;
 }
 
 /* clone the current process and return pid
@@ -508,9 +468,7 @@ int jettison_clone_func(void *data)
  * if we want to call exec set func to null, progpath will be the full
  * path to executable file, and data will be argv.
  * */
-int jettison_clone(char *progpath, void *data, size_t stacksize,
-		   main_entry entry, unsigned int podflags,
-		    filter_func clone_filter, void *filter_data)
+int jettison_clone(char *progpath, void *data, size_t stacksize, unsigned int podflags)
 {
 	unsigned int cloneflags;
 	char *newstack;
@@ -542,9 +500,6 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 	/* setup some extra parameters and create new thread */
 	g_progpath = progpath;
 	g_podflags = podflags;
-	g_entry = entry;
-	g_filter = clone_filter;
-	g_filterdata = filter_data;
 	p = clone(jettison_clone_func, topstack,
 			cloneflags | SIGCHLD, data);
 	free(newstack);
@@ -556,21 +511,6 @@ int jettison_clone(char *progpath, void *data, size_t stacksize,
 
 
 }
-
-/* jettison a program */
-int jettison_program(char *path, char *args[], size_t stacksize,
-		     unsigned int podflags, main_entry clone_filter,
-		     void *filter_data)
-{
-	if (path == NULL || path[0] != '/') {
-		printf("invalid path\n");
-		return -1;
-	}
-
-	return jettison_clone(path, (void *)args, stacksize, NULL,
-			podflags, clone_filter, filter_data);
-}
-
 
 /*
  * checks program arguments and reorder additional arguments into
@@ -1550,8 +1490,7 @@ static int trace_fork(char **argv)
 		}
 
 		argv[0] = g_pid1name;
-		p = jettison_program(g_executable_path, argv, g_stacksize,
-					    g_podflags, NULL, NULL);
+		p = jettison_clone(g_executable_path, argv, g_stacksize, g_podflags);
 
 		close(g_traceipc[1]);
 		close(g_daemon_pipe[0]);
@@ -1995,8 +1934,8 @@ int main(int argc, char *argv[])
 	}
 	else {
 		argv[0] = g_pid1name;
-		g_initpid = jettison_program(g_executable_path, argv, g_stacksize,
-					    g_podflags, NULL, NULL);
+		g_initpid = jettison_clone(g_executable_path, argv,
+					g_stacksize, g_podflags);
 		if (g_initpid == -1) {
 			printf("jettison failure\n");
 			return -1;
@@ -2016,10 +1955,4 @@ int main(int argc, char *argv[])
 	relayio_sigsetup();
 	return relay_io(stdout_logfd);
 }
-
-
-
-
-
-
 
