@@ -25,7 +25,9 @@
 #include "eslib/eslib_fortify.h"
 #include "eslib/eslib_rtnetlink.h"
 
-#define MAX_PODCFG (1024 * 20)
+#define is_whitespace(chr) (chr == ' ' || chr == '\t')
+#define MAX_PODCFG (1024 * 10)
+
 #ifdef X11OPT
 	#include <X11/Xauth.h>
 #endif
@@ -73,16 +75,11 @@ struct path_node *g_mountpoints;
  */
 extern gid_t g_rgid;
 extern uid_t g_ruid;
-/*extern int g_daemon;
-extern char g_pty_slavepath[MAX_SYSTEMPATH];*/
-#define MAX_PARAM (MAX_SYSTEMPATH * 4)
 
-/* much globals */
-unsigned int g_lineno;
+/* much globals,
+ * TODO make struct and move into eslib as a generic config file parser */
+char g_filedata[MAX_PODCFG+1]; /* + terminator/eof */
 size_t g_filesize;
-char *g_filedata;
-int g_allow_dev;
-int g_firstpass;
 int g_useblacklist;
 unsigned int g_podflags;
 int g_fcaps[NUM_OF_CAPS];
@@ -93,37 +90,36 @@ struct newnet_param *g_podnewnet;
 struct user_privs *g_podprivs;
 struct seccomp_program *g_podseccfilter;
 
-static int pod_load_config(char *data, size_t size);
-static int pod_enact_option(unsigned int option, char *params, size_t size);
+static int pod_load_config_pass1(char *data, size_t size);
+static int pod_load_config_pass2(char *data, size_t size);
+static int pod_enact_option(unsigned int option, char *params, size_t size, int pass);
 
 /* home root is a special case since eslib considers / to be an invalid path */
 struct path_node *g_homeroot;
 
-/*
- * This keyword array is in sync with the option enum in pod.h
- */
 #define KWLEN  32 /* maximum string length */
-static char keywords[KWCOUNT][KWLEN] =
-{
-	{ "newnet"	},  /* create new network namespace */
-	{ "newpts"	},  /* creates a new /dev/pts instance */
-	{ "noproc"	},  /* do not mount /proc */
-	{ "home_exec"	},  /* mount empty home dir with exec flag */
-	{ "tmp_exec"	},  /* mount /tmp dir with exec flag */
+const char keywords[KWCOUNT][KWLEN] = {
+
+	"newnet",        /* create new network namespace */
+	"newpts",        /* creates a new /dev/pts instance */
+	"noproc",        /* do not mount /proc */
+	"home_exec",     /* mount empty home dir with exec flag */
+	"tmp_exec",      /* mount /tmp dir with exec flag */
 #ifdef X11OPT
-	{ "x11"         },  /* bind mount X11 socket and generate auth file */
+	"x11",           /* bind mount X11 socket and generate auth file */
 #endif
 
-	{ "- - - - - - -" }, /* cutoff for podflags, disregard */
+	"- - - - - - -", /* cutoff for podflags, disregard */
 
-	{ "seccomp_allow" }, /* add a syscall to seccomp whitelist.
+	"seccomp_allow", /* add a syscall to seccomp whitelist.
 			       otherwise, everything is allowed. */
-	{ "seccomp_block" }, /* block syscall without sigkill (if using --strict) */
-	{ "file"          }, /* bind mount file with options w,r,x,d,s */
-	{ "home"	  }, /* ^  -- but $HOME/file is rooted in /podhome  */
-	{ "capability"	  }, /* leave capability in bounding set */
-	{ "machine-id"	  }, /* specify or generate a /etc/machine-id string */
+	"seccomp_block", /* block syscall without sigkill (if using --strict) */
+	"file",          /* bind mount file with options w,r,x,d,s */
+	"home",          /* ^  -- but $HOME/file is rooted in /podhome  */
+	"capability",    /* leave capability in bounding set */
+	"machine-id"     /* specify or generate a /etc/machine-id string */
 };
+
 
 static void free_pathnodes()
 {
@@ -140,10 +136,7 @@ static void free_pathnodes()
 int pod_free()
 {
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
-	if (g_filedata) {
-		free(g_filedata);
-		g_filedata = NULL;
-	}
+	memset(g_filedata, 0, sizeof(g_filedata));
 	free_pathnodes();
 	return 0;
 }
@@ -156,7 +149,6 @@ static char *gethome()
 {
 	static char static_home[MAX_SYSTEMPATH];
 	static int once = 0;
-	char **env = environ;
 	char *path = NULL;
 	int r;
 	ino_t root_ino;
@@ -167,55 +159,49 @@ static char *gethome()
 	if (once) {
 		return static_home;
 	}
-	if (env == NULL) {
-		printf("no environ??\n");
+
+	path = eslib_proc_getenv("HOME");
+	if (path == NULL) {
+		printf("could not find $HOME environment variable\n");
 		return NULL;
 	}
-	while(*env)
-	{
-		if (strncmp(*env, "HOME=", 5) == 0) {
-			path = &(*env)[5];
-			len = strnlen(path, MAX_SYSTEMPATH);
-			if (len >= MAX_SYSTEMPATH || len == 0)
-				goto bad_path;
-			if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
-				goto bad_path;
-			if (eslib_file_path_check(path))
-				goto bad_path;
-			r = eslib_file_exists(path);
-			if (r == -1 || r == 0)
-				goto bad_path;
 
-			root_ino = eslib_file_getino("/");
-			file_ino = eslib_file_getino(path);
-			if (root_ino == 0 || file_ino == 0) {
-				printf("inode error\n");
-				return NULL;
-			}
-			if (root_ino == file_ino) {
-				printf("home(%s) cannot be a root inode\n", path);
-				return NULL;
-			}
-			if (eslib_file_isdir(path) != 1) {
-				printf("$HOME is not a directory: %s\n", path);
-				return NULL;
-			}
-			fuid = eslib_file_getuid(path);
-			if (fuid == (uid_t)-1)
-				return NULL;
-			if (fuid != g_ruid) {
-				printf("$HOME permission denied: %s\n", path);
-				return NULL;
-			}
-			strncpy(static_home, path, MAX_SYSTEMPATH-1);
-			static_home[MAX_SYSTEMPATH-1] = '\0';
-			once = 1;
-			return static_home;
-		}
-		++env;
+	len = strnlen(path, MAX_SYSTEMPATH);
+	if (len >= MAX_SYSTEMPATH || len == 0)
+		goto bad_path;
+	if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
+		goto bad_path;
+	if (eslib_file_path_check(path))
+		goto bad_path;
+	r = eslib_file_exists(path);
+	if (r == -1 || r == 0)
+		goto bad_path;
+
+	root_ino = eslib_file_getino("/");
+	file_ino = eslib_file_getino(path);
+	if (root_ino == 0 || file_ino == 0) {
+		printf("inode error\n");
+		return NULL;
 	}
-	printf("could not find $HOME environment variable\n");
-	return NULL;
+	if (root_ino == file_ino) {
+		printf("home(%s) cannot be a root inode\n", path);
+		return NULL;
+	}
+	if (eslib_file_isdir(path) != 1) {
+		printf("$HOME is not a directory: %s\n", path);
+		return NULL;
+	}
+	fuid = eslib_file_getuid(path);
+	if (fuid == (uid_t)-1)
+		return NULL;
+	if (fuid != g_ruid) {
+		printf("$HOME permission denied: %s\n", path);
+		return NULL;
+	}
+	strncpy(static_home, path, MAX_SYSTEMPATH-1);
+	static_home[MAX_SYSTEMPATH-1] = '\0';
+	once = 1;
+	return static_home;
 
 bad_path:
 	printf("bad $HOME environment variable: %s\n", path);
@@ -296,12 +282,10 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	}
 
 	g_podflags = 0;
-	g_allow_dev = 0;
-	g_firstpass = 1;
 	g_homeroot = NULL;
-	g_filedata = NULL;
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(g_filedata, 0, sizeof(g_filedata));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	g_podnewnet = newnet;
 	g_podseccfilter = seccfilter;
@@ -348,8 +332,11 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 		printf("could not read pod configuration file: %s\n", filepath);
 		return -1;
 	}
+
 	printf("chroot path: %s\r\n", chroot_path);
 	strncpy(g_chroot_path, chroot_path, MAX_SYSTEMPATH-1);
+
+	/* read config file */
 	fseek(file, 0, SEEK_END);
 	g_filesize = ftell(file);
 	fseek(file, 0, SEEK_SET);
@@ -357,11 +344,7 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 		printf("file size error\n");
 		goto err_close;
 	}
-	g_filedata = (char *)malloc(g_filesize+1); /* + terminator */
-	if (g_filedata == NULL) {
-		printf("malloc error\n");
-		goto err_close;
-	}
+
 	if (fread(g_filedata, 1, g_filesize, file) != g_filesize){
 		goto err_free_close;
 	}
@@ -369,14 +352,12 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_filedata[g_filesize] = '\0';
 
 	/* first pass, copy out podflags */
-	r = pod_load_config(g_filedata, g_filesize);
+	r = pod_load_config_pass1(g_filedata, g_filesize);
 	if (r) {
-		printf("pod_load_config error: on line %d\n", g_lineno);
 		pod_free();
 		return -1;
 	}
 
-	g_firstpass = 0;
 	*outflags = g_podflags;
 	return 0;
 
@@ -627,7 +608,7 @@ int create_pathnode(char *params, size_t size, int home)
 	for (i = 0; i < size; ++i)
 	{
 		c = params[i];
-		if (c == ' ' || c == '\t') {
+		if (c == ' ' || c == '\t' || c == '\0') {
 			++i;
 			break;
 		}
@@ -765,7 +746,7 @@ int create_pathnode(char *params, size_t size, int home)
 	return 0;
 
 bad_param:
-	printf("bad file param, missing rwxsd value(s) \n");
+	printf("bad file param (rwxsdR flags) \n");
 	return -1;
 }
 
@@ -783,7 +764,7 @@ static int match_pathnode(char *path)
 		return -1;
 
 	len = strnlen(path, MAX_SYSTEMPATH);
-	if (len >= MAX_SYSTEMPATH)
+	if (len >= MAX_SYSTEMPATH || len == 0)
 		return -1;
 
 	while (n)
@@ -1067,9 +1048,9 @@ char *x11get_displaynum(char *display, unsigned int *outlen)
 		++cur;
 	}
 	len = cur - start;
-	if (len <= 0)
+	if (len == 0)
 		goto disp_err;
-	else if (len >= (int)sizeof(x11display_number) - 1)
+	else if (len >= sizeof(x11display_number) - 1)
 		goto disp_err;
 
 	strncpy(x11display_number, start, len);
@@ -1219,6 +1200,7 @@ static int parse_newnet(char *params, size_t size)
 	else if (strncmp(type, "loop", 5) == 0)
 		g_podnewnet->kind = ESRTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
+	/* TODO !!! */
 	else if (strncmp(type, "vethbr", 7) == 0)
 		g_podnewnet->kind = ESRTNL_KIND_VETHBR;
 #endif
@@ -1388,7 +1370,7 @@ static int pod_enact_option_pass1(unsigned int option, char *params, size_t size
  *  1 when first pass chroot was found
  *
  *  */
-static int pod_enact_option(unsigned int option, char *params, size_t size)
+static int pod_enact_option(unsigned int option, char *params, size_t size, int pass)
 {
 
 	char src[MAX_SYSTEMPATH];
@@ -1404,9 +1386,10 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		return -1;
 
 	/* first pass happens before we clone */
-	if (g_firstpass == 1) {
+	if (pass == 1)
 		return pod_enact_option_pass1(option, params, size);
-	}
+	else if (pass != 2)
+		return -1;
 
 	/* 2'nd pass, we've been cloned */
 	memset(src,  0, sizeof(src));
@@ -1439,7 +1422,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
-		strncpy(syscall_buf, params, size);
+		strncpy(syscall_buf, params, MAX_SYSCALL_NAME);
 		if (syscall_list_addname(&g_podseccfilter->white, syscall_buf)) {
 			printf("add syscall white error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1461,7 +1444,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			return -1;
 		}
 		memset(syscall_buf, 0, sizeof(syscall_buf));
-		strncpy(syscall_buf, params, size);
+		strncpy(syscall_buf, params, MAX_SYSCALL_NAME);
 		if (syscall_list_addname(&g_podseccfilter->black, syscall_buf)) {
 			printf("add syscall block error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1481,9 +1464,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 			printf("null parameter\n");
 			return -1;
 		}
+		if (size >= MAX_CAP_NAME) {
+			printf("cap name too long\n");
+			return -1;
+		}
+		strncpy(cap_buf, params, MAX_CAP_NAME-1);
+		cap_buf[MAX_CAP_NAME-1] = '\0';
 
-		memset(cap_buf, 0, sizeof(cap_buf));
-		strncpy(cap_buf, params, size);
 		cap_nr = cap_getnum(cap_buf);
 		if (cap_nr < 0) {
 			printf("could not find capability: %s\n", cap_buf);
@@ -1525,8 +1512,7 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 		if (params == NULL) {
 			struct timespec t;
 			clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-			/* assumes overflows are not saturated */
-			if (create_machineid(path, NULL, 0x0f0f0f0f
+			if (create_machineid(path, NULL, 0x5f5f5f5f
 							+(unsigned int)t.tv_nsec
 							+(unsigned int)t.tv_sec)) {
 				printf("create_machineid(NULL)\n");
@@ -1546,18 +1532,6 @@ static int pod_enact_option(unsigned int option, char *params, size_t size)
 
 	return 0;
 }
-
-static int find_keyword(char *kwcmp)
-{
-	int i = 0;
-	for (; i < KWCOUNT; ++i)
-	{
-		if (strncmp(kwcmp, keywords[i], KWLEN) == 0)
-			return i;
-	}
-	return -1;
-}
-
 
 /* final stage of pass 1, add things to config as needed */
 static int pass1_finalize()
@@ -1590,6 +1564,7 @@ static int pass1_finalize()
 			return -1;
 		}
 	}
+
 	/* g_homeroot must always exist after pass1 */
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
@@ -1654,6 +1629,9 @@ static int pass2_finalize()
 			}
 		}
 #endif
+		snprintf(dest, MAX_SYSTEMPATH, "%s/dev", g_chroot_path);
+		mkdir(dest, 0755);
+		chmod(dest, 0755);
 		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
 		if (mkdir(dest, 0755) && errno != EEXIST) {
 			printf("mkdir(%s): %s\n", dest, strerror(errno));
@@ -1699,293 +1677,241 @@ static int pass2_finalize()
 	return 0;
 }
 
-#define STATE_NEWLINE  (1     ) /* on a fresh new line          */
-#define STATE_COMMENT  (1 << 1) /* comment line                 */
-#define STATE_KEYWORD  (1 << 2) /* validating keyword           */
-#define STATE_SCAN     (1 << 3) /* scanning option parameters   */
-
-
-/* returning non-zero is an error.
- *
- * Go through each line of configuration file, scanning for keyword and it's parameters.
- * Starts off in newline state, check for a valid keyword.
- * Read parameters of keyword, if any, and take appropriate action.
- *
- * STATE_NEWLINE - determine new state based on first character of new line.
- * STATE_COMENT  - seek to new line.
- * STATE_KEYWORD - read keyword, check validity and find start of parameters.
- * STATE_SCAN    - read parameters into buffer, call pod_enact_option
- *
- */
-static int pod_load_config(char *data, size_t size)
+static int get_keyword(char *kw)
 {
-	unsigned int state = STATE_NEWLINE;
-	char *scan = data;
-	char *eof  = data + size ; /* stay under this address */
-	char  c;
-	char  kwcmp[KWLEN];
-	char *keystart;
-	int   key = -1; /* index into keywords */
-	size_t kwlen;
-	char *scanstart;
-	int r;
+	unsigned int i = 0;
 
-	scan = data;
-	state = STATE_NEWLINE;
-	g_lineno = 0;
-	for(; scan < eof; ++scan)
+	for (; i < KWCOUNT; ++i)
 	{
-		switch(state)
-		{
-
-		/*
-		 * on a new line, check if comment, or keyword.
-		 * if whitespace, keep searching.
-		 */
-		case STATE_NEWLINE:
-			++g_lineno;
-			if (*scan == '#') /* comment */
-				state = STATE_COMMENT;
-			else if (*scan == '\n' || *scan == ' ' || *scan == '\t')
-				continue; /* consecutive newlines are ok*/
-			else
-				state = STATE_KEYWORD;
-		break;
-
-		/* jump to next line */
-		case STATE_COMMENT:
-			for (; scan < eof; ++scan)
-				if (*scan == '\n')
-					break;
-
-			if (scan >= eof)
-				return -1;
-
-			state = STATE_NEWLINE;
-		break;
-
-		/* match keyword */
-		case STATE_KEYWORD:
-
-			keystart = --scan; /* starts back there */
-			/* find white space to get keyword length */
-			for (; scan < eof; scan++)
-			{
-				/* +1 gets count, not array index */
-				kwlen = 1 + scan - keystart;
-				if (kwlen >= KWLEN) {
-					printf("keyword too long\n");
-					return -1;
-				}
-
-				/* check for whatespace character */
-				c = *scan;
-				if (c == ' '  || c == '\t' || c == '\n' ) {
-					if (kwlen < 2) /* need at least 1 char + space */
-						return -1;
-
-					/* skip whitespace to get start of parameters */
-					if (c != '\n') {
-						for (;scan < eof; ++scan)
-						{
-							c = *scan;
-							if (c == ' ' || c == '\t')
-								continue;
-							/* rewind, continues main loop */
-							--scan;
-							goto SCAN_PARAMS_READY;
-						}
-					}
-					else { /* c == '\n'  */
-						goto SINGLE_KEYWORD;
-					}
-					break;
-				}
-			}
-			if (scan >= eof)
-				return -1;
-
-SCAN_PARAMS_READY:	/* got keyword with parameters, check keyword and
-			 * change to parameter scan state if valid.
-			 */
-			memset(kwcmp, 0, sizeof(kwcmp));
-			strncpy(kwcmp, keystart, kwlen-1); /* kwlen includes space */
-			key = find_keyword(kwcmp);
-			if (key == -1) {
-				printf("invalid keyword: [%s]\n", kwcmp);
-				return -1;
-			}
-			else {
-				state = STATE_SCAN;
-			}
-			continue;
-
-
-SINGLE_KEYWORD:		/* no parameters */
-			memset(kwcmp, 0, sizeof(kwcmp));
-			strncpy(kwcmp, keystart, kwlen-1);
-			key = find_keyword(kwcmp);
-			if (key == -1) {
-				printf("could not find keyword: [%s]\n", kwcmp);
-				return -1;
-			}
-			/* single keyword, no parameters */
-			if (pod_enact_option(key, NULL, 0))
-				return -1;
-			key = -1;
-			state = STATE_NEWLINE;
-
-		break;
-
-
-		/* read keyword parameters */
-		case STATE_SCAN:
-			scanstart = scan;
-			--scan;
-			/* scans until newline */
-			if (key < 0)
-				return -1;
-			for(; scan < eof; ++scan)
-			{
-				if (*scan == '\n') {
-					size_t param_size = 1 + scan - scanstart;
-					char params[MAX_PARAM];
-
-					if (param_size >= MAX_PARAM) {
-						printf("params too big\n");
-						return -1;
-					}
-
-					/* use buffer for params */
-					snprintf(params, param_size, scanstart);
-					params[param_size] = '\0';
-
-					r = pod_enact_option(key, params, param_size);
-					if (r) { /* chroot on 2'nd pass */
-						return -1;
-					}
-
-					state = STATE_NEWLINE;
-					break;
-				}
-			}
-			if (scan >= eof) {
-				printf("missing newline at end of file\n");
-				return -1;
-			}
-
-			/* set invalid key */
-			key = -1;
-		break;
-
-		default: /* unknown state */
-			return -1;
-		}
+		if (strncmp(keywords[i], kw, KWLEN) == 0)
+			return i;
 	}
-
-
-	if (g_firstpass) {
-		if (do_chroot_setup()) {
-			printf("do_chroot_setup()\n");
-			return -1;
-		}
-		/* additional options to add?*/
-		if (pass1_finalize()) {
-			printf("pass1_finalize()\n");
-			return -1;
-		}
-		/* add rdonly dirs, sort all path nodes */
-		if (prepare_mountpoints()) {
-			printf("prepare_mountpoints()\n");
-			return -1;
-		}
-		return 0;
-	}
-	else {  /* second pass finished, do binds and chroot */
-		struct path_node *n;
-		unsigned long remountflags =	  MS_REMOUNT
-						| MS_NOSUID
-						| MS_NOEXEC
-						| MS_NODEV
-						| MS_RDONLY
-						| MS_UNBINDABLE;
-
-		if (capbset_drop(g_fcaps)) {
-			printf("failed to set bounding caps\n");
-			return -1;
-		}
-		/* actually do bind/remount */
-		n = g_mountpoints;
-		while (n)
-		{
-			if (prep_bind(n)) {
-				printf("prep_bind()\n");
+	return -1;
+}
+static int check_line(char *lnbuf, const size_t len)
+{
+	size_t i;
+	for (i = 0; i < len; ++i)
+	{
+		if (lnbuf[i] < 32 || lnbuf[i] > 126) {
+			if (lnbuf[i] != '\t' && lnbuf[i] != '\n') {
+				printf("invalid character(%d)\n", lnbuf[i]);
 				return -1;
 			}
-			n = n->next;
 		}
-		n = g_mountpoints;
-		while(n)
-		{
-			if (pathnode_bind(n)) {
-				printf("pathnode_bind()\n");
-				return -1;
-			}
-			n = n->next;
-		}
-
-		if (pass2_finalize()) {
-			printf("pass2_finalize()\n");
-			return -1;
-		}
-
-		/* chroot */
-		if (mount(g_chroot_path, g_chroot_path, "bind",
-					MS_BIND, NULL)) {
-			printf("could not bind mount: %s\n", strerror(errno));
-			return -1;
-		}
-		if (mount(NULL, g_chroot_path, "bind",
-					MS_BIND|remountflags, NULL)) {
-			printf("could not bind mount: %s\n", strerror(errno));
-			return -1;
-		}
-		if (mount(NULL, g_chroot_path, NULL, MS_PRIVATE/*|MS_REC*/, NULL)) {
-			printf("could not make slave: %s\n", strerror(errno));
-			return -1;
-		}
-
-		/* this one may be redundant?
-		 * TODO test again, lost the chroot escape code :\ */
-		if (chdir(g_chroot_path) < 0) {
-			printf("chdir(\"/\") failed: %s\n", strerror(errno));
-			return -1;
-		}
-		if (mount(g_chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
-			printf("mount / MS_MOVE failed: %s\n", strerror(errno));
-			return -1;
-		}
-		printf("chroot(%s)\n", g_chroot_path);
-		r = chroot(g_chroot_path);
-		if (r < 0) {
-			printf("chroot failed: %s\n", strerror(errno));
-			return -1;
-		}
-		/*chroot doesnt change CWD, so we must.*/
-		if (chdir("/") < 0) {
-			printf("chdir(\"/\") failed: %s\n", strerror(errno));
-			return -1;
-		}
-
-
 	}
 	return 0;
 }
 
+/* prepare keyword with parameters, return start of next line
+ * len does not include newline */
+static char *cfg_parse_line(char *lnbuf, const size_t len, int pass)
+{
+	char *eol = lnbuf + len;
+	char *kw_end;
+	char *param_start;
+	int kw;
 
-/*
- * set up the pods envionment and chroot.
- */
+	if (len == 0 || lnbuf[0] == '#')
+		return eol;
+
+	if (check_line(lnbuf, len))
+		return NULL;
+
+	/* find keyword end */
+	for (kw_end = lnbuf; kw_end < eol; ++kw_end)
+	{
+		char c = *kw_end;
+		if (is_whitespace(c)) {
+			*kw_end = '\0'; /* insert terminator */
+			break;
+		}
+	}
+	if (kw_end > eol) {
+		return NULL;
+	}
+
+	/* get keyword */
+	kw = get_keyword(lnbuf);
+	if (kw < 0) {
+		printf("unknown keyword %s\n", lnbuf);
+		return NULL;
+	}
+
+	/* no parameters */
+	if (kw_end == eol) {
+		if (pod_enact_option(kw, NULL, 0, pass))
+			return NULL;
+		return eol;
+	}
+
+	/* find parameter start */
+	for (param_start = kw_end+1; param_start < eol; ++param_start)
+	{
+		char c = *param_start;
+		if (!is_whitespace(c)) {
+			break; /* start here */
+		}
+	}
+	if (param_start >= eol) {
+		printf("cannot find parameters\n");
+		return NULL;
+	}
+
+	if (pod_enact_option(kw, param_start, eol - param_start, pass))
+		return NULL;
+
+	return eol;
+}
+
+static int cfg_parse_config(char *fbuf, const size_t fsize, int pass)
+{
+	char buf[MAX_PODCFG];
+	const char *eof = buf + fsize;
+	char *scan;
+	unsigned int line_number = 1;
+
+	if (fsize == 0 || fsize >= sizeof(buf)) {
+		printf("bad config file size\n");
+		return -1;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	memcpy(buf, fbuf, fsize);
+
+	for (scan = buf; scan < eof; ++scan)
+	{
+		char *eol = scan;
+		char *start = scan;
+		size_t len = 0;
+
+		while (*eol != '\n')
+		{
+			if (++len >= MAX_PODCFG) {
+				printf("config size exceeds %d\n", MAX_PODCFG-1);
+				return -1;
+			}
+			if (++eol >= eof) {
+				break;
+			}
+		}
+		/* inserts null terminator after keyword */
+		*eol = '\0';
+		scan = cfg_parse_line(start, len, pass);
+		if (scan == NULL) {
+			printf(">>> line number: %d\n", line_number);
+			return -1;
+		}
+		++line_number;
+	}
+	return 0;
+}
+
+static int pod_load_config_pass1(char *data, size_t size)
+{
+	if (cfg_parse_config(data, size, 1)) {
+		return -1;
+	}
+	if (do_chroot_setup()) {
+		printf("do_chroot_setup()\n");
+		return -1;
+	}
+	/* additional options to add?*/
+	if (pass1_finalize()) {
+		printf("pass1_finalize()\n");
+		return -1;
+	}
+	/* add rdonly dirs, sort all path nodes */
+	if (prepare_mountpoints()) {
+		printf("prepare_mountpoints()\n");
+		return -1;
+	}
+	return 0;
+}
+
+static int pod_load_config_pass2(char *data, size_t size)
+{  /* second pass finished, do binds and chroot */
+	int r;
+	struct path_node *n;
+	unsigned long remountflags =	  MS_REMOUNT
+					| MS_NOSUID
+					| MS_NOEXEC
+					| MS_NODEV
+					| MS_RDONLY
+					| MS_UNBINDABLE;
+
+	if (cfg_parse_config(data, size, 2)) {
+		printf("parse_config_pass2\n");
+		return -1;
+	}
+
+	if (capbset_drop(g_fcaps)) {
+		printf("failed to set bounding caps\n");
+		return -1;
+	}
+	/* actually do bind/remount */
+	n = g_mountpoints;
+	while (n)
+	{
+		if (prep_bind(n)) {
+			printf("prep_bind()\n");
+			return -1;
+		}
+		n = n->next;
+	}
+	n = g_mountpoints;
+	while(n)
+	{
+		if (pathnode_bind(n)) {
+			printf("pathnode_bind()\n");
+			return -1;
+		}
+		n = n->next;
+	}
+
+	if (pass2_finalize()) {
+		printf("pass2_finalize()\n");
+		return -1;
+	}
+
+	/* chroot */
+	if (mount(g_chroot_path, g_chroot_path, "bind",
+				MS_BIND, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, g_chroot_path, "bind",
+				MS_BIND|remountflags, NULL)) {
+		printf("could not bind mount: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(NULL, g_chroot_path, NULL, MS_PRIVATE/*|MS_REC*/, NULL)) {
+		printf("could not make slave: %s\n", strerror(errno));
+		return -1;
+	}
+	if (chdir(g_chroot_path) < 0) {
+		printf("chdir(\"/\") failed: %s\n", strerror(errno));
+		return -1;
+	}
+	if (mount(g_chroot_path, "/", NULL, MS_MOVE, NULL) < 0) {
+		printf("mount / MS_MOVE failed: %s\n", strerror(errno));
+		return -1;
+	}
+	printf("chroot(%s)\n", g_chroot_path);
+	r = chroot(g_chroot_path);
+	if (r < 0) {
+		printf("chroot failed: %s\n", strerror(errno));
+		return -1;
+	}
+	/*chroot doesnt change CWD, so we must.*/
+	if (chdir("/") < 0) {
+		printf("chdir(\"/\") failed: %s\n", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
 int pod_enter()
 {
 	int r;
@@ -2017,9 +1943,9 @@ int pod_enter()
 	}
 
 	/* do the actual pod configuration now */
-	r = pod_load_config(g_filedata, g_filesize);
+	r = pod_load_config_pass2(g_filedata, g_filesize);
 	if (r < 0) {
-		printf("pod_load_config(2) error: %d on line %d\n", r, g_lineno);
+		printf("pod_load_config(2) error\n");
 		goto err_free;
 	}
 	if (chmod("/tmp", 01777)) {
@@ -2038,10 +1964,4 @@ err_free:
 	pod_free();
 	return -1;
 }
-
-
-
-
-
-
 

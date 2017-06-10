@@ -87,12 +87,4 @@
 	#define NETLOG_GROUP "nobody"
 #endif
 
-enum { X11META_TYPE_XNEST = 1, X11META_TYPE_XEPHYR };
-#ifndef X11META_XNEST
-	#define X11META_XNEST "/usr/bin/Xnest"
-#endif
-#ifndef X11META_XEPHYR
-	#define X11META_XEPHYR "/usr/bin/Xephyr"
-#endif
-
 #endif

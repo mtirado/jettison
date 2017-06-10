@@ -18,6 +18,8 @@ DEFINES := 							\
 #DEFINES += -DX11OPT
 #JETTISON_LIBS := -lXau
 
+# for system building, this should NEVER be compiled with capabilities enabled
+#DEFINES += -DPODROOT_HOME_OVERRIDE
 
 # newnet namespace device hookups
 # these options require control of network resources. ip address,
@@ -28,8 +30,6 @@ DEFINES := 							\
 DEFINES += -DNEWNET_IPVLAN
 DEFINES += -DNEWNET_MACVLAN
 
-# for system building, this should NEVER be compiled with capabilities enabled
-#DEFINES += -DPODROOT_HOME_OVERRIDE
 
 ##############################################################################
 

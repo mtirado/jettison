@@ -803,9 +803,9 @@ static int cap_blisted(unsigned long cap)
 		case CAP_SYS_TIME:
 			printf("CAP_SYS_TIME is prohibited\n");
 			return 1;
-		case CAP_SYSLOG:
+		/*case CAP_SYSLOG:
 			printf("CAP_SYSLOG is prohibited\n");
-			return 1;
+			return 1;*/
 		case CAP_SYS_CHROOT:
 			printf("CAP_SYS_CHROOT is prohibited\n");
 			return 1;

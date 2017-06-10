@@ -40,7 +40,6 @@ enum
 	KWCOUNT
 };
 
-
 /* reads configuration for flags and chroot path
  * filepath  - pod configuration file
  * outpath   - path to new chroot,
