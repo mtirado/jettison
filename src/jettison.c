@@ -171,6 +171,8 @@ static int downgrade_relay()
 		__NR_ioctl, /* TODO whitelist only TIOCWINSZ, it's all we need */
 		__NR_close,
 		__NR_sigreturn,
+		__NR_getppid, /* signal parent with sigwinch if terminal
+				 window was resized after jettison */
 		__NR_exit,
 		__NR_exit_group,
 		-1
@@ -818,6 +820,7 @@ err_usage:
 struct termios g_origterm;
 void exit_func()
 {
+	pid_t ppid;
 	if (g_initpid > 0)
 		kill(g_initpid, SIGTERM);
 	if (g_newnet.log_pid > 0)
@@ -847,6 +850,13 @@ void exit_func()
 
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
 	tcflush(STDIN_FILENO, TCIOFLUSH);
+
+	ppid = getppid();
+	if (ppid < 1)
+		printf("getppid(): %s\n", strerror(errno));
+	else if (kill(ppid, SIGWINCH))
+		printf("kill(%d, SIGWINCH): %s\n", getppid(), strerror(errno));
+
 	printf("jettison_exit\n");
 }
 
