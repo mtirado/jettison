@@ -11,9 +11,10 @@ DEFINES := 							\
 # optional features
 ##############################################################################
 
-#support file capabilities (possibly dangerous, not advised for untrusted users)
+# support file capabilities (possibly dangerous, not advised for untrusted users)
 #DEFINES += -DUSE_FILE_CAPS
-
+# only read pod config files from stock directoy /etc/jettison/pods
+#DEFINES += -DSTOCK_PODS_ONLY
 #for X11 auth support
 #DEFINES += -DX11OPT
 #JETTISON_LIBS := -lXau

@@ -1870,14 +1870,15 @@ int main(int argc, char *argv[])
 	if (create_nullspace())
 		return -1;
 
+	setuid(g_ruid); /* to read cwd (without DAC_OVERRIDE) */
 	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
 		return -1;
 	}
-
 	/* fill out g_privs */
 	if (process_user_permissions()) {
 		return -1;
 	}
+	setuid(0);
 
 	if (g_lognet) {
 		if (g_newnet.kind != ESRTNL_KIND_IPVLAN
@@ -1894,6 +1895,7 @@ int main(int argc, char *argv[])
 		printf("couldn't register exit function\n");
 		return -1;
 	}
+
 
 	/* hook up pseudo terminal if not being daemonized */
 	if (!g_daemon) {

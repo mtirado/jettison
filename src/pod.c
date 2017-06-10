@@ -214,7 +214,6 @@ static FILE *get_configfile(char *filepath)
 	char fallback[MAX_SYSTEMPATH];
 	FILE *file = NULL;
 	char *filename = NULL;
-	char *home = NULL;
 
 	filename = eslib_file_getname(filepath);
 	if (filename == NULL) {
@@ -222,9 +221,15 @@ static FILE *get_configfile(char *filepath)
 		return NULL;
 	}
 
+#ifdef STOCK_PODS_ONLY
+	goto try_stockpods;
+#else
+
+	printf("trying: ./%s\n", filename);
 	/* try absolute path */
 	file = fopen(filepath, "r");
 	if (file == NULL && errno == ENOENT) {
+		char *home = NULL;
 		memset(fallback, 0, sizeof(fallback));
 		home = gethome();
 		if (home == NULL) {
@@ -232,32 +237,40 @@ static FILE *get_configfile(char *filepath)
 		}
 		/* try home pod directory */
 		snprintf(fallback, sizeof(fallback), "%s/.pods/%s", home, filename);
+		printf("trying: %s\n", fallback);
 		file = fopen(fallback, "r");
 		if (file == NULL && errno == ENOENT) {
-			/* try stock pod directory */
-			snprintf(fallback, sizeof(fallback),
-					"%s/%s", JETTISON_STOCKPODS, filename);
-			file = fopen(fallback, "r");
-			if (file == NULL) {
-				goto err_ret;
-			}
-			else {
-				return file;
-			}
-		}
-		else if (file != NULL) {
-			return file;
+			goto try_stockpods;
 		}
 	}
-	else if (file != NULL) {
+	if (file) {
 		return file;
 	}
-err_ret:
-	printf("could not locate pod file %s.\nprovide the full path to file",filename);
-	printf("or create a new one at ~/.pods or %s\n", JETTISON_STOCKPODS);
-	return NULL;
-}
+#endif
 
+err_ret:
+
+#ifdef STOCK_PODS_ONLY
+	printf("could not locate %s in %s\n", filename, JETTISON_STOCKPODS);
+#else
+	printf("could not locate %s\n", filename);
+	printf("try using the full path to file\n");
+	printf("or create a new one at ~/.pods or %s\n", JETTISON_STOCKPODS);
+#endif
+	return NULL;
+
+try_stockpods:
+	/* try stock pod directory */
+	snprintf(fallback, sizeof(fallback),
+			"%s/%s", JETTISON_STOCKPODS, filename);
+	printf("trying: %s\n", fallback);
+	file = fopen(fallback, "r");
+	if (file == NULL) {
+		goto err_ret;
+	}
+
+	return file;
+}
 
 /*
  * load config file into memory,
