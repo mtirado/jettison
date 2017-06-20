@@ -893,7 +893,7 @@ static void relayio_sighand(int signum)
 		break;
 	default:
 		exit_func();
-		exit(-1);
+		_exit(-1);
 		break;
 	}
 }
