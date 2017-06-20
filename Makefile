@@ -1,11 +1,44 @@
-# some global defines
-DEFINES := 							\
-	-DMAX_SYSTEMPATH=2048 					\
-	-D_FILE_OFFSET_BITS=64					\
-	-DDEFAULT_STACKSIZE=4194304				\
-	-DPOD_PATH=\"/opt/pods\"				\
-	-DINIT_PATH=\"/usr/local/bin/jettison_init\"		\
-	-DPRELOAD_PATH=\"/usr/local/bin/jettison_preload.so\"
+#TODO there are more useful defines to make visible here
+ifndef DESTDIR
+DESTDIR=/usr/local
+endif
+ifndef PREFIX
+PREFIX=/usr/local
+endif
+ifndef MANDIR
+MANDIR=/share/man
+endif
+ifndef POD_PATH
+POD_PATH="/opt/pods"
+endif
+ifndef STOCKPOD_PATH
+STOCKPOD_PATH="/etc/jettison/pods"
+endif
+ifndef JETTISON_PATH
+JETTISON_PATH="/bin/jettison"
+endif
+ifndef INIT_PATH
+INIT_PATH="/bin/jettison_init"
+endif
+ifndef PRELOAD_PATH
+PRELOAD_PATH="/bin/jettison_preload.so"
+endif
+ifndef DESTRUCT_PATH
+DESTRUCT_PATH="/bin/jettison_destruct"
+endif
+ifndef DEF_UID
+DEF_UID=1000
+endif
+
+# defines go after CFLAGS
+DEFINES := 						\
+	-DMAX_SYSTEMPATH=1024 				\
+	-D_FILE_OFFSET_BITS=64				\
+	-DDEFAULT_STACKSIZE=4194304			\
+	-DPOD_PATH=\"$(POD_PATH)\"			\
+	-DSTOCKPOD_PATH=\"$(STOCKPOD_PATH)\"		\
+	-DINIT_PATH=\"$(PREFIX)$(INIT_PATH)\"		\
+	-DPRELOAD_PATH=\"$(PREFIX)$(PRELOAD_PATH)\"
 
 ##############################################################################
 # optional features
@@ -33,9 +66,6 @@ DEFINES += -DNEWNET_MACVLAN
 
 
 ##############################################################################
-
-
-
 CFLAGS  := -pedantic -Wall -Wextra -Werror
 DEFLANG := -ansi
 #DBG	:= -g
@@ -82,13 +112,41 @@ UTIL_PRELOAD		:= jettison_preload.so
 %.o: 		%.c
 			$(CC) -c $(DEFLANG) $(CFLAGS) $(DEFINES) $(DBG) -o $@ $<
 
-
 all:				\
 	$(JETTISON)		\
 	$(DESTRUCT)		\
 	$(UTIL_SECCOMP_ENUM)	\
 	$(UTIL_PRELOAD)		\
 	$(INIT)
+
+install:
+	@umask 022
+	@echo $(DESTDIR)/$(POD_PATH)
+	@install -dvm 0755  "$(DESTDIR)/$(POD_PATH)"
+	@install -dvm 0770  "$(DESTDIR)/$(POD_PATH)/user"
+	@install -dvm 0755  "$(DESTDIR)/$(STOCKPOD_PATH)"
+	@install -Dvm 04655 "$(JETTISON)" "$(DESTDIR)/$(JETTISON_PATH)"
+	@install -Dvm 02655 "$(DESTRUCT)" "$(DESTDIR)/$(DESTRUCT_PATH)"
+	@install -Dvm 0655  "$(INIT)"     "$(DESTDIR)/$(INIT_PATH)"
+	@install -Dvm 0655  "$(UTIL_PRELOAD)"  "$(DESTDIR)/$(PRELOAD_PATH)"
+	@install -DCvm 0644  etc/jettison/users/user "$(DESTDIR)/etc/jettison/users/user"
+	@install -DCvm 0644  etc/jettison/blacklist "$(DESTDIR)/etc/jettison/blacklist"
+	@install -Dvm 0644   man/jettison.1 \
+				"$(DESTDIR)/$(MANDIR)/man1/jettison.1"
+	@install -Dvm 0644   man/jettison_destruct.8 \
+				"$(DESTDIR)/$(MANDIR)/man8/jettison_destruct.8"
+#	@chown   -v 0:0 $(DESTDIR)/$(POD_PATH)
+#	@chown   -v$(DEF_UID):0 $(DESTDIR)/$(POD_PATH)/user
+clean:
+	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(DESTRUCT_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(INIT_OBJS),     rm -fv $(obj);)
+
+	@-rm -fv ./$(JETTISON)
+	@-rm -fv ./$(DESTRUCT)
+	@-rm -fv ./$(UTIL_PRELOAD)
+	@-rm -fv ./$(INIT)
+	@echo cleaned.
 
 
 ########################################
@@ -127,19 +185,3 @@ $(UTIL_PRELOAD):
 			@echo "| util: preload   OK |"
 			@echo "x--------------------x"
 			@echo ""
-
-
-########################################
-#	CLEAN UP THE MESS
-########################################
-clean:
-	@$(foreach obj, $(JETTISON_OBJS), rm -fv $(obj);)
-	@$(foreach obj, $(DESTRUCT_OBJS), rm -fv $(obj);)
-	@$(foreach obj, $(INIT_OBJS),     rm -fv $(obj);)
-
-	@-rm -fv ./$(JETTISON)
-	@-rm -fv ./$(DESTRUCT)
-	@-rm -fv ./$(UTIL_PRELOAD)
-	@-rm -fv ./$(INIT)
-	@echo cleaned.
-

@@ -1,0 +1,56 @@
+newnet none
+home_exec
+
+file rx	 /lib
+file rx	 /bin
+file r	 /usr
+file rx	 /usr/bin
+file rx	 /usr/lib
+
+file rwd /dev/null
+file rd	 /dev/random
+file rd	 /dev/urandom
+
+seccomp_allow time
+seccomp_allow rt_sigaction
+seccomp_allow open
+seccomp_allow stat64
+seccomp_allow read
+seccomp_allow ioctl
+seccomp_allow write
+seccomp_allow mmap2
+seccomp_allow close
+seccomp_allow rt_sigprocmask
+seccomp_allow fstat64
+seccomp_allow pselect6
+seccomp_allow mprotect
+seccomp_allow _newselect
+seccomp_allow brk
+seccomp_allow socketcall
+seccomp_allow getdents64
+seccomp_allow fcntl64
+seccomp_allow uname
+seccomp_allow chown32
+seccomp_allow waitpid
+seccomp_allow access
+seccomp_allow kill
+seccomp_allow setpgid
+seccomp_allow ugetrlimit
+seccomp_allow set_thread_area
+seccomp_allow execve
+seccomp_allow getpid
+seccomp_allow dup
+seccomp_allow dup2
+seccomp_allow getppid
+seccomp_allow getpgrp
+seccomp_allow gettimeofday
+seccomp_allow readlink
+seccomp_allow sysinfo
+seccomp_allow clone
+seccomp_allow nanosleep
+seccomp_allow getcwd
+seccomp_allow getuid32
+seccomp_allow getgid32
+seccomp_allow geteuid32
+seccomp_allow getegid32
+seccomp_allow exit_group
