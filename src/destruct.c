@@ -25,6 +25,8 @@
 #define ACTION_NUKE   3 /* destroy */
 
 #define DEBUG_RAND 0
+#define MAX_DEPTH 50
+#define PLIM 4096
 
 int          g_dbgfile;
 uid_t        g_ruid;
@@ -370,11 +372,18 @@ static int action(char *path, unsigned int leaf_action)
 }
 
 /* traverse directory tree */
-int recurse(char *path, unsigned int leaf_action)
+int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 {
-	char next_path[MAX_SYSTEMPATH];
+	char next_path[PLIM];
 	struct dirent *dent;
 	DIR *dir;
+
+	errno = 0;
+	*depth += 1;
+	if (*depth >= MAX_DEPTH) {
+		errno = ECANCELED;
+		return -1;
+	}
 
 	dir = opendir(path);
 	if (dir == NULL) {
@@ -401,10 +410,17 @@ int recurse(char *path, unsigned int leaf_action)
 			}
 		}
 
-		snprintf(next_path, sizeof(next_path), "%s/%s", path, dent->d_name);
+		if (snprintf(next_path, PLIM, "%s/%s", path, dent->d_name) >= PLIM) {
+			printf("path truncated, maximum is %d: %s\n", PLIM ,next_path);
+			closedir(dir);
+			return -1;
+		}
 		/* recurse through directories */
 		if (dent->d_type == DT_DIR) {
-			recurse(next_path, leaf_action);
+			if (recurse(next_path, leaf_action, depth)) {
+				closedir(dir);
+				return -1;
+			}
 			if (leaf_action == ACTION_RM) {
 				printf("rmdir(%s)\n", next_path);
 				if (rmdir(next_path)) {
@@ -438,9 +454,8 @@ int main(int argc, char *argv[])
 	if (getuid() == 0 || geteuid() == 0) {
 		printf("WARNING you have uid 0, this is *potentially* disasterous.\n");
 		printf("any /proc/mounts we encounter after check will be traversed,\n");
-		printf("potentially your root filesystem. i'm skeptical this will\n");
-		printf("ever happen, but it's worth noting as it is possible.\n");
-		printf("press y to live dangerously.\n\n");
+		printf("potentially your root filesystem through a bind mount.\n");
+		printf("press y to live dangerously, any other key to exit\n\n");
 		if (getch(&ch)) {
 			printf("getch error\n");
 			return -1;
@@ -509,9 +524,14 @@ int main(int argc, char *argv[])
 
 	for (i = 1; i <= g_iter; ++i)
 	{
+		unsigned int depth = 0;
 		printf("----------------- pass %d -----------------\n", i);
-		if (recurse(g_path, g_opts)) {
+		if (recurse(g_path, g_opts, &depth)) {
+			/* TODO: restart with a non-recursive fallback */
 			printf("recurse error, try manual cleanup\n");
+			if (errno == ECANCELED) {
+				printf("maximum depth is %d\n", MAX_DEPTH);
+			}
 			return -1;
 		}
 		sync();
@@ -519,8 +539,12 @@ int main(int argc, char *argv[])
 
 	/* unlink files */
 	if (g_opts != ACTION_RM) {
+		unsigned int depth = 0;
 		printf("----------------- unlink -----------------\n");
-		if (recurse(g_path, ACTION_RM)) {
+		if (recurse(g_path, ACTION_RM, &depth)) {
+			/* TODO: fallback safe/slow path, and compile time option to
+			 * prevent any recursive calls on memory constrained systems
+			 */
 			printf("recurse error, try manual cleanup\n");
 			return -1;
 		}
