@@ -27,6 +27,7 @@
 #define DEBUG_RAND 0
 #define MAX_DEPTH 50
 #define PLIM 4096
+#define MAX_ITER 99
 
 int          g_dbgfile;
 uid_t        g_ruid;
@@ -141,6 +142,8 @@ static int process_arguments(int argc, char *argv[])
 	}
 	if (g_iter == 0)
 		g_iter = 1;
+	else if (g_iter > MAX_ITER)
+		g_iter = MAX_ITER;
 
 	return 0;
 }
