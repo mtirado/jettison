@@ -27,7 +27,6 @@
 #define DEBUG_RAND 0
 #define MAX_DEPTH 50
 #define PLIM 4096
-#define MAX_ITER 99
 
 int          g_dbgfile;
 uid_t        g_ruid;
@@ -87,6 +86,7 @@ static int locate_podpath(char *file)
 
 static int process_arguments(int argc, char *argv[])
 {
+	long rdlong;
 	unsigned int len;
 	char *err = NULL;
 	if (argc < 2) {
@@ -135,16 +135,16 @@ static int process_arguments(int argc, char *argv[])
 
 	/* check iteration count */
 	errno = 0;
-	g_iter = strtol(argv[3], &err, 10);
+	rdlong = strtol(argv[3], &err, 10);
 	if (err == NULL || *err || errno) {
 		printf("bad iteration value\n");
 		return -1;
 	}
-	if (g_iter == 0)
-		g_iter = 1;
-	else if (g_iter > MAX_ITER)
-		g_iter = MAX_ITER;
-
+	if (rdlong <= 0) {
+		printf("bad iteration count: %li\n", rdlong);
+		return -1;
+	}
+	g_iter = (unsigned int)rdlong;
 	return 0;
 }
 
