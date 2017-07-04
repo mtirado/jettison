@@ -849,7 +849,6 @@ void exit_func()
 	}
 
 	tcsetattr(STDIN_FILENO, TCSANOW, &g_origterm);
-	tcflush(STDIN_FILENO, TCIOFLUSH);
 
 	ppid = getppid();
 	if (ppid < 1)
