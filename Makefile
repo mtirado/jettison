@@ -9,22 +9,22 @@ ifndef MANDIR
 MANDIR=/share/man
 endif
 ifndef POD_PATH
-POD_PATH="/opt/pods"
+POD_PATH=/opt/pods
 endif
 ifndef STOCKPOD_PATH
-STOCKPOD_PATH="/etc/jettison/pods"
+STOCKPOD_PATH=/etc/jettison/pods
 endif
 ifndef JETTISON_PATH
-JETTISON_PATH="/bin/jettison"
+JETTISON_PATH=/bin/jettison
 endif
 ifndef INIT_PATH
-INIT_PATH="/bin/jettison_init"
+INIT_PATH=/bin/jettison_init
 endif
 ifndef PRELOAD_PATH
-PRELOAD_PATH="/bin/jettison_preload.so"
+PRELOAD_PATH=/bin/jettison_preload.so
 endif
 ifndef DESTRUCT_PATH
-DESTRUCT_PATH="/bin/jettison_destruct"
+DESTRUCT_PATH=/bin/jettison_destruct
 endif
 ifndef DEF_UID
 DEF_UID=1000
