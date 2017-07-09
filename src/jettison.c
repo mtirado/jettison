@@ -478,7 +478,7 @@ int jettison_clone(char *progpath, void *data, size_t stacksize, unsigned int po
 	pid_t p;
 
 
-	if (stacksize >= MAX_STACKSIZE) {
+	if (stacksize > MAX_STACKSIZE) {
 		printf("maximum possible stacksize: %d\n", MAX_STACKSIZE);
 		return -1;
 	}
@@ -597,8 +597,11 @@ int process_arguments(int argc, char *argv[])
 				if (err == NULL || *err || errno)
 					goto bad_opt;
 				g_stacksize *= 1024; /* kilobytes to bytes */
-				if (g_stacksize >= MAX_STACKSIZE)
+				if (g_stacksize > MAX_STACKSIZE) {
+					printf("maximum stacksize is %d KB\n",
+							MAX_STACKSIZE/1024);
 					goto bad_opt;
+				}
 				argidx += 2;
 			}
 			else if (strncmp(argv[i], "--procname", len) == 0
