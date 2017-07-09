@@ -478,8 +478,8 @@ int jettison_clone(char *progpath, void *data, size_t stacksize, unsigned int po
 	pid_t p;
 
 
-	if (stacksize >= MAX_SYSTEMSTACK) {
-		printf("maximum possible stacksize: %d\n", MAX_SYSTEMSTACK);
+	if (stacksize >= MAX_STACKSIZE) {
+		printf("maximum possible stacksize: %d\n", MAX_STACKSIZE);
 		return -1;
 	}
 	newstack = malloc(stacksize);
@@ -597,7 +597,7 @@ int process_arguments(int argc, char *argv[])
 				if (err == NULL || *err || errno)
 					goto bad_opt;
 				g_stacksize *= 1024; /* kilobytes to bytes */
-				if (g_stacksize >= MAX_SYSTEMSTACK)
+				if (g_stacksize >= MAX_STACKSIZE)
 					goto bad_opt;
 				argidx += 2;
 			}
@@ -1811,9 +1811,13 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (g_stacksize == 0)
+	if (g_stacksize == 0) {
 		g_stacksize = DEFAULT_STACKSIZE;
-
+	}
+	else if (g_stacksize < MIN_STACKSIZE) {
+		printf("stacksize too small, minimum is %d KB\n", MIN_STACKSIZE/1024);
+		return -1;
+	}
 	/* temporary namespace to jail ourselves in */
 	if (create_nullspace())
 		return -1;
