@@ -1614,34 +1614,7 @@ static int pass2_finalize()
 			printf("add newpts option to privilege file\n");
 			return -1;
 		}
-#if 0
-		/* we might need to work around a glibc issue. it assumes /dev/pts
-		 * always exists, and trying to trick it is not easy. so for now
-		 * programs that use glibc for pty operations may not work right.
-		 * there is talk about a fix: https://github.com/lxc/lxd/issues/1724
-		 * what i suspect may be happening: /dev/pts is hardcoded in glibc as
-		 * the pty dir, but slave pty path points to real root /dev/pts, so
-		 * mounting that particular terminal in (seen below) can not work.
-		 * LD_PRELOAD hax maybe? :\
-		 */
-		if (!g_daemon) {
-			memset(&tnode, 0, sizeof(tnode));
-			snprintf(tnode.src, MAX_SYSTEMPATH, "%s", g_pty_slavepath);
-			snprintf(tnode.dest, MAX_SYSTEMPATH, "%s%s",
-					g_chroot_path, g_pty_slavepath);
-			tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID;
 
-			eslib_file_mkfile(tnode.dest, 0775);
-			if (pathnode_bind(&tnode)) {
-				printf("pathnode_bind(%s,%s) failed\n", tnode.src, tnode.dest);
-				return -1;
-			}
-			if (chown(tnode.dest, g_ruid, g_rgid)) {
-				printf("pty link chown: %s\n", strerror(errno));
-				return -1;
-			}
-		}
-#endif
 		snprintf(dest, MAX_SYSTEMPATH, "%s/dev", g_chroot_path);
 		mkdir(dest, 0755);
 		chmod(dest, 0755);
