@@ -1208,8 +1208,10 @@ static int parse_newnet(char *params, size_t size)
 	strncpy(type, params, typelen);
 
 	/* get kind */
-	if (strncmp(type, "none", 5) == 0)
+	if (strncmp(type, "none", 5) == 0) {
 		g_podnewnet->kind = ESRTNL_KIND_UNKNOWN;
+		g_podnewnet->nofilter = 1;
+	}
 	else if (strncmp(type, "loop", 5) == 0)
 		g_podnewnet->kind = ESRTNL_KIND_LOOP;
 #ifdef NEWNET_VETHBR
