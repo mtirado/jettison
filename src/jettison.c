@@ -61,6 +61,7 @@ int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
 int g_lognet; /* --lognet */
 int g_clear_environ; /* --clear-environ */
+int g_nonetfilter; /* --nonetfilter */
 int g_stdout_logfd;
 int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
 
@@ -549,6 +550,7 @@ int process_arguments(int argc, char *argv[])
 	g_strict = 0;
 	g_blacklist = 0;
 	g_clear_environ = 0;
+	g_nonetfilter = 0;
 
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
@@ -714,12 +716,7 @@ int process_arguments(int argc, char *argv[])
 				argidx += 2;
 			}
 			else if (strncmp(argv[i], "--nonetfilter", len) == 0) {
-				if (!g_privs.nonetfilter) {
-					printf("user lacks --nonetfilter permission. ");
-					printf("add to permission file to continue.\n");
-					return -1;
-				}
-				g_newnet.nofilter = 1;
+				g_nonetfilter = 1;
 				argidx += 1;
 			}
 			else {
@@ -1816,10 +1813,6 @@ int main(int argc, char *argv[])
 	memset(g_executable_path, 0, sizeof(g_executable_path));
 	seccomp_program_init(&g_seccomp_filter);
 
-	/* fill out g_privs */
-	if (process_user_permissions()) {
-		return -1;
-	}
 	if (process_arguments(argc, argv)) {
 		return -1;
 	}
@@ -1853,6 +1846,18 @@ int main(int argc, char *argv[])
 
 	setuid(g_ruid); /* to read cwd (without DAC_OVERRIDE) */
 	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
+		return -1;
+	}
+	/* fill out g_privs */
+	if (process_user_permissions()) {
+		return -1;
+	}
+	if (g_nonetfilter && g_privs.nonetfilter) {
+		g_newnet.nofilter = 1;
+	}
+	else {
+		printf("user lacks nonetfilter permission. ");
+		printf("add to permission file to continue.\n");
 		return -1;
 	}
 	setuid(0);
