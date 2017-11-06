@@ -972,45 +972,33 @@ int netns_setup()
 		return -1;
 	}
 
+	g_newnet.filter6size = 0;
+	g_newnet.filtersize = 0;
 	/* save current firewalls */
-	r = 0;
 	if (filter_net) {
+		/* ipv4 */
 		r = netns_save_firewall(g_newnet.netfilter,
 				sizeof(g_newnet.netfilter), FIREWALL_SAVE);
-	}
-	if (r <= 0) {
-		printf("did not save ipv4 firewall rules: %d\n", r);
-		if (filter_net) {
+		if (r <= 0) {
+			printf("did not save ipv4 firewall rules: %d\n", r);
 			printf("to continue anyway, use --nonetfilter\n");
-		}
-		if (g_privs.nonetfilter != 1) {
 			close(g_newnet.root_ns);
 			return -1;
 		}
-		g_privs.nonetfilter = 2;
-		r = 0;
-	}
-	g_newnet.filtersize = r;
+		g_newnet.filtersize = r;
 
-	/* ipv6 */
-	r = 0;
-	if (filter_net) {
+		/* ipv6 */
 		r = netns_save_firewall(g_newnet.netfilter6,
 				sizeof(g_newnet.netfilter6), FIREWALL6_SAVE);
-	}
-	if (r <= 0) {
-		printf("did not save ipv6 firewall rules: %d\n", r);
-		if (filter_net) {
+		if (r <= 0) {
+			printf("did not save ipv6 firewall rules: %d\n", r);
 			printf("to continue anyway, use --nonetfilter\n");
-		}
-		if (g_privs.nonetfilter != 2) {
 			close(g_newnet.root_ns);
 			return -1;
 		}
-		g_privs.nonetfilter = 3;
-		r = 0;
+		g_newnet.filter6size = r;
 	}
-	g_newnet.filter6size = r;
+
 
 	/* create new namespace */
 	if (unshare(CLONE_NEWNET)) {

@@ -344,13 +344,12 @@ int print_options()
 		}
 	}
 	else {
-		printf("notice: using default system network settings\n");
+		printf("notice: using default network namespace\n");
 	}
 	printf("\n");
 
-	if (g_privs.nonetfilter > 1) {
-		printf("WARNING! there was an error loading netfilters\n");
-		printf("if expected you should correct this before proceeding.\n");
+	if (g_newnet.nofilter) {
+		printf("WARNING! no net filter installed in new network namespace\n");
 	}
 
 	printf("\n");
@@ -1852,13 +1851,13 @@ int main(int argc, char *argv[])
 	if (process_user_permissions()) {
 		return -1;
 	}
-	if (g_nonetfilter && g_privs.nonetfilter) {
-		g_newnet.nofilter = 1;
-	}
-	else {
+	if (g_nonetfilter && !g_privs.nonetfilter) {
 		printf("user lacks nonetfilter permission. ");
 		printf("add to permission file to continue.\n");
 		return -1;
+	}
+	else if (g_nonetfilter) {
+		g_newnet.nofilter = 1;
 	}
 	setuid(0);
 
