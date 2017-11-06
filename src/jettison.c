@@ -347,8 +347,15 @@ int print_options()
 	}
 	printf("\n");
 
+	if (g_privs.nonetfilter > 1) {
+		printf("WARNING! there was an error loading netfilters\n");
+		printf("if expected you should correct this before proceeding.\n");
+	}
+
+	printf("\n");
+
 #ifdef PODROOT_HOME_OVERRIDE
-	printf("notice: PODROOT_HOME_OVERRIDE is enabled!!!\n");
+	printf("NOTICE!!! PODROOT_HOME_OVERRIDE is enabled!!!\n");
 	printf("this configuration is a hack for system building, and\n");
 	printf("probably should only be used for development/testing\n");
 	printf("\n");
@@ -1565,7 +1572,7 @@ static int trace_fork(char **argv)
  */
 int process_user_permissions()
 {
-	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR };
+	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR, NONETFILTER };
 	char *pwline;
 	char *pwuser;
 	char path[MAX_SYSTEMPATH];
@@ -1609,10 +1616,11 @@ int process_user_permissions()
 
 	/*
 	 *  parse privilege file
-	 *  ipaddr  <address/mask> - can occupy this ip/netmask
-	 *  macaddr <address>      - can occupy this macaddr
+	 *  ipaddr  <address/mask> - occupy this ip/netmask
+	 *  macaddr <address>      - occupy this macaddr
 	 *  iplimit <count>        - maximum number of ip's user can use.
 	 *  newpts                 - create new pts instances
+	 *  nonetfilter		   - create a new netns without net filter
 	 */
 	while (1)
 	{
@@ -1642,8 +1650,10 @@ int process_user_permissions()
 			type = MACADDR;
 		else if (strncmp(privln, "newpts", 6) == 0)
 			type = NEWPTS;
+		else if (strncmp(privln, "nonetfilter", 11) == 0)
+			type = NONETFILTER;
 		else {
-			printf("bad keyword or missing parameter: %s\n", privln);
+			printf("bad keyword or missing parameter: (%s)\n", privln);
 			goto print_errline;
 		}
 
@@ -1717,6 +1727,9 @@ int process_user_permissions()
 			break;
 		case NEWPTS:
 			g_privs.newpts = 1;
+			break;
+		case NONETFILTER:
+			g_privs.nonetfilter = 1;
 			break;
 		default:
 			goto print_errline;

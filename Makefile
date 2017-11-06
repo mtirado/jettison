@@ -31,7 +31,7 @@ DEF_UID=1000
 endif
 
 # defines go after CFLAGS
-DEFINES := 						\
+CDEFINES := 						\
 	-DMAX_SYSTEMPATH=1024 				\
 	-D_FILE_OFFSET_BITS=64				\
 	-DDEFAULT_STACKSIZE=4194304			\
@@ -45,15 +45,15 @@ DEFINES := 						\
 ##############################################################################
 
 # support file capabilities (possibly dangerous, not advised for untrusted users)
-#DEFINES += -DUSE_FILE_CAPS
+#CDEFINES += -DUSE_FILE_CAPS
 # only read pod config files from stock directoy /etc/jettison/pods
-#DEFINES += -DSTOCK_PODS_ONLY
+#CDEFINES += -DSTOCK_PODS_ONLY
 #for X11 auth support
-#DEFINES += -DX11OPT
+#CDEFINES += -DX11OPT
 #JETTISON_LIBS := -lXau
 
 # for system building, this should NEVER be compiled with capabilities enabled
-#DEFINES += -DPODROOT_HOME_OVERRIDE
+#CDEFINES += -DPODROOT_HOME_OVERRIDE
 
 # newnet namespace device hookups
 # these options require control of network resources. ip address,
@@ -61,19 +61,20 @@ DEFINES := 						\
 # users permission file located at /etc/jettison/users/<user>
 # underlying drivers may be new; ipvlan requires ipv6.
 # TODO veth bridge and even more possiblities
-DEFINES += -DNEWNET_IPVLAN
-DEFINES += -DNEWNET_MACVLAN
+CDEFINES += -DNEWNET_IPVLAN
+CDEFINES += -DNEWNET_MACVLAN
 
 
 ##############################################################################
-CFLAGS  := -pedantic -Wall -Wextra -Werror
-DEFLANG := -ansi
-#DBG	:= -g
+# CC arguments
+##############################################################################
+CLANG  := -ansi
+CFLAGS := -pedantic -Wall -Wextra -Werror $(CLANG) $(CDEFINES)
 
 #TODO strip debugging info from binaries
 
 #########################################
-#	PROGRAM SOURCE FILES
+# source and object files
 #########################################
 JETTISON_SRCS :=					\
 		./src/jettison.c			\
@@ -102,15 +103,18 @@ INIT_SRCS :=	./src/jettison_init.c			\
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
 ########################################
-#	PROGRAM FILENAMES
+# output filenames
 ########################################
 JETTISON		:= jettison
 DESTRUCT		:= jettison_destruct
 INIT	  		:= jettison_init
 UTIL_PRELOAD		:= jettison_preload.so
 
+########################################
+# make targets
+########################################
 %.o: 		%.c
-			$(CC) -c $(DEFLANG) $(CFLAGS) $(DEFINES) $(DBG) -o $@ $<
+			$(CC) -c $(CFLAGS) -o $@ $<
 
 all:				\
 	$(JETTISON)		\
@@ -120,18 +124,17 @@ all:				\
 	$(INIT)
 
 install:
-	@umask 022
 	@echo $(DESTDIR)/$(POD_PATH)
-	@install -dvm 0755  "$(DESTDIR)/$(POD_PATH)"
-	@install -dvm 0770  "$(DESTDIR)/$(POD_PATH)/user"
-	@install -dvm 0755  "$(DESTDIR)/$(STOCKPOD_PATH)"
-	@install -Dvm 04655 "$(JETTISON)" "$(DESTDIR)/$(JETTISON_PATH)"
-	@install -Dvm 02655 "$(DESTRUCT)" "$(DESTDIR)/$(DESTRUCT_PATH)"
-	@install -Dvm 0655  "$(INIT)"     "$(DESTDIR)/$(INIT_PATH)"
-	@install -Dvm 0655  "$(UTIL_PRELOAD)"  "$(DESTDIR)/$(PRELOAD_PATH)"
+	@install -dvm  0755  "$(DESTDIR)/$(POD_PATH)"
+	@install -dvm  0770  "$(DESTDIR)/$(POD_PATH)/user"
+	@install -dvm  0755  "$(DESTDIR)/$(STOCKPOD_PATH)"
+	@install -Dvm  04755 "$(JETTISON)" "$(DESTDIR)/$(JETTISON_PATH)"
+	@install -Dvm  02755 "$(DESTRUCT)" "$(DESTDIR)/$(DESTRUCT_PATH)"
+	@install -Dvm  0655  "$(INIT)"     "$(DESTDIR)/$(INIT_PATH)"
+	@install -Dvm  0655  "$(UTIL_PRELOAD)"  "$(DESTDIR)/$(PRELOAD_PATH)"
 	@install -DCvm 0644  etc/jettison/users/user "$(DESTDIR)/etc/jettison/users/user"
 	@install -DCvm 0644  etc/jettison/blacklist "$(DESTDIR)/etc/jettison/blacklist"
-	@install -Dvm 0644   man/jettison.1 \
+	@install -Dvm  0644   man/jettison.1 \
 				"$(DESTDIR)/$(MANDIR)/man1/jettison.1"
 	@install -Dvm 0644   man/jettison_destruct.8 \
 				"$(DESTDIR)/$(MANDIR)/man8/jettison_destruct.8"
@@ -149,39 +152,35 @@ clean:
 	@echo cleaned.
 
 
-########################################
-#	BUILD TARGETS
-########################################
 $(JETTISON):		$(JETTISON_OBJS)
 			$(CC) $(LDFLAGS) $(JETTISON_LIBS) $(JETTISON_OBJS) -o $@
 			@echo ""
-			@echo "x------------------x"
-			@echo "| jettison      OK |"
-			@echo "x------------------x"
+			@echo "x---------------x"
+			@echo "| jettison      |"
+			@echo "x---------------x"
 			@echo ""
 
 $(DESTRUCT):		$(DESTRUCT_OBJS)
 			$(CC) $(LDFLAGS) $(DESTRUCT_OBJS) -o $@
 			@echo ""
-			@echo "x--------------------x"
-			@echo "| destruct        OK |"
-			@echo "x--------------------x"
+			@echo "x-----------------x"
+			@echo "| destruct        |"
+			@echo "x-----------------x"
 			@echo ""
 
 $(INIT):		$(INIT_OBJS)
 			$(CC) $(LDFLAGS) $(INIT_OBJS) -o $@
 			@echo ""
-			@echo "x--------------------x"
-			@echo "| util: init      OK |"
-			@echo "x--------------------x"
+			@echo "x-----------------x"
+			@echo "| pod init        |"
+			@echo "x-----------------x"
 			@echo ""
 
 $(UTIL_PRELOAD):
 			@echo ""
-			$(CC) $(CFLAGS) $(DEFLANG) $(DEFINES) -shared -o $@ -fPIC \
-					./src/util/jettison_preload.c
+			$(CC) $(CFLAGS) -shared -o $@ -fPIC ./src/util/jettison_preload.c
 			@echo ""
-			@echo "x--------------------x"
-			@echo "| util: preload   OK |"
-			@echo "x--------------------x"
+			@echo "x-----------------x"
+			@echo "| util: preload   |"
+			@echo "x-----------------x"
 			@echo ""

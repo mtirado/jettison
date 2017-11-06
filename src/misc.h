@@ -32,6 +32,7 @@ struct newnet_param {
 	int filter6size;       /* ipv6 firewall */
 };
 struct user_privs {
+	unsigned int nonetfilter;   /* can create a newnet without filter */
 	unsigned int newpts;        /* can create newpts instances */
 	unsigned int ipvlan_limit;  /* maximum number of ipvlan's */
 };
