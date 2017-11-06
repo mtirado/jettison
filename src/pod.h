@@ -11,8 +11,7 @@
 struct newnet_param;
 struct user_privs;
 struct seccomp_program;
-/* put all podflag options near top, they are used as
- * bit flags, and we should keep their value as low as possible */
+/* podflags are above cutoff, they are used as 32bit flags */
 enum
 {
 	OPTION_NEWNET=0,

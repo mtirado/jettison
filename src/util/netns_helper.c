@@ -959,6 +959,7 @@ int netns_setup()
 	int r;
 	int lockfd = -1;
 	int count = 0;
+	int filter_net = !g_newnet.nofilter;
 
 	if (g_newnet.kind == ESRTNL_KIND_INVALID)
 		return -1;
@@ -972,11 +973,16 @@ int netns_setup()
 	}
 
 	/* save current firewalls */
-	r = netns_save_firewall(g_newnet.netfilter,
-			sizeof(g_newnet.netfilter), FIREWALL_SAVE);
+	r = 0;
+	if (filter_net) {
+		r = netns_save_firewall(g_newnet.netfilter,
+				sizeof(g_newnet.netfilter), FIREWALL_SAVE);
+	}
 	if (r <= 0) {
-		printf("couldn't save ipv4 firewall rules: %d\n", r);
-		printf("to continue anyway, add nonetfilter option to user privilege\n");
+		printf("did not save ipv4 firewall rules: %d\n", r);
+		if (filter_net) {
+			printf("to continue anyway, use --nonetfilter\n");
+		}
 		if (g_privs.nonetfilter != 1) {
 			close(g_newnet.root_ns);
 			return -1;
@@ -987,11 +993,16 @@ int netns_setup()
 	g_newnet.filtersize = r;
 
 	/* ipv6 */
-	r = netns_save_firewall(g_newnet.netfilter6,
-			sizeof(g_newnet.netfilter6), FIREWALL6_SAVE);
+	r = 0;
+	if (filter_net) {
+		r = netns_save_firewall(g_newnet.netfilter6,
+				sizeof(g_newnet.netfilter6), FIREWALL6_SAVE);
+	}
 	if (r <= 0) {
-		printf("couldn't save ipv6 firewall rules: %d\n", r);
-		printf("to continue anyway, add nonetfilter option to user privilege\n");
+		printf("did not save ipv6 firewall rules: %d\n", r);
+		if (filter_net) {
+			printf("to continue anyway, use --nonetfilter\n");
+		}
 		if (g_privs.nonetfilter != 2) {
 			close(g_newnet.root_ns);
 			return -1;

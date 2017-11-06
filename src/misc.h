@@ -30,6 +30,7 @@ struct newnet_param {
 	int new_ns;            /* new net namespace */
 	int filtersize;        /* firewall */
 	int filter6size;       /* ipv6 firewall */
+	int nofilter;          /* do not install filters */
 };
 struct user_privs {
 	unsigned int nonetfilter;   /* can create a newnet without filter */
