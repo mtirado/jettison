@@ -68,7 +68,7 @@ static int netns_vlan_config(char *ifname, char *gateway)
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		return -1;
 	}
-	/* rename device in new namespace to match rootns name */
+	/* set new link name*/
 	r = eslib_rtnetlink_linksetname(ifname, NEWNET_LINK_NAME);
 	if (r) {
 		printf("couldn't set interface name\n");
@@ -1021,7 +1021,7 @@ int netns_setup()
 		return -1;
 	}
 
-	/* new name is t<pid>, renamed to match root device after namespace transit */
+	/* new name is t<pid>, renamed after namespace transit */
 	snprintf(ifname, sizeof(ifname), "t%d", getpid());
 
 	/* create new interface and move to new namespace */

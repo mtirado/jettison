@@ -40,17 +40,22 @@ CDEFINES := 						\
 	-DINIT_PATH=\"$(PREFIX)$(INIT_PATH)\"		\
 	-DPRELOAD_PATH=\"$(PREFIX)$(PRELOAD_PATH)\"
 
+
+JETTISON_LIBS :=
+
 ##############################################################################
 # optional features
 ##############################################################################
 
 # support file capabilities (possibly dangerous, not advised for untrusted users)
 #CDEFINES += -DUSE_FILE_CAPS
+
 # only read pod config files from stock directoy /etc/jettison/pods
 #CDEFINES += -DSTOCK_PODS_ONLY
+
 #for X11 auth support
 #CDEFINES += -DX11OPT
-#JETTISON_LIBS := -lXau
+#JETTISON_LIBS += -lXau
 
 # for system building, this should NEVER be compiled with capabilities enabled
 #CDEFINES += -DPODROOT_HOME_OVERRIDE
@@ -68,8 +73,9 @@ CDEFINES += -DNEWNET_MACVLAN
 ##############################################################################
 # CC arguments
 ##############################################################################
-CLANG  := -ansi
-CFLAGS := -pedantic -Wall -Wextra -Werror $(CLANG) $(CDEFINES)
+CLANG   := -ansi
+CFLAGS  := -pedantic -Wall -Wextra -Werror $(CLANG) $(CDEFINES)
+LDFLAGS := $(JETTISON_LIBS)
 
 #TODO strip debugging info from binaries
 
@@ -153,7 +159,7 @@ clean:
 
 
 $(JETTISON):		$(JETTISON_OBJS)
-			$(CC) $(LDFLAGS) $(JETTISON_LIBS) $(JETTISON_OBJS) -o $@
+			$(CC) $(LDFLAGS) $(JETTISON_OBJS) -o $@
 			@echo ""
 			@echo "x---------------x"
 			@echo "| jettison      |"
