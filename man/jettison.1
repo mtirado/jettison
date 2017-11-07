@@ -150,6 +150,16 @@ using e.g: `home rx /.pods/init/browserA.sh` specified to this option by
 .RE
 .P
 
+--nonetfilter
+.RS
+Do not install a net filter when creating a new network namespace.
+.RE
+.P
+
+
+
+
+
 .\" DESCRIPTION
 .SH DESCRIPTION
 
@@ -205,17 +215,14 @@ of system root. e.g: 'home r /.bashrc'.
 .\" seccomp
 .P
 .B seccomp_allow
-.RI [ syscall_define ]
+.RI [ syscall ]
 .RS
 Add systemcall to seccomp whitelist. If nothing is added to list
 every system call is allowed, except ptrace.
-.I syscall_define
-is the system call definition as it appears in linux header file, e.g:
-__NR_read, __NR_write, etc.
 .RE
 .P
 .BR seccomp_block
-.RI [ syscall_define ]
+.RI [ syscall ]
 .RS
 Failed seccomp check returns with errno, useful to prevent --strict killings.
 .RE
@@ -245,7 +252,7 @@ inherits netfilter from original namespace.
 .RS
 .TP
 .B none
-Create a blank new net namespace.
+Create a blank new net namespace, no netfilter is inherited.
 .TP
 .B loop
 New net namespace with loopback set up.

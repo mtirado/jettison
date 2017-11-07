@@ -320,18 +320,22 @@ int print_options()
 		{
 		case ESRTNL_KIND_IPVLAN:
 			printf("ipvlan\n");
-			printf("    interface: %s\n", g_newnet.dev);
+			printf("    interface: (master) %s --> %s (link)\n",
+					g_newnet.dev, NEWNET_LINK_NAME);
 			printf("    address:   %s/%d\n", g_newnet.addr,g_newnet.netmask);
 
 			break;
 		case ESRTNL_KIND_MACVLAN:
 			printf("macvlan\n");
-			printf("    interface: %s\n", g_newnet.dev);
+			printf("    interface: (master) %s --> %s (link)\n",
+					g_newnet.dev, NEWNET_LINK_NAME);
 			printf("    macaddr:   %s\n", g_newnet.hwaddr);
 			printf("    address:   %s/%d\n", g_newnet.addr,g_newnet.netmask);
 			break;
 		case ESRTNL_KIND_LOOP:
 			printf("loopback\n");
+			printf("    interface: lo\n");
+			printf("    address:   127.0.0.1\n");
 			break;
 		case ESRTNL_KIND_UNKNOWN:
 			printf("none\n");
@@ -348,8 +352,8 @@ int print_options()
 	}
 	printf("\n");
 
-	if (g_newnet.nofilter) {
-		printf("WARNING! no net filter installed in new network namespace\n");
+	if (g_newnet.nofilter && g_newnet.active) {
+		printf("WARNING! no net filter installed\n");
 	}
 
 	printf("\n");
@@ -820,6 +824,10 @@ err_usage:
 	printf("        run this script before running executable.\n");
 	printf("        must be a pod-local path, eg: /podhome/.pods/browserA.sh\n");
 	printf("        which should be whitelisted using home rx /.pods/browserA.sh\n");
+	printf("\n");
+	printf("--nonetfilter\n");
+	printf("        do not install netfilter in new network namespace\n");
+	printf("        this option is implied when using \"newnet none\"\n");
 	printf("\n");
 	printf("\n");
 	printf("\n");

@@ -66,6 +66,9 @@
 	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
 #endif
 
+#ifndef NEWNET_LINK_NAME
+	#define NEWNET_LINK_NAME "eth0"
+#endif
 /* 3'rd party programs for network setup/logging*/
 #ifndef FIREWALL_SAVE
 	#define FIREWALL_SAVE "iptables-save"
@@ -89,6 +92,5 @@
 #ifndef NETLOG_GROUP
 	#define NETLOG_GROUP "nobody"
 #endif
-
 
 #endif

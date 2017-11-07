@@ -55,9 +55,8 @@ static int netns_lo_config()
 
 static int netns_vlan_config(char *ifname, char *gateway)
 {
-	char *dev = g_newnet.dev;
 	int r;
-	if (!dev || !ifname || !gateway) {
+	if (!ifname || !gateway) {
 		printf("invalid vlan_config params\n");
 		return -1;
 	}
@@ -70,14 +69,14 @@ static int netns_vlan_config(char *ifname, char *gateway)
 		return -1;
 	}
 	/* rename device in new namespace to match rootns name */
-	r = eslib_rtnetlink_linksetname(ifname, dev);
+	r = eslib_rtnetlink_linksetname(ifname, NEWNET_LINK_NAME);
 	if (r) {
 		printf("couldn't set interface name\n");
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		return -1;
 	}
 	/* set up */
-	r = eslib_rtnetlink_linksetup(dev);
+	r = eslib_rtnetlink_linksetup(NEWNET_LINK_NAME);
 	if (r) {
 		printf("couldn't set %s up\n", ifname);
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
@@ -85,21 +84,22 @@ static int netns_vlan_config(char *ifname, char *gateway)
 		return -1;
 	}
 	/* set address */
-	r = eslib_rtnetlink_linkaddr(dev, g_newnet.addr, g_newnet.netmask);
+	r = eslib_rtnetlink_linkaddr(NEWNET_LINK_NAME, g_newnet.addr, g_newnet.netmask);
 	if (r) {
 		printf("couldn't add address(%s/%d) to iface %s\n",
-				g_newnet.addr, g_newnet.netmask, dev);
+				g_newnet.addr, g_newnet.netmask, NEWNET_LINK_NAME);
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		eslib_rtnetlink_linkdel(ifname);
 		return -1;
 	}
 	/* set gateway */
 	printf("\r\n---------------------------------------------------------\r\n");
-	printf("dev/addr/mask: %s %s %d\r\n", dev, g_newnet.addr, g_newnet.netmask);
+	printf("dev/addr/mask: %s %s %d\r\n",
+			NEWNET_LINK_NAME, g_newnet.addr, g_newnet.netmask);
 	printf("---------------------------------------------------------\r\n");
-	r = eslib_rtnetlink_setgateway(dev, g_newnet.gateway);
+	r = eslib_rtnetlink_setgateway(NEWNET_LINK_NAME, g_newnet.gateway);
 	if (r) {
-		printf("couldn't set gateway for iface %s\n", dev);
+		printf("couldn't set gateway for iface %s\n", NEWNET_LINK_NAME);
 		(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 		eslib_rtnetlink_linkdel(ifname);
 		return -1;
@@ -955,7 +955,6 @@ int netns_setup()
 	char path[MAX_SYSTEMPATH];
 	char ifname[16];
 	char *gateway;
-	char *dev;
 	int r;
 	int lockfd = -1;
 	int count = 0;
@@ -1049,11 +1048,11 @@ int netns_setup()
 		}
 		/* create ipvlan/macvlan device */
 		if (g_newnet.kind == ESRTNL_KIND_IPVLAN)
-			r = eslib_rtnetlink_linknew(ifname, "ipvlan", g_newnet.dev);
+			r = eslib_rtnetlink_linknew(ifname, "ipvlan", NEWNET_LINK_NAME);
 		else
-			r = eslib_rtnetlink_linknew(ifname, "macvlan", g_newnet.dev);
+			r = eslib_rtnetlink_linknew(ifname, "macvlan", NEWNET_LINK_NAME);
 		if (r) {
-			printf("linknew(%s, xxxvlan, %s)\r\n", ifname, g_newnet.dev);
+			printf("linknew(%s, xxxvlan, %s)\r\n", ifname, NEWNET_LINK_NAME);
 			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 			if (r == EBUSY) {
 				printf("hint: vlan type must match for master device\n");
@@ -1078,12 +1077,9 @@ int netns_setup()
 			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");
 			goto ipvlan_err;
 		}
-		dev = g_newnet.dev;
-		if (*dev == '\0')
-			goto ipvlan_err;
 
 		/* set gateway */
-		gateway = eslib_rtnetlink_getgateway(dev);
+		gateway = eslib_rtnetlink_getgateway(NEWNET_LINK_NAME);
 		if (gateway == NULL) {
 			printf("couldn't get link gateway\n");
 			goto ipvlan_err;
