@@ -384,6 +384,7 @@ int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 	errno = 0;
 	*depth += 1;
 	if (*depth >= MAX_DEPTH) {
+		printf("path={%s}\n", path);
 		errno = ECANCELED;
 		return -1;
 	}
@@ -398,6 +399,7 @@ int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 #endif
 	while (1)
 	{
+		unsigned int dive = *depth;
 		dent = readdir(dir);
 		if (dent == NULL) {
 			break;
@@ -414,13 +416,13 @@ int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 		}
 
 		if (snprintf(next_path, PLIM, "%s/%s", path, dent->d_name) >= PLIM) {
-			printf("path truncated, maximum is %d: %s\n", PLIM ,next_path);
+			printf("truncation error, max is %d: %s\n", PLIM , next_path);
 			closedir(dir);
 			return -1;
 		}
 		/* recurse through directories */
 		if (dent->d_type == DT_DIR) {
-			if (recurse(next_path, leaf_action, depth)) {
+			if (recurse(next_path, leaf_action, &dive)) {
 				closedir(dir);
 				return -1;
 			}
