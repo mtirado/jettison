@@ -38,9 +38,6 @@ extern char g_cwd[MAX_SYSTEMPATH];
 extern pid_t g_mainpid;
 extern char g_chroot_path[MAX_SYSTEMPATH];
 
-int netns_restore_firewall(char *buf, unsigned int size, char *cmd);
-int netns_save_firewall(char *buf, unsigned int size, char *cmd);
-
 static int netns_lo_config()
 {
 	int r;
@@ -107,162 +104,6 @@ static int netns_vlan_config(char *ifname, char *gateway)
 	return 0;
 }
 
-/* returns 0 on success, bytesread if outbuf is specified, or -1 on error
- * note: reading exactly outsize bytes is an error
- */
-static int do_fw_exec(char *argv[],/* program args */
-                      int *std_io, /* socketpair: [0] current proc, [1] new proc*/
-                      char *inbuf,  int insize, /* pipe in to program    */
-                      char *outbuf, int outsize)/* read output */
-{
-	pid_t p;
-	int bytesread = 0;
-	int status;
-	int std;
-	FILE *stdo;
-	int i;
-
-	if (!argv || (inbuf && !std_io)) {
-		return -1;
-	}
-	if (strnlen(FIREWALL_PROG, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH) {
-		return -1;
-	}
-
-	p = fork();
-	if (p == -1) {
-		printf("fork(): %s\n", strerror(errno));
-		return -1;
-	}
-	else if (p == 0) {
-		struct __user_cap_header_struct hdr;
-		struct __user_cap_data_struct   data[2];
-		int exempt[3];
-		stdo = stdout;
-		if (std_io) {
-			std = dup(STDOUT_FILENO);
-			stdo = fdopen(std, "w");
-			if (stdo == NULL
-				|| dup2(std_io[1], STDIN_FILENO) != STDIN_FILENO
-				|| dup2(std_io[1], STDOUT_FILENO) != STDOUT_FILENO
-				|| dup2(std_io[1], STDERR_FILENO) != STDERR_FILENO) {
-				printf("stdio replacement failure\n");
-				_exit(-1);
-			}
-		}
-		/* let exec inherit CAP_NET_ADMIN */
-		memset(&hdr, 0, sizeof(hdr));
-		memset(data, 0, sizeof(data));
-		hdr.version = _LINUX_CAPABILITY_VERSION_3;
-
-		data[CAP_TO_INDEX(CAP_NET_ADMIN)].effective
-			|= CAP_TO_MASK(CAP_NET_ADMIN);
-		data[CAP_TO_INDEX(CAP_NET_ADMIN)].permitted
-			|= CAP_TO_MASK(CAP_NET_ADMIN);
-		data[CAP_TO_INDEX(CAP_NET_ADMIN)].inheritable
-			|= CAP_TO_MASK(CAP_NET_ADMIN);
-
-		if (capset(&hdr, data)) {
-			fprintf(stdo, "capset: %s\r\n", strerror(errno));
-			fprintf(stdo, "cap version: %p\r\n", (void *)hdr.version);
-			fprintf(stdo, "pid: %d\r\n", hdr.pid);
-			_exit(-1);
-		}
-		exempt[0] = STDOUT_FILENO;
-		exempt[1] = STDIN_FILENO;
-		exempt[2] = STDERR_FILENO;
-		if (close_descriptors(exempt, 3)) {
-			_exit(-1);
-		}
-		if (execve(FIREWALL_PROG, argv, environ)) {
-			fprintf(stdo, "execve: %s\n", strerror(errno));
-			_exit(-1);
-		}
-		_exit(-1);
-	}
-	close(std_io[1]);
-
-	/* pipe input to new program */
-	if (inbuf && std_io) {
-		int bytesleft = insize;
-		if (insize <= 0)
-			return -1;
-
-		while(1)
-		{
-			int w = write(std_io[0], inbuf, bytesleft);
-			if (w == -1 && (errno == EINTR||errno == EAGAIN))
-				continue;
-			else if (w == -1 || w == 0)
-				return -1;
-
-			bytesleft -= w;
-			inbuf += w;
-			if (bytesleft == 0) {
-				shutdown(std_io[0], SHUT_WR);
-				break;
-			}
-			else if (bytesleft < 0) {
-				printf("write size error\n");
-				return -1;
-			}
-		}
-	}
-
-	/* read output */
-	if (outbuf) {
-		bytesread = 0;
-		if (outsize <= 1)
-			return -1;
-		while(1)
-		{
-			int r = read(std_io[0], outbuf+bytesread, outsize-bytesread);
-			if (r == -1 && (errno == EAGAIN || errno == EINTR)) {
-				continue;
-			}
-			else if (r == 0) {
-				break;
-			}
-			else if (r > 0) {
-				bytesread += r;
-				if (bytesread >= outsize) {
-					printf("filter is >= %d\n", FIREWALL_MAXFILTER);
-					return -1;
-				}
-			}
-			else {
-				printf("read error: %s\n", strerror(errno));
-				return -1;
-			}
-		}
-	}
-
-	/* wait some time for program return code */
-	i = 0;
-	while (1)
-	{
-		pid_t pr = waitpid(p, &status, WNOHANG);
-		if (pr == p) {
-			break;
-		}
-		else if (pr != 0) {
-			printf("waitpid(%d) error: %s\n", p, strerror(errno));
-			return -1;
-		}
-		if (++i > 20) {
-			printf("%s %s program hanging\n", FIREWALL_PROG, FIREWALL_SAVE);
-			kill(p, SIGKILL);
-			return -1;
-		}
-		usleep(100000);
-	}
-	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-		return bytesread;
-	}
-	printf("%s program encountered an error\n", FIREWALL_PROG);
-	return -1;
-}
-
 static int netns_enter_proc(char *pid)
 {
 	char path[MAX_SYSTEMPATH];
@@ -327,90 +168,7 @@ static int netns_enter_and_config(char *ifname)
 		break;
 	}
 
-	/* restore firewalls */
-	if (g_newnet.filtersize) {
-		if (netns_restore_firewall(g_newnet.netfilter,
-					g_newnet.filtersize, FIREWALL_RESTORE)) {
-			printf("couldn't install ipv4 netfilter\n");
-			if (!g_privs.nonetfilter)
-				return -1;
-		}
-	}
-	if (g_newnet.filter6size) {
-		if (netns_restore_firewall(g_newnet.netfilter6,
-					g_newnet.filter6size, FIREWALL6_RESTORE)) {
-			printf("couldn't install ipv6 netfilter\n");
-			if (!g_privs.nonetfilter)
-				return -1;
-		}
-	}
 	return 0;
-}
-
-/*
- *  read current firewall configuration so we can copy it to new namespace
- *  assumes firewall save program writes to stdout.
- */
-int netns_save_firewall(char *buf, unsigned int size, char *cmd)
-{
-	int ipc[2];
-	int bytes;
-	char *argv[] = { "fwsave", NULL, NULL };
-	if (buf == NULL || size <= 0)
-		return -1;
-	argv[1] = cmd;
-	memset(buf, 0, size);
-
-	if (socketpair(AF_UNIX, SOCK_STREAM, 0, ipc)) {
-		printf("socketpair: %s\n", strerror(errno));
-		return -1;
-	}
-	bytes = do_fw_exec(argv, ipc, NULL, 0, buf, size);
-	if (bytes == -1) {
-		printf("exec(%s) failed\n", FIREWALL_PROG);
-		close(ipc[1]);
-		close(ipc[0]);
-		return -1;
-	}
-
-	close(ipc[1]);
-	close(ipc[0]);
-	return bytes;
-}
-
-/*
- * restore firewall rules, assumes firewall program's restore reads from stdin.
- */
-int netns_restore_firewall(char *buf, unsigned int size, char *cmd)
-{
-	int ipc[2];
-	char *argv[] = { "fwrestore", NULL, NULL };
-	argv[1] = cmd;
-	if (buf == NULL || size <= 0)
-		return -1;
-
-	if (socketpair(AF_UNIX, SOCK_STREAM, 0, ipc)) {
-		printf("socketpair: %s\n", strerror(errno));
-		return -1;
-	}
-	if (do_fw_exec(argv, ipc, buf, size, NULL, 0)) {
-		printf("exec(%s) failed\n", FIREWALL_PROG);
-		close(ipc[0]);
-		close(ipc[1]);
-		return -1;
-	}
-	close(ipc[0]);
-	close(ipc[1]);
-	return 0;
-}
-
-/*
- *  execute firewall program to install additional rules.
- *  TODO  ^^
- */
-int netns_exec_firewall(char *args)
-{
-	return (int)args;
 }
 
 /* waits for ipvlan count lock */
@@ -958,7 +716,6 @@ int netns_setup()
 	int r;
 	int lockfd = -1;
 	int count = 0;
-	int filter_net = !g_newnet.nofilter;
 
 	if (g_newnet.kind == ESRTNL_KIND_INVALID)
 		return -1;
@@ -970,34 +727,6 @@ int netns_setup()
 		printf("root netns fd open: %s\n", strerror(errno));
 		return -1;
 	}
-
-	g_newnet.filter6size = 0;
-	g_newnet.filtersize = 0;
-	/* save current firewalls */
-	if (filter_net) {
-		/* ipv4 */
-		r = netns_save_firewall(g_newnet.netfilter,
-				sizeof(g_newnet.netfilter), FIREWALL_SAVE);
-		if (r <= 0) {
-			printf("did not save ipv4 firewall rules: %d\n", r);
-			printf("to continue anyway, use --nonetfilter\n");
-			close(g_newnet.root_ns);
-			return -1;
-		}
-		g_newnet.filtersize = r;
-
-		/* ipv6 */
-		r = netns_save_firewall(g_newnet.netfilter6,
-				sizeof(g_newnet.netfilter6), FIREWALL6_SAVE);
-		if (r <= 0) {
-			printf("did not save ipv6 firewall rules: %d\n", r);
-			printf("to continue anyway, use --nonetfilter\n");
-			close(g_newnet.root_ns);
-			return -1;
-		}
-		g_newnet.filter6size = r;
-	}
-
 
 	/* create new namespace */
 	if (unshare(CLONE_NEWNET)) {

@@ -61,7 +61,6 @@ int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
 int g_lognet; /* --lognet */
 int g_clear_environ; /* --clear-environ */
-int g_nonetfilter; /* --nonetfilter */
 int g_stdout_logfd;
 int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
 
@@ -352,10 +351,6 @@ int print_options()
 	}
 	printf("\n");
 
-	if (g_newnet.nofilter && g_newnet.active) {
-		printf("WARNING! no net filter installed\n");
-	}
-
 	printf("\n");
 
 #ifdef PODROOT_HOME_OVERRIDE
@@ -406,12 +401,12 @@ int jettison_clone_func(void *data)
 	}
 	close(g_pty_notify[1]);
 
-
 	/* enter pod environment */
 	if (pod_enter()) {
 		printf("pod_enter failure\n");
 		return -1;
 	}
+
 	change_environ();
 
 	/* switch back to real user credentials */
@@ -553,7 +548,6 @@ int process_arguments(int argc, char *argv[])
 	g_strict = 0;
 	g_blacklist = 0;
 	g_clear_environ = 0;
-	g_nonetfilter = 0;
 
 	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
 	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
@@ -718,10 +712,6 @@ int process_arguments(int argc, char *argv[])
 				}
 				argidx += 2;
 			}
-			else if (strncmp(argv[i], "--nonetfilter", len) == 0) {
-				g_nonetfilter = 1;
-				argidx += 1;
-			}
 			else {
 				/* program arguments begin here, break loop */
 				i = argc;
@@ -824,10 +814,6 @@ err_usage:
 	printf("        run this script before running executable.\n");
 	printf("        must be a pod-local path, eg: /podhome/.pods/browserA.sh\n");
 	printf("        which should be whitelisted using home rx /.pods/browserA.sh\n");
-	printf("\n");
-	printf("--nonetfilter\n");
-	printf("        do not install netfilter in new network namespace\n");
-	printf("        this option is implied when using \"newnet none\"\n");
 	printf("\n");
 	printf("\n");
 	printf("\n");
@@ -1579,13 +1565,31 @@ static int trace_fork(char **argv)
 	return 0;
 }
 
+#ifdef POD_INIT_CMDR
+#include "init_cmdr.h"
+static int permit_gizmo(char *name, unsigned int len)
+{
+	struct gizmo *giz = cmdr_find_gizmo(name, len);
+	if (giz) {
+		giz->executable = 1;
+		return 0;
+	}
+	else {
+		printf("gizmo not found: %s\n", name);
+		return 0;
+	}
+	return -1;
+}
+#endif
+
 /*
  *  performs some checks here for pass1 privileges (newpts, net addresses, etc)
  *  user_privs is filled out here.
  */
 int process_user_permissions()
 {
-	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR, NONETFILTER };
+	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR, NONETFILTER, GIZMO };
+
 	char *pwline;
 	char *pwuser;
 	char path[MAX_SYSTEMPATH];
@@ -1633,11 +1637,11 @@ int process_user_permissions()
 	 *  macaddr <address>      - occupy this macaddr
 	 *  iplimit <count>        - maximum number of ip's user can use.
 	 *  newpts                 - create new pts instances
-	 *  nonetfilter		   - create a new netns without net filter
+	 *  gizmo		   - some gizmos need caps that may cause trouble
 	 */
 	while (1)
 	{
-		char str[256];
+		char str[MAX_PRIVLN];
 		char *param;
 		char *err;
 		long lim;
@@ -1645,7 +1649,7 @@ int process_user_permissions()
 		unsigned int len = 0;
 
 		/* read line */
-		memset(privln, 0, MAX_PRIVLN);
+		memset(privln, 0, sizeof(privln));
 		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
 			break;
 		}
@@ -1663,8 +1667,10 @@ int process_user_permissions()
 			type = MACADDR;
 		else if (strncmp(privln, "newpts", 6) == 0)
 			type = NEWPTS;
-		else if (strncmp(privln, "nonetfilter", 11) == 0)
-			type = NONETFILTER;
+#ifdef POD_INIT_CMDR
+		else if (strncmp(privln, "gizmo ", 6) == 0)
+			type = GIZMO;
+#endif
 		else {
 			printf("bad keyword or missing parameter: (%s)\n", privln);
 			goto print_errline;
@@ -1690,15 +1696,19 @@ int process_user_permissions()
 			break;
 
 		/* single string parameter */
+
 		case IPADDR:
 		case DEVICE:
 		case MACADDR:
+		case GIZMO:
 			if (type == IPADDR)
-				param = &privln[7]; /* ipaddr */
+				param = &privln[7]; /* "ipaddr "*/
 			else if (type == DEVICE)
-				param = &privln[7]; /* netdev */
+				param = &privln[7]; /* "netdev "*/
 			else if (type == MACADDR)
-				param = &privln[8]; /* macaddr */
+				param = &privln[8]; /* "macaddr "*/
+			else if (type == GIZMO)
+				param = &privln[6]; /* "gizmo " */
 			else
 				goto print_errline;
 
@@ -1709,7 +1719,7 @@ int process_user_permissions()
 				if (param[len] == '\0' || param[len] == '\n') {
 					break;
 				}
-				if (++len >= sizeof(str)) {
+				if (++len >= sizeof(str)-1) {
 					printf("param len error\n");
 					goto print_errline;
 				}
@@ -1734,15 +1744,19 @@ int process_user_permissions()
 							sizeof(g_newnet.hwaddr))==0)
 					macmatch = 1;
 			}
+			else if (type == GIZMO) {
+#ifdef POD_INIT_CMDR
+				if (permit_gizmo(str, len))
+					goto print_errline;
+#endif
+
+			}
 			else {
 				goto print_errline;
 			}
 			break;
 		case NEWPTS:
 			g_privs.newpts = 1;
-			break;
-		case NONETFILTER:
-			g_privs.nonetfilter = 1;
 			break;
 		default:
 			goto print_errline;
@@ -1847,9 +1861,14 @@ int main(int argc, char *argv[])
 		printf("stacksize too small, minimum is %d KB\n", MIN_STACKSIZE/1024);
 		return -1;
 	}
-	/* temporary namespace to jail ourselves in */
+
+	/* empty directory */
 	if (create_nullspace())
 		return -1;
+
+#ifdef POD_INIT_CMDR
+	load_gizmos();
+#endif
 
 	setuid(g_ruid); /* to read cwd (without DAC_OVERRIDE) */
 	if (jettison_readconfig(g_podconfig_path, &g_podflags)) {
@@ -1858,14 +1877,6 @@ int main(int argc, char *argv[])
 	/* fill out g_privs */
 	if (process_user_permissions()) {
 		return -1;
-	}
-	if (g_nonetfilter && !g_privs.nonetfilter) {
-		printf("user lacks nonetfilter permission. ");
-		printf("add to permission file to continue.\n");
-		return -1;
-	}
-	else if (g_nonetfilter) {
-		g_newnet.nofilter = 1;
 	}
 	setuid(0);
 

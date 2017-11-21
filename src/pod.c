@@ -85,6 +85,7 @@ unsigned int g_podflags;
 int g_fcaps[NUM_OF_CAPS];
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
+char g_init_cmdr[JETTISON_CMDR_MAXNAME];
 
 struct newnet_param *g_podnewnet;
 struct user_privs *g_podprivs;
@@ -117,7 +118,9 @@ const char keywords[KWCOUNT][KWLEN] = {
 	"file",          /* bind mount file with options w,r,x,d,s */
 	"home",          /* ^  -- but $HOME/file is rooted in /podhome  */
 	"capability",    /* leave capability in bounding set */
-	"machine-id"     /* specify or generate a /etc/machine-id string */
+	"machine-id",    /* specify or generate a /etc/machine-id string */
+	"cmdr"           /* run list of possibly privileged commands */
+
 };
 
 
@@ -299,6 +302,7 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(g_filedata, 0, sizeof(g_filedata));
+	memset(g_init_cmdr, 0, sizeof(g_init_cmdr));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	g_podnewnet = newnet;
 	g_podseccfilter = seccfilter;
@@ -1210,7 +1214,6 @@ static int parse_newnet(char *params, size_t size)
 	/* get kind */
 	if (strncmp(type, "none", 5) == 0) {
 		g_podnewnet->kind = ESRTNL_KIND_UNKNOWN;
-		g_podnewnet->nofilter = 1;
 	}
 	else if (strncmp(type, "loop", 5) == 0)
 		g_podnewnet->kind = ESRTNL_KIND_LOOP;
@@ -1540,6 +1543,28 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 			return -1;
 		}
 		break;
+
+#ifdef POD_INIT_CMDR
+	case OPTION_CMDR:
+		if (g_init_cmdr[0] != '\0') {
+			printf("only one commander is allowed\n");
+			return -1;
+		}
+		if (strnlen(params, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
+			printf("cmdr name too long: %s\n", params);
+			return -1;
+		}
+		snprintf(g_init_cmdr, sizeof(g_init_cmdr), "%s", params);
+
+		if (init_cmdr(g_init_cmdr)) {
+			printf("init_cmdr(%s) failed\n", g_init_cmdr);
+			return -1;
+		}
+		break;
+#else
+		printf("cmdr option is disabled\n");
+		return -1;
+#endif
 	default:
 		printf("unknown option\n");
 		return -1;

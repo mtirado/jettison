@@ -34,6 +34,7 @@
 	#define GROUP_FILE "/etc/group"
 #endif
 
+
 /* hack to write daemon glibc output in linebuffered mode */
 #ifndef PRELOAD_PATH
 	#define PRELOAD_PATH="/usr/local/bin/jettison_preload.so"
@@ -49,6 +50,15 @@
 #ifndef JETTISON_USERCFG
 	#define JETTISON_USERCFG "/etc/jettison/users"
 #endif
+#ifndef JETTISON_CMDRS
+	#define JETTISON_CMDRS "/etc/jettison/cmdrs"
+#endif
+#ifndef JETTISON_CMDR_GIZMOS
+	#define JETTISON_CMDR_GIZMOS "/etc/jettison/gizmos"
+#endif
+#define JETTISON_CMDR_LIMIT 4095
+#define JETTISON_CMDR_MAXARGS 100
+#define JETTISON_CMDR_MAXNAME 64
 /* system-wide --blacklist */
 #ifndef JETTISON_BLACKLIST
 	#define JETTISON_BLACKLIST "/etc/jettison/blacklist"
@@ -61,6 +71,7 @@
 	#define JETTISON_IPVLAN_LIMIT 30
 #endif
 
+
 /* prevent race condition when counting ip/macvlans*/
 #ifndef IPVLAN_COUNT_LOCKFILE
 	#define IPVLAN_COUNT_LOCKFILE "/var/lock/jettison/ipvlan_counter"
@@ -69,6 +80,8 @@
 #ifndef NEWNET_LINK_NAME
 	#define NEWNET_LINK_NAME "eth0"
 #endif
+
+
 /* 3'rd party programs for network setup/logging*/
 #ifndef FIREWALL_SAVE
 	#define FIREWALL_SAVE "iptables-save"
@@ -82,10 +95,11 @@
 #ifndef FIREWALL6_RESTORE
 	#define FIREWALL6_RESTORE "ip6tables-restore"
 #endif
-
 #ifndef FIREWALL_PROG
 	#define FIREWALL_PROG "/usr/sbin/xtables-multi"
 #endif
+
+
 #ifndef NETLOG_PROG
 	#define NETLOG_PROG "/usr/sbin/tcpdump"
 #endif

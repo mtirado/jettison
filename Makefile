@@ -42,7 +42,7 @@ CDEFINES := 						\
 
 
 JETTISON_LIBS :=
-
+OPTIONAL_OBJS :=
 ##############################################################################
 # optional features
 ##############################################################################
@@ -59,6 +59,9 @@ JETTISON_LIBS :=
 
 # for system building, this should NEVER be compiled with capabilities enabled
 #CDEFINES += -DPODROOT_HOME_OVERRIDE
+
+#CDEFINES  += -DPOD_INIT_CMDR
+#OPTIONAL_OBJS += ./src/init_cmdr.c
 
 # newnet namespace device hookups
 # these options require control of network resources. ip address,
@@ -93,7 +96,9 @@ JETTISON_SRCS :=					\
 		./src/eslib/eslib_log.c			\
 		./src/eslib/eslib_rtnetlink.c		\
 		./src/eslib/eslib_fortify.c		\
-		./src/util/tracecalls.c
+		./src/eslib/eslib_string.c		\
+		./src/util/tracecalls.c			\
+		$(OPTIONAL_OBJS)
 JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 
 DESTRUCT_SRCS :=					\

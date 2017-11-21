@@ -9,13 +9,12 @@
 #include <linux/audit.h>
 #include <linux/seccomp.h>
 #include "eslib/eslib_fortify.h"
+#include "init_cmdr.h"
 
 /* maximum line length for user privilege file */
-#define MAX_PRIVLN 1024
+#define MAX_PRIVLN 128
 struct newnet_param {
 	int  active;
-	char netfilter[FIREWALL_MAXFILTER];  /* firewall rules */
-	char netfilter6[FIREWALL_MAXFILTER]; /* ipv6 firewall rules */
 	char addr[19];         /* ipv4 addr */
 	char hwaddr[18];       /* mac addr */
 	char gateway[16];      /* to net  */
@@ -28,12 +27,8 @@ struct newnet_param {
 	int log_count;         /* number of rotation files */
 	int root_ns;           /* initial net namespace */
 	int new_ns;            /* new net namespace */
-	int filtersize;        /* firewall */
-	int filter6size;       /* ipv6 firewall */
-	int nofilter;          /* do not install filters */
 };
 struct user_privs {
-	unsigned int nonetfilter;   /* can create a newnet without filter */
 	unsigned int newpts;        /* can create newpts instances */
 	unsigned int ipvlan_limit;  /* maximum number of ipvlan's */
 };

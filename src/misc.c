@@ -19,7 +19,7 @@
 #include <sys/prctl.h>
 #include "eslib/eslib.h"
 #include "misc.h"
-#define FMAXLINE 4095*4
+#define FMAXLINE 1023
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];
 
