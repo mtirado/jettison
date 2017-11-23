@@ -104,6 +104,8 @@ JETTISON_OBJS := $(JETTISON_SRCS:.c=.o)
 DESTRUCT_SRCS :=					\
 		./src/misc.c				\
 		./src/destruct.c			\
+		./src/eslib/eslib_file.c		\
+		./src/eslib/eslib_string.c		\
 		./src/eslib/eslib_proc.c
 DESTRUCT_OBJS := $(DESTRUCT_SRCS:.c=.o)
 

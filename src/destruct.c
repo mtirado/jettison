@@ -151,22 +151,16 @@ static int process_arguments(int argc, char *argv[])
 
 static int proc_checkmounts(char *path)
 {
-	char *fbuf;
-	off_t fsize;
-	off_t cur, start, end;
-	off_t len;
+	char *fbuf = NULL;
+	size_t fsize;
+	size_t fpos = 0;
 	unsigned int pathlen;
 
 	errno = 0;
 	fsize = eslib_procfs_readfile("/proc/mounts", &fbuf);
-	if (fsize == -1) {
+	if (fsize == (size_t)-1 || fsize == 0) {
 		printf("error reading /proc/mounts\n");
 		errno = EIO;
-		return -1;
-	}
-	else if (fsize == 0 || fbuf == NULL) {
-		printf("/proc/mounts is empty\n");
-		errno = ESRCH;
 		return -1;
 	}
 
@@ -178,76 +172,55 @@ static int proc_checkmounts(char *path)
 		return -1;
 	}
 
-	cur = 0;
-	while (1)
+	while (fpos < fsize)
 	{
-		start = cur;
-		/* seek to separator */
-		while (fbuf[start] != ' ' && fbuf[start] != '\t')
-		{
-			if (++start >= fsize) {
-				printf("/proc/mounts e1\n");
-				goto failure;
-			}
-		}
-		/* handle potentially  repeating separator */
-		while (fbuf[start] == ' ' || fbuf[start] == '\t')
-		{
-			if (++start >= fsize) {
-				printf("/proc/mounts e2\n");
-				goto failure;
-			}
-		}
-		/* get end of field 2 */
-		end = start;
-		while (fbuf[end] != ' ' && fbuf[end] != '\t')
-		{
-			if (++end >= fsize) {
-				printf("/proc/mounts e3\n");
-				goto failure;
-			}
-		}
-		len = end-start;
-		if (len >= MAX_SYSTEMPATH-1) {
-			printf("mountpoint path is too long\n");
+		char *line = NULL;
+		char *token = NULL;
+		unsigned int linepos = 0;
+		unsigned int linelen = 0;
+		unsigned int advance = 0;
+
+		line = &fbuf[fpos];
+		linelen = eslib_string_linelen(line, fsize - fpos);
+		if (linelen >= fsize - fpos)
 			goto failure;
-		}
+		if (!eslib_string_is_sane(line, linelen))
+			goto failure;
+		if (eslib_string_tokenize(line, linelen, " \t"))
+			goto failure;
+
+		/* skip first field */
+		token = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+		if (!token)
+			goto failure;
+
+		token = eslib_string_toke(line, linepos, linelen, &advance);
+		if (!token)
+			goto failure;
 
 		/* match anything that starts with path */
-		if (strncmp(path, &fbuf[start], pathlen) == 0) {
-			fbuf[end] = '\0';
-			printf("mountpoint detected in pod: %s\n", &fbuf[start]);
+		if (strncmp(path, token, pathlen) == 0) {
+			printf("mountpoint detected in pod: %s\n", token);
 			free(fbuf);
 			errno = EEXIST;
 			return -1;
 		}
-		/* go to next line */
-		while(fbuf[end] != '\n')
-		{
-			if (++end >= fsize) {
-				goto not_found;
-			}
-		}
-		/* consume trailing newlines */
-		while(fbuf[end] == '\n')
-		{
-			if (++end >= fsize) {
-				goto not_found;
-			}
-		}
-		if (fbuf[end] == 0)
-			goto not_found;
-		cur = end;
+
+		fpos += linelen+1;
+		if (fpos > fsize)
+			goto failure;
+		else if (fpos == fsize)
+			break;
 	}
+
+	free(fbuf);
+	return 0;
 
 failure:
 	free(fbuf);
 	errno = EIO;
 	return -1;
-
-not_found:
-	free(fbuf);
-	return 0;
 }
 
 
