@@ -1,8 +1,6 @@
 # mozilla web browser whitelist
-
-# manage x11 credentials
+cmdr philter
 x11
-#xephyr 1024 768
 machine-id
 
 # net namespace
@@ -18,7 +16,6 @@ file r	 /usr
 file rx  /usr/lib
 file rx  /usr/bin
 
-#file r	/etc/passwd
 file r	/etc/pango
 file r	/etc/fonts
 file r	/etc/resolv.conf
@@ -35,131 +32,131 @@ file wd  /dev/snd
 # seccomp systemcall whitelist, put frequent calls near top!
 # theres some extra stuff in here for running bash and other programs
 ###############################################################################
-seccomp_allow __NR_clock_gettime
-seccomp_allow __NR_futex
+seccomp_allow clock_gettime
+seccomp_allow futex
 
-seccomp_allow __NR_socketcall
+seccomp_allow socketcall
 # socketcall replaces these on new x86
-#seccomp_allow __NR_recv
-#seccomp_allow __NR_bind
-#seccomp_allow __NR_sendto
-#seccomp_allow __NR_getpeername
-#seccomp_allow __NR_recvfrom
-#seccomp_allow __NR_setsockopt
-#seccomp_allow __NR_send
-#seccomp_allow __NR_getsockname
-#seccomp_allow __NR_connect
-#seccomp_allow __NR_socket
+#seccomp_allow recv
+#seccomp_allow bind
+#seccomp_allow sendto
+#seccomp_allow getpeername
+#seccomp_allow recvfrom
+#seccomp_allow setsockopt
+#seccomp_allow send
+#seccomp_allow getsockname
+#seccomp_allow connect
+#seccomp_allow socket
 
-seccomp_allow __NR_poll
-seccomp_allow __NR_gettimeofday
-seccomp_allow __NR_read
-seccomp_allow __NR_write
-seccomp_allow __NR_writev
-seccomp_allow __NR_madvise
-seccomp_allow __NR_pwrite64
-seccomp_allow __NR_ioctl
-seccomp_allow __NR_fcntl64
-seccomp_allow __NR__llseek
-seccomp_allow __NR_stat64
-seccomp_allow __NR_open
-seccomp_allow __NR_close
-seccomp_allow __NR_lseek
-seccomp_allow __NR_gettid
-seccomp_allow __NR_mmap2
-seccomp_allow __NR_fstat64
-seccomp_allow __NR_fstatat64
-seccomp_allow __NR_munmap
-seccomp_allow __NR_getuid32
-seccomp_allow __NR_quotactl
-seccomp_allow __NR_statfs64
-seccomp_allow __NR_lstat64
-seccomp_allow __NR_access
-seccomp_allow __NR_time
-seccomp_allow __NR_getpid
-seccomp_allow __NR_unlink
-seccomp_allow __NR_unlinkat
-seccomp_allow __NR_readlink
-seccomp_allow __NR_getrusage
-seccomp_allow __NR_openat
-seccomp_allow __NR_rename
-seccomp_allow __NR_ftruncate64
-seccomp_allow __NR_fsync
-seccomp_allow __NR_mremap
-seccomp_allow __NR_nanosleep
-seccomp_allow __NR_rt_sigaction
-seccomp_allow __NR_brk
-seccomp_allow __NR__newselect
-seccomp_allow __NR_select
-seccomp_allow __NR_mprotect
-seccomp_allow __NR_fstatfs64
-seccomp_allow __NR_pipe
-seccomp_allow __NR_pipe2
-seccomp_allow __NR_clone
-seccomp_allow __NR_getdents
-seccomp_allow __NR_rt_sigprocmask
-seccomp_allow __NR_set_robust_list
-seccomp_allow __NR_dup2
-seccomp_allow __NR_waitpid
-seccomp_allow __NR_flock
-seccomp_allow __NR_fadvise64_64
+seccomp_allow poll
+seccomp_allow gettimeofday
+seccomp_allow read
+seccomp_allow write
+seccomp_allow writev
+seccomp_allow madvise
+seccomp_allow pwrite64
+seccomp_allow ioctl
+seccomp_allow fcntl64
+seccomp_allow _llseek
+seccomp_allow stat64
+seccomp_allow open
+seccomp_allow close
+seccomp_allow lseek
+seccomp_allow gettid
+seccomp_allow mmap2
+seccomp_allow fstat64
+seccomp_allow fstatat64
+seccomp_allow munmap
+seccomp_allow getuid32
+seccomp_allow quotactl
+seccomp_allow statfs64
+seccomp_allow lstat64
+seccomp_allow access
+seccomp_allow time
+seccomp_allow getpid
+seccomp_allow unlink
+seccomp_allow unlinkat
+seccomp_allow readlink
+seccomp_allow getrusage
+seccomp_allow openat
+seccomp_allow rename
+seccomp_allow ftruncate64
+seccomp_allow fsync
+seccomp_allow mremap
+seccomp_allow nanosleep
+seccomp_allow rt_sigaction
+seccomp_allow brk
+seccomp_allow _newselect
+seccomp_allow select
+seccomp_allow mprotect
+seccomp_allow fstatfs64
+seccomp_allow pipe
+seccomp_allow pipe2
+seccomp_allow clone
+seccomp_allow getdents
+seccomp_allow rt_sigprocmask
+seccomp_allow set_robust_list
+seccomp_allow dup2
+seccomp_allow waitpid
+seccomp_allow flock
+seccomp_allow fadvise64_64
 
-seccomp_allow __NR_ipc
+seccomp_allow ipc
 # ipc replaces these on new x86
-#seccomp_allow __NR_shmdt
-#seccomp_allow __NR_shmat
-#seccomp_allow __NR_shmget
-#seccomp_allow __NR_shmctl
+#seccomp_allow shmdt
+#seccomp_allow shmat
+#seccomp_allow shmget
+#seccomp_allow shmctl
 
-seccomp_allow __NR_recvmmsg
-seccomp_allow __NR_execve
-seccomp_allow __NR_chdir
-seccomp_allow __NR_getcwd
-seccomp_allow __NR_set_thread_area
-seccomp_allow __NR_statfs
-seccomp_allow __NR_getrlimit
-seccomp_allow __NR_geteuid32
-seccomp_allow __NR_getresuid32
-seccomp_allow __NR_setuid32
-seccomp_allow __NR_set_tid_address
-seccomp_allow __NR_kill
-seccomp_allow __NR_rt_sigreturn
-seccomp_allow __NR_clock_getres
-seccomp_allow __NR_tgkill
-seccomp_allow __NR_eventfd2
-seccomp_allow __NR_epoll_create
-seccomp_allow __NR_rmdir
-seccomp_allow __NR_sched_getaffinity
-seccomp_allow __NR_umask
-seccomp_allow __NR_getpriority
-seccomp_allow __NR_sysinfo
-seccomp_allow __NR_symlink
-seccomp_allow __NR_sigaltstack
-seccomp_allow __NR_fadvise64
-seccomp_allow __NR_readahead
-seccomp_allow __NR_setpriority
-seccomp_allow __NR_epoll_ctl
-seccomp_allow __NR_epoll_wait
-seccomp_allow __NR_ftruncate
-seccomp_allow __NR_fallocate
-seccomp_allow __NR_dup
-seccomp_allow __NR_mmap
-seccomp_allow __NR_getppid
-seccomp_allow __NR_getpgrp
-seccomp_allow __NR_ugetrlimit
-seccomp_allow __NR_setpgid
-seccomp_allow __NR_mkdir
-seccomp_allow __NR_getdents64
-seccomp_allow __NR_chmod
-seccomp_allow __NR_exit
-seccomp_allow __NR_exit_group
-seccomp_allow __NR_link
-seccomp_allow __NR_sigreturn
-seccomp_allow __NR_getxattr
-seccomp_allow __NR_capget
-seccomp_allow __NR_uname
-seccomp_allow __NR_ioprio_get
-seccomp_allow __NR_sched_yield
-seccomp_allow __NR_unshare
+seccomp_allow recvmmsg
+seccomp_allow execve
+seccomp_allow chdir
+seccomp_allow getcwd
+seccomp_allow set_thread_area
+seccomp_allow statfs
+seccomp_allow getrlimit
+seccomp_allow geteuid32
+seccomp_allow getresuid32
+seccomp_allow setuid32
+seccomp_allow set_tid_address
+seccomp_allow kill
+seccomp_allow rt_sigreturn
+seccomp_allow clock_getres
+seccomp_allow tgkill
+seccomp_allow eventfd2
+seccomp_allow epoll_create
+seccomp_allow rmdir
+seccomp_allow sched_getaffinity
+seccomp_allow umask
+seccomp_allow getpriority
+seccomp_allow sysinfo
+seccomp_allow symlink
+seccomp_allow sigaltstack
+seccomp_allow fadvise64
+seccomp_allow readahead
+seccomp_allow setpriority
+seccomp_allow epoll_ctl
+seccomp_allow epoll_wait
+seccomp_allow ftruncate
+seccomp_allow fallocate
+seccomp_allow dup
+seccomp_allow mmap
+seccomp_allow getppid
+seccomp_allow getpgrp
+seccomp_allow ugetrlimit
+seccomp_allow setpgid
+seccomp_allow mkdir
+seccomp_allow getdents64
+seccomp_allow chmod
+seccomp_allow exit
+seccomp_allow exit_group
+seccomp_allow link
+seccomp_allow sigreturn
+seccomp_allow getxattr
+seccomp_allow capget
+seccomp_allow uname
+seccomp_allow ioprio_get
+seccomp_allow sched_yield
+seccomp_allow unshare
 
-seccomp_allow __NR_restart_syscall
+seccomp_allow restart_syscall
