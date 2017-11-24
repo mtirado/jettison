@@ -1567,8 +1567,9 @@ static int trace_fork(char **argv)
 
 #ifdef POD_INIT_CMDR
 #include "init_cmdr.h"
-static int permit_gizmo(char *name, unsigned int len)
+static int permit_gizmo(char *name)
 {
+	unsigned int len = strnlen(name, JETTISON_CMDR_MAXNAME);
 	struct gizmo *giz = cmdr_find_gizmo(name, len);
 	if (giz) {
 		giz->executable = 1;
@@ -1588,23 +1589,23 @@ static int permit_gizmo(char *name, unsigned int len)
  */
 int process_user_permissions()
 {
-	enum { IPLIMIT = 0, IPADDR, NEWPTS, DEVICE, MACADDR, NONETFILTER, GIZMO };
-
+	unsigned int line_num = 0;
+	size_t fpos = 0;
+	size_t flen = 0;
+	char *fbuf = NULL;
 	char *pwline;
 	char *pwuser;
-	char path[MAX_SYSTEMPATH];
-	char privln[MAX_PRIVLN];
+	char fpath[MAX_SYSTEMPATH];
 	char netaddr[19];
 	unsigned int ipvlan_check = 0;
 	unsigned int ipvlan_limit = 0;
 	unsigned int devmatch = 0;
 	unsigned int macmatch = 0;
 	unsigned int ipmatch = 0;
-	unsigned int lncount = 0;
-	FILE *file;
 
 	memset(&g_privs, 0, sizeof(g_privs));
-	/* get username */
+
+	/* get username for file path */
 	pwline = passwd_fetchline(g_ruid);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
@@ -1616,155 +1617,144 @@ int process_user_permissions()
 		return -1;
 	}
 
-	/* open users privilege file */
-	snprintf(path, sizeof(path), "%s/%s", JETTISON_USERCFG, pwuser);
-	file = fopen(path, "r");
-	if (file == NULL) {
-		printf("couldn't open user privilege file(%s): %s\n",
-				path, strerror(errno));
-		return -1;
-	}
-
 	if (g_newnet.kind==ESRTNL_KIND_IPVLAN || g_newnet.kind==ESRTNL_KIND_MACVLAN) {
 		ipvlan_check = 1;
 	}
-	/* re-attach prefix for string compare */
 	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
+	snprintf(fpath, sizeof(fpath), "%s/%s", JETTISON_USERCFG, pwuser);
 
-	/*
-	 *  parse privilege file
-	 *  ipaddr  <address/mask> - occupy this ip/netmask
-	 *  macaddr <address>      - occupy this macaddr
-	 *  iplimit <count>        - maximum number of ip's user can use.
-	 *  newpts                 - create new pts instances
-	 *  gizmo		   - some gizmos need caps that may cause trouble
-	 */
-	while (1)
-	{
-		char str[MAX_PRIVLN];
-		char *param;
-		char *err;
-		long lim;
-		int type = -1;
-		unsigned int len = 0;
-
-		/* read line */
-		memset(privln, 0, sizeof(privln));
-		if (fgets(privln, MAX_PRIVLN, file) == NULL) {
-			break;
+	fbuf = malloc(4096);
+	if (fbuf == NULL)
+		return -1;
+	if (eslib_file_read_full(fpath, fbuf, 4096 - 1, &flen)) {
+		if (errno == EOVERFLOW && flen > 0) {
+			fbuf = realloc(fbuf, flen);
+			if (fbuf == NULL)
+				return -1;
+			if (eslib_file_read_full(fpath, fbuf, flen - 1, &flen)) {
+				printf("could not read file\n");
+				free(fbuf);
+				return -1;
+			}
 		}
-		++lncount;
-		if (chop_trailing(privln, sizeof(privln), '\n') < 0)
-			goto print_errline;
-		/* keyword */
-		if (strncmp(privln, "iplimit ", 8) == 0)
-			type = IPLIMIT;
-		else if (strncmp(privln, "ipaddr ", 7) == 0)
-			type = IPADDR;
-		else if (strncmp(privln, "netdev ", 7) == 0)
-			type = DEVICE;
-		else if (strncmp(privln, "macaddr ", 8) == 0)
-			type = MACADDR;
-		else if (strncmp(privln, "newpts", 6) == 0)
-			type = NEWPTS;
-#ifdef POD_INIT_CMDR
-		else if (strncmp(privln, "gizmo ", 6) == 0)
-			type = GIZMO;
-#endif
 		else {
-			printf("bad keyword or missing parameter: (%s)\n", privln);
-			goto print_errline;
-		}
-
-		switch (type)
-		{
-		case IPLIMIT:
-			param = &privln[8];
-			err = NULL;
-
-			if (ipvlan_limit) {
-				printf("duplicate limit entries\n");
-				goto print_errline;
-			}
-			errno = 0;
-			lim = strtol(param, &err, 10);
-			if (err == NULL || *err || errno || lim <= 0) {
-				printf("bad limit value\n");
-				goto print_errline;
-			}
-			ipvlan_limit = lim;
-			break;
-
-		/* single string parameter */
-
-		case IPADDR:
-		case DEVICE:
-		case MACADDR:
-		case GIZMO:
-			if (type == IPADDR)
-				param = &privln[7]; /* "ipaddr "*/
-			else if (type == DEVICE)
-				param = &privln[7]; /* "netdev "*/
-			else if (type == MACADDR)
-				param = &privln[8]; /* "macaddr "*/
-			else if (type == GIZMO)
-				param = &privln[6]; /* "gizmo " */
-			else
-				goto print_errline;
-
-			/* get string length */
-			len = 0;
-			while (1)
-			{
-				if (param[len] == '\0' || param[len] == '\n') {
-					break;
-				}
-				if (++len >= sizeof(str)-1) {
-					printf("param len error\n");
-					goto print_errline;
-				}
-			}
-			if (len == 0) {
-				goto print_errline;
-			}
-
-			strncpy(str, param, len);
-			str[len] = '\0';
-
-			if (type == IPADDR) {
-				if (strncmp(str, netaddr, sizeof(netaddr))==0)
-					ipmatch = 1;
-			}
-			else if (type == DEVICE) {
-				if (strncmp(str, g_newnet.dev, sizeof(g_newnet.dev))==0)
-					devmatch = 1;
-			}
-			else if (type == MACADDR) {
-				if (strncmp(str, g_newnet.hwaddr,
-							sizeof(g_newnet.hwaddr))==0)
-					macmatch = 1;
-			}
-			else if (type == GIZMO) {
-#ifdef POD_INIT_CMDR
-				if (permit_gizmo(str, len))
-					goto print_errline;
-#endif
-
-			}
-			else {
-				goto print_errline;
-			}
-			break;
-		case NEWPTS:
-			g_privs.newpts = 1;
-			break;
-		default:
-			goto print_errline;
+			printf("problem reading file(%s): %s\n", fpath, strerror(errno));
+			goto err_free;
 		}
 	}
-	fclose(file);
 
-	/* make sure there was a match */
+	while (fpos < flen)
+	{
+		char *line;
+		unsigned int linepos = 0;
+		unsigned int linelen = 0;
+		unsigned int advance;
+		char *keyword = NULL;
+		char *param = NULL;
+		int lim;
+
+		line = &fbuf[fpos];
+		++line_num;
+
+		linelen = eslib_string_linelen(line, flen - fpos);
+		if (linelen >= flen - fpos) {
+			printf("bad line\n");
+			goto err_free;
+		}
+		else if (linelen == 0) { /* blank line */
+			++fpos;
+			continue;
+		}
+
+		if (line[0] == '#') { /* comment */
+			fpos += linelen + 1;
+			continue;
+		}
+
+		if (!eslib_string_is_sane(line, linelen)) {
+			printf("invalid line(%d){%s}\n", *line, line);
+			goto err_free;
+		}
+		if (eslib_string_tokenize(line, linelen, " \t")) {
+			printf("tokenize failed\n");
+			goto err_free;
+		}
+
+		/*
+		 *  parse privilege file
+		 *  ipaddr  <address/mask> - occupy this ip/netmask
+		 *  macaddr <address>      - occupy this macaddr
+		 *  iplimit <count>        - maximum number of ip's user can use.
+		 *  newpts                 - create new pts instances
+		 *  gizmo   <name>	   - some gizmos need caps that may cause trouble
+		 */
+		keyword = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+		if (keyword == NULL) { /* only tabs/spaces on line */
+			fpos += linelen + 1;
+			continue;
+		}
+		param = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+
+		if (strncmp(keyword, "iplimit", 8) == 0) {
+			if (param == NULL)
+				goto err_param_free;
+			if (ipvlan_limit) {
+				printf("duplicate limit entries\n");
+				goto err_free;
+			}
+			if (eslib_string_to_int(param, &lim) || lim <= 0) {
+				printf("bad limit value\n");
+				goto err_free;
+			}
+			ipvlan_limit = lim;
+		}
+		else if (strncmp(keyword, "ipaddr", 7) == 0) {
+			if (param == NULL)
+				goto err_param_free;
+			if (strncmp(param, netaddr, sizeof(netaddr)) == 0)
+				ipmatch = 1;
+		}
+		else if (strncmp(keyword, "netdev", 7) == 0) {
+			if (param == NULL)
+				goto err_param_free;
+			if (strncmp(param, g_newnet.dev, sizeof(g_newnet.dev)) == 0)
+				devmatch = 1;
+		}
+		else if (strncmp(keyword, "macaddr", 8) == 0) {
+			if (param == NULL)
+				goto err_param_free;
+			if (strncmp(param, g_newnet.hwaddr, sizeof(g_newnet.hwaddr)) == 0)
+				macmatch = 1;
+		}
+		else if (strncmp(keyword, "newpts", 7) == 0) {
+			g_privs.newpts = 1;
+		}
+		else if (strncmp(keyword, "gizmo", 6) == 0) {
+#ifdef POD_INIT_CMDR
+			if (param == NULL)
+				goto err_param_free;
+			if (permit_gizmo(param))
+				goto err_free;
+#endif
+		}
+		else {
+			printf("bad keyword: %s\n", keyword);
+			goto err_free;
+		}
+
+		fpos += linelen + 1;
+		if (fpos > flen)
+			goto err_free;
+		else if (fpos == flen)
+			break;
+	}
+
+	free(fbuf);
+	fbuf = NULL;
+
+	/* verify privileges on network resources */
 	if (ipvlan_check) {
 		if (ipvlan_limit == 0) {
 			printf("user privilege file does not contain limit entry\n");
@@ -1795,9 +1785,11 @@ int process_user_permissions()
 	}
 	return 0;
 
-print_errline:
-	fclose(file);
-	printf("error in %s, line %d\n", path, lncount);
+err_param_free:
+	printf("missing parameter\n");
+err_free:
+	printf("error in %s, line %d\n", fpath, line_num);
+	free(fbuf);
 	return -1;
 }
 
