@@ -1628,10 +1628,10 @@ int process_user_permissions()
 		return -1;
 	if (eslib_file_read_full(fpath, fbuf, 4096 - 1, &flen)) {
 		if (errno == EOVERFLOW && flen > 0) {
-			fbuf = realloc(fbuf, flen);
+			fbuf = realloc(fbuf, flen + 1);
 			if (fbuf == NULL)
 				return -1;
-			if (eslib_file_read_full(fpath, fbuf, flen - 1, &flen)) {
+			if (eslib_file_read_full(fpath, fbuf, flen, &flen)) {
 				printf("could not read file\n");
 				free(fbuf);
 				return -1;
@@ -1642,6 +1642,7 @@ int process_user_permissions()
 			goto err_free;
 		}
 	}
+	fbuf[flen] = '\0';
 
 	while (fpos < flen)
 	{

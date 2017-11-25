@@ -56,7 +56,7 @@
 #ifndef JETTISON_CMDR_GIZMOS
 	#define JETTISON_CMDR_GIZMOS "/etc/jettison/gizmos"
 #endif
-#define JETTISON_CMDR_LIMIT 4095
+#define JETTISON_CMDR_LIMIT (1024 * 1024 * 4)
 #define JETTISON_CMDR_MAXARGS 100
 #define JETTISON_CMDR_MAXNAME 64
 /* system-wide --blacklist */

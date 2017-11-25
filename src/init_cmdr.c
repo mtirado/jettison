@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <malloc.h>
 #include "defines.h"
 #include "eslib/eslib.h"
 #include "eslib/eslib_fortify.h"
@@ -209,25 +210,27 @@ static int cmdr_command(char *line, const unsigned int linelen, char *username, 
 	return 0;
 }
 
-int cmdr_launch(char *instructions, const unsigned int size, char *username, char *home)
+int cmdr_launch(char *fbuf, const size_t flen, char *username, char *home)
 {
-	unsigned int i = 0;
+	size_t fpos = 0;
+	if (flen >= JETTISON_CMDR_LIMIT)
+		return -1;
 
-	while (i < size)
+	while (fpos < flen)
 	{
-		char *line = &instructions[i];
+		char *line = &fbuf[fpos];
 		unsigned int linelen = 0;
 
-		linelen = eslib_string_linelen(line, size - i);
-		if (linelen >= size - i) {
+		linelen = eslib_string_linelen(line, flen - fpos);
+		if (linelen >= flen - fpos) {
 			return -1;
 		}
 		else if (linelen == 0) {
-			++i;
+			++fpos;
 			continue;
 		}
 		if (line[0] == '#') {
-			i += linelen;
+			fpos += linelen;
 			continue;
 		}
 
@@ -241,46 +244,24 @@ int cmdr_launch(char *instructions, const unsigned int size, char *username, cha
 			return -1;
 		}
 
-		i += linelen + 1;
-		if (i == size)
+		fpos += linelen + 1;
+		if (fpos == flen)
 			break;
-		else if (i > size)
+		else if (fpos > flen)
 			return -1;
 	}
 	return 0;
 }
 
-static int cmdr_find(char *username, char *name)
-{
-	char path[MAX_SYSTEMPATH];
-	int fd;
-	if (strnlen(name, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
-		printf("cmdr name too long\n");
-		return -1;
-	}
-	if (snprintf(path, sizeof(path), "%s/%s/%s",
-				JETTISON_CMDRS, username, name) >= (int)sizeof(path)) {
-		return -1;
-	}
-	fd = open(path, O_RDONLY|O_CLOEXEC);
-	if (fd < 0) {
-		if (errno == ENOENT)
-			printf("missing cmdr: %s\n", path);
-		else
-			printf("open(%s): %s\n", path, strerror(errno));
-		return -1;
-	}
-	return fd;
-}
-
 int init_cmdr(char *name)
 {
-	char instructions[JETTISON_CMDR_LIMIT+1]; /* + appended '\0' */
-	char username[40];
+	char path[MAX_SYSTEMPATH];
 	char home[MAX_SYSTEMPATH-10];
+	char username[40];
 	char *passwd;
 	char *passwd_field;
-	int fd;
+	char *fbuf;
+	size_t flen;
 	int r;
 
 	if (name[0] == '\0')
@@ -311,34 +292,31 @@ int init_cmdr(char *name)
 				"%s", passwd_field) >= (int)sizeof(home)) {
 		return -1;
 	}
-
-	fd = cmdr_find(username, name);
-	if (fd < 0) {
-		printf("cmdr_init: couldn't open file: %s\n", name);
+	if (strnlen(name, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
+		printf("cmdr name too long\n");
+		return -1;
+	}
+	if (snprintf(path, sizeof(path), "%s/%s/%s",
+				JETTISON_CMDRS, username, name) >= (int)sizeof(path)) {
 		return -1;
 	}
 
-	memset(instructions, 0, sizeof(instructions));
-	r = read(fd, instructions, sizeof(instructions)-1);
-	if (r < 0) {
-		printf("cmdr_init: read(): %s\n", strerror(errno));
-		goto err_close;
+	fbuf = malloc(4096);
+	if (fbuf == NULL)
+		return -1;
+	if (eslib_file_read_full(path, fbuf, 4096 - 1, &flen)) {
+		if (errno == EOVERFLOW) {
+			fbuf = realloc(fbuf, flen + 1);
+			if (fbuf == NULL)
+				return -1;
+		}
+		free(fbuf);
+		return -1;
 	}
-	else if (r == 0) {
-		printf("cmdr_init: file was empty.\n");
-		goto err_close;
-	}
-	else if (r >= (int)sizeof(instructions)) {
-		printf("cmdr_init: file too big (%d/%d)\n", r, sizeof(instructions)-1);
-		goto err_close;
-	}
+	fbuf[flen] = '\0';
 
-	close(fd);
-	instructions[r] = '\0';
-	return cmdr_launch(instructions, r, username, home);
-
-err_close:
-	close(fd);
-	return -1;
+	r = cmdr_launch(fbuf, flen, username, home);
+	free(fbuf);
+	return r;
 }
 

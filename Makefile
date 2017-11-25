@@ -60,8 +60,8 @@ OPTIONAL_OBJS :=
 # for system building, this should NEVER be compiled with capabilities enabled
 #CDEFINES += -DPODROOT_HOME_OVERRIDE
 
-#CDEFINES  += -DPOD_INIT_CMDR
-#OPTIONAL_OBJS += ./src/init_cmdr.c
+CDEFINES  += -DPOD_INIT_CMDR
+OPTIONAL_OBJS += ./src/init_cmdr.c
 
 # newnet namespace device hookups
 # these options require control of network resources. ip address,
