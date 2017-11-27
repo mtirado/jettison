@@ -1098,9 +1098,10 @@ static int X11_hookup()
 	memset(sock_dest, 0, MAX_SYSTEMPATH);
 
 	displaynum = x11get_displaynum(display, &dlen);
-	if (displaynum == NULL)
-		goto disp_err;
-
+	if (displaynum == NULL) {
+		printf("DISPLAY env error\n");
+		return -1;
+	}
 	setuid(g_ruid);
 
 	snprintf(sock_src, MAX_SYSTEMPATH, "/tmp/.X11-unix/X%s", displaynum);
@@ -1125,8 +1126,7 @@ static int X11_hookup()
 		return do_x11_socketbind(sock_src, sock_dest);
 	}
 
-	snprintf(newpath, sizeof(newpath),
-			"%s/podhome/.Xauthority", g_chroot_path);
+	snprintf(newpath, sizeof(newpath), "%s/podhome/.Xauthority", g_chroot_path);
 
 	if (xauth_file != NULL) {
 		if (eslib_file_path_check(xauth_file)) {
@@ -1135,13 +1135,14 @@ static int X11_hookup()
 		}
 		fin = fopen(xauth_file, "r");
 		if (fin == NULL) {
-			printf("fopen(%s): %s\n", xauth_file, strerror(errno));
+			printf("fopen(%s, r): %s\n", xauth_file, strerror(errno));
 			return -1;
 		}
 		fout = fopen(newpath, "w+");
 		if (fout == NULL) {
-			printf("fopen(%s): %s\n", newpath, strerror(errno));
-			goto fail_close;
+			printf("fopen(%s, w+): %s\n", newpath, strerror(errno));
+			fclose(fin);
+			return -1;
 		}
 
 		/* copy auth info for current display */
@@ -1174,10 +1175,6 @@ static int X11_hookup()
 	}
 	setuid(0);
 	return do_x11_socketbind(sock_src, sock_dest);
-
-disp_err:
-	printf("DISPLAY env error\n");
-	return -1;
 
 fail_close:
 	fclose(fin);
