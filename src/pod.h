@@ -8,6 +8,8 @@
 #ifndef POD_H__
 #define POD_H__
 
+#include "eslib/eslib_fortify.h"
+
 struct newnet_param;
 struct user_privs;
 struct seccomp_program;

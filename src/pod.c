@@ -26,7 +26,8 @@
 #include "eslib/eslib_rtnetlink.h"
 
 #define is_whitespace(chr) (chr == ' ' || chr == '\t')
-#define MAX_PODCFG (1024 * 10)
+#define MAX_PODCFG (4095 * 4)
+#define MAX_PODCFG_LINE (MAX_PODCFG / 10)
 
 #ifdef X11OPT
 	#include <X11/Xauth.h>
@@ -68,6 +69,13 @@ static char *g_rdonly_dirs[] =
 };
 #define RDONLY_COUNT (sizeof(g_rdonly_dirs) / sizeof(*g_rdonly_dirs))
 
+
+struct podfile
+{
+	char fbuf[MAX_PODCFG+1];
+	size_t flen;
+} g_podfile;
+
 struct path_node *g_mountpoints;
 
 /* external variables from jettison.c
@@ -76,8 +84,6 @@ struct path_node *g_mountpoints;
 extern gid_t g_rgid;
 extern uid_t g_ruid;
 
-/* much globals,
- * TODO make struct and move into eslib as a generic config file parser */
 char g_filedata[MAX_PODCFG+1]; /* + terminator/eof */
 size_t g_filesize;
 int g_useblacklist;
@@ -91,9 +97,10 @@ struct newnet_param *g_podnewnet;
 struct user_privs *g_podprivs;
 struct seccomp_program *g_podseccfilter;
 
-static int pod_load_config_pass1(char *data, size_t size);
-static int pod_load_config_pass2(char *data, size_t size);
-static int pod_enact_option(unsigned int option, char *params, size_t size, int pass);
+static int pod_load_config_pass1();
+static int pod_load_config_pass2();
+static int pod_enact_option(unsigned int option, char *params,
+			    unsigned int params_len, int pass);
 
 /* home root is a special case since eslib considers / to be an invalid path */
 struct path_node *g_homeroot;
@@ -138,6 +145,7 @@ static void free_pathnodes()
 /* if anything fails between pod_prepare or on pod_enter */
 int pod_free()
 {
+	memset(&g_podfile, 0, sizeof(g_podfile));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	memset(g_filedata, 0, sizeof(g_filedata));
 	free_pathnodes();
@@ -212,67 +220,91 @@ bad_path:
 }
 
 /* looks in ~/.pods then /etc/jettison/pods as fallback path */
-static FILE *get_configfile(char *filepath)
+int load_config_file(char *filepath)
 {
 	char fallback[MAX_SYSTEMPATH];
-	FILE *file = NULL;
 	char *filename = NULL;
+	size_t flen;
 
+	if (g_podfile.flen )
+		return -1;
 	filename = eslib_file_getname(filepath);
 	if (filename == NULL) {
 		printf("bad filename\n");
-		return NULL;
+		return -1;
 	}
+
+	memset(g_podfile.fbuf, 0, sizeof(g_podfile.fbuf));
 
 #ifdef STOCK_PODS_ONLY
-	goto try_stockpods;
-#else
-
-	printf("trying: ./%s\n", filename);
-	/* try absolute path */
-	file = fopen(filepath, "r");
-	if (file == NULL && errno == ENOENT) {
-		char *home = NULL;
-		memset(fallback, 0, sizeof(fallback));
-		home = gethome();
-		if (home == NULL) {
-			return NULL;
-		}
-		/* try home pod directory */
-		snprintf(fallback, sizeof(fallback), "%s/.pods/%s", home, filename);
-		printf("trying: %s\n", fallback);
-		file = fopen(fallback, "r");
-		if (file == NULL && errno == ENOENT) {
-			goto try_stockpods;
-		}
+	/* try stockpods dir */
+	if (snprintf(fallback, sizeof(fallback), "%s/%s",
+				JETTISON_STOCKPODS, filename) >= (int)sizeof(fallback)) {
+		goto err_ret;
 	}
-	if (file) {
-		return file;
+	printf("trying: %s\n", fallback);
+	if (eslib_file_isfile(fallback) != 1) {
+		goto not_found;
+	}
+	filepath = fallback;
+#else
+	/* try user supplied path */
+	printf("trying: %s\n", filepath);
+	if (eslib_file_isfile(filepath) != 1) {
+		char *home = NULL;
+		if (eslib_file_exists(filepath) == 1) {
+			printf("pod file is not a regular file\n");
+			goto err_ret;
+		}
+		home = gethome();
+		if (home == NULL)
+			goto err_ret;
+
+		/* try $HOME/.pods/ */
+		if (snprintf(fallback, sizeof(fallback), "%s/.pods/%s",
+					home, filename) >= (int)sizeof(fallback))
+			goto err_ret;
+
+		printf("trying: %s\n", fallback);
+		if (eslib_file_isfile(fallback) != 1) {
+			/* try stockpods dir */
+			if (snprintf(fallback, sizeof(fallback), "%s/%s",
+						JETTISON_STOCKPODS,
+						filename) >= (int)sizeof(fallback))
+				goto err_ret;
+
+			printf("trying: %s\n", fallback);
+			if (eslib_file_isfile(fallback) != 1)
+				goto not_found;
+		}
+		filepath = fallback;
 	}
 #endif
+	if (eslib_file_read_full(filepath, g_podfile.fbuf, MAX_PODCFG - 1, &flen)) {
+		if (errno == EOVERFLOW) {
+			printf("pod config file too big\n");
+			goto err_ret;
+		}
+		else {
+			printf("error reading file(%s): %s\n", filepath, strerror(errno));
+			goto err_ret;
+		}
+	}
+	g_podfile.fbuf[flen] = '\0';
+	g_podfile.flen = flen;
+	return 0;
 
-err_ret:
-
+not_found:
 #ifdef STOCK_PODS_ONLY
 	printf("could not locate %s in %s\n", filename, JETTISON_STOCKPODS);
 #else
-	printf("could not locate %s\n", filename);
+	printf("could not locate pod file: %s\n", filename);
 	printf("try using the full path to file\n");
 	printf("or create a new one at ~/.pods or %s\n", JETTISON_STOCKPODS);
 #endif
-	return NULL;
+err_ret:
+	return -1;
 
-try_stockpods:
-	/* try stock pod directory */
-	snprintf(fallback, sizeof(fallback),
-			"%s/%s", JETTISON_STOCKPODS, filename);
-	printf("trying: %s\n", fallback);
-	file = fopen(fallback, "r");
-	if (file == NULL) {
-		goto err_ret;
-	}
-
-	return file;
 }
 
 /*
@@ -285,7 +317,6 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 		struct user_privs *privs, unsigned int *outflags)
 {
 	int r;
-	FILE *file;
 	struct stat st;
 
 	if (chroot_path == NULL || outflags == NULL || seccfilter == NULL
@@ -301,6 +332,7 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	g_homeroot = NULL;
 	g_mountpoints = NULL;
 	memset(g_fcaps, 0, sizeof(g_fcaps));
+	memset(&g_podfile, 0, sizeof(g_podfile));
 	memset(g_filedata, 0, sizeof(g_filedata));
 	memset(g_init_cmdr, 0, sizeof(g_init_cmdr));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
@@ -344,32 +376,17 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 		return -1;
 	}
 
-	file = get_configfile(filepath);
-	if (file == NULL) {
+
+	if (load_config_file(filepath)) {
 		printf("could not read pod configuration file: %s\n", filepath);
 		return -1;
 	}
 
 	printf("chroot path: %s\r\n", chroot_path);
-	strncpy(g_chroot_path, chroot_path, MAX_SYSTEMPATH-1);
-
-	/* read config file */
-	fseek(file, 0, SEEK_END);
-	g_filesize = ftell(file);
-	fseek(file, 0, SEEK_SET);
-	if (g_filesize >= MAX_PODCFG || g_filesize == 0) {
-		printf("file size error\n");
-		goto err_close;
-	}
-
-	if (fread(g_filedata, 1, g_filesize, file) != g_filesize){
-		goto err_free_close;
-	}
-	fclose(file);
-	g_filedata[g_filesize] = '\0';
+	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s", chroot_path);
 
 	/* first pass, copy out podflags */
-	r = pod_load_config_pass1(g_filedata, g_filesize);
+	r = pod_load_config_pass1();
 	if (r) {
 		pod_free();
 		return -1;
@@ -377,12 +394,6 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 
 	*outflags = g_podflags;
 	return 0;
-
-err_free_close:
-	pod_free();
-err_close:
-	fclose(file);
-	return -1;
 }
 
 static int do_chroot_setup()
@@ -592,25 +603,25 @@ static int create_homeroot(unsigned long mntflags, unsigned long nodetype)
 	return 0;
 }
 
-int create_pathnode(char *params, size_t size, int home)
+/* note: expects params to be eslib_string_tokenize'd */
+int create_pathnode(char *params, unsigned int params_len, int home)
 {
 	char src[MAX_SYSTEMPATH];
 	char dest[MAX_SYSTEMPATH];
+	char *mount_opts;
 	char *path;
 	char *homepath;
 	struct path_node *node;
 	unsigned int i, len;
 	unsigned long remountflags;
 	unsigned long nodetype = 0;
-	char c;
+	unsigned int advance = 0;
+	unsigned int params_pos = 0;
+	unsigned int mount_opts_len;
+	unsigned int path_len;
 
-	if (params == NULL || size == 0)
+	if (params == NULL || params_len == 0)
 		goto bad_param;
-
-	if (strnlen(params, size) >= MAX_SYSTEMPATH) {
-		printf("path too long\n");
-		return -1;
-	}
 
 	remountflags =	  MS_REMOUNT
 			| MS_NOEXEC
@@ -621,17 +632,34 @@ int create_pathnode(char *params, size_t size, int home)
 	if (home)
 		nodetype = NODE_HOME;
 
+	/* mount options */
+	mount_opts = eslib_string_toke(params, params_pos, params_len, &advance);
+	params_pos += advance;
+	if (mount_opts == NULL)
+		goto bad_param;
+	mount_opts_len = strnlen(mount_opts, 7);
+	if (mount_opts_len >= 7)
+		goto bad_param;
+
+	/* file path */
+	path = eslib_string_toke(params, params_pos, params_len, &advance);
+	params_pos += advance;
+	if (path == NULL) {
+		printf("missing file path\n");
+		return -1;
+	}
+	path_len = strnlen(path, MAX_SYSTEMPATH);
+	if (path_len >= MAX_SYSTEMPATH)
+		return -1;
+	if (path[0] != '/') {
+		printf("file or home path must start with /\n");
+		return -1;
+	}
+
 	/* read mount permissions from parameters */
-	for (i = 0; i < size; ++i)
+	for (i = 0; i < mount_opts_len; ++i)
 	{
-		c = params[i];
-		if (c == ' ' || c == '\t' || c == '\0') {
-			++i;
-			break;
-		}
-		if (i >= 5)
-			goto bad_param;
-		switch (c)
+		switch (mount_opts[i])
 		{
 			case 'r':
 				break;
@@ -645,40 +673,24 @@ int create_pathnode(char *params, size_t size, int home)
 #ifdef USE_FILE_CAPS
 				remountflags &= ~MS_NOSUID;
 #else
-				printf("WARNING: ");
-				printf("s parameter disabled\n");
+				printf("NOTE: mount option \"s\" is disabled\n");
 #endif
 				break;
 			case 'd':
 				remountflags &= ~MS_NODEV;
 				break;
-			default:
 #ifdef PODROOT_HOME_OVERRIDE
-			if (home && c == 'R') {
-				nodetype = NODE_PODROOT_HOME_OVERRIDE;
-				break;
-			}
+			case 'R':
+				if (home) {
+					nodetype = NODE_PODROOT_HOME_OVERRIDE;
+					break;
+				}
+				goto bad_param;
 #endif
+			default:
 				goto bad_param;
 		}
 	}
-	if (i >= size)
-		return -1;
-
-	/* get the path, must start with / */
-	for (; i < size; ++i) {
-		if (params[i] == '/')
-			break;
-		if (params[i] != ' ' && params[i] != '\t') {
-			printf("bind path must start with /\n");
-			return -1; /* not whitespace */
-		}
-	}
-	if (i >= size)
-		goto bad_param;
-
-	path = &params[i];
-
 
 	/* check for case where user mounts entire home into pod */
 	if (path[0] == '/' && path[1] == '\0') {
@@ -690,6 +702,7 @@ int create_pathnode(char *params, size_t size, int home)
 			return create_homeroot(remountflags, 0);
 		}
 	}
+
 	/* eslib doesn't want trailing slashes */
 	if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
 		return -1;
@@ -907,6 +920,7 @@ static int prepare_mountpoints()
 	for (i = 0; i < RDONLY_COUNT; ++i)
 	{
 		char opt[MAX_SYSTEMPATH];
+		unsigned int len;
 		int r;
 
 		/* find node that starts with rdonly path */
@@ -928,8 +942,10 @@ static int prepare_mountpoints()
 		}
 
 		/* did not exist, we must create it before sorting */
-		snprintf(opt, sizeof(opt), "r %s", g_rdonly_dirs[i]);
-		if (create_pathnode(opt, sizeof(opt), 0)) {
+		len = snprintf(opt, sizeof(opt), "r %s", g_rdonly_dirs[i]);
+		if (eslib_string_tokenize(opt, len, " \t"))
+			return -1;
+		if (create_pathnode(opt, len, 0)) {
 			printf("couldn't create rdonly path(%s)\n", opt);
 			return -1;
 		}
@@ -1183,30 +1199,42 @@ fail_close:
 }
 #endif
 
-static int parse_newnet(char *params, size_t size)
+#define is_hex(chr) ( (chr >= '0' && chr <= '9') || (chr >= 'a' && chr <= 'f') )
+static int parse_newnet(char *line, unsigned int len)
 {
-	char type[32];
-	unsigned int typelen;
-	unsigned int devlen;
-	unsigned int addrlen;
-	size_t i, z;
+	const unsigned int maxtype = 24;
+	const unsigned int maxdev = 64;
+	const unsigned int maxaddr = 64;
+	char *type, *dev, *addr;
+	unsigned int typelen = 0;
+	unsigned int devlen  = 0;
+	unsigned int addrlen = 0;
+	unsigned int advance = 0;
+	unsigned int linepos = 0;
+	unsigned int i;
 
-	if (size <= 1)
-		return -1;
 	if (g_podnewnet->active) {
 		printf("only one newnet is supported\n");
 		return -1;
 	}
-	memset(type, 0, sizeof(type));
-	for (i = 0; i < size; ++i) /* space separated */
-		if (params[i] == ' ')
-			break;
-	typelen = i;
-	if (typelen+1 >= sizeof(type)) {
-		printf("newnet type too long\n");
+
+	type = eslib_string_toke(line, linepos, len, &advance);
+	linepos += advance;
+	typelen = strnlen(type, maxtype);
+	if (typelen >= maxtype)
+		return -1;
+	if (type == NULL) {
+		printf("mising newnet type\n");
 		return -1;
 	}
-	strncpy(type, params, typelen);
+
+	dev = eslib_string_toke(line, linepos, len, &advance);
+	linepos += advance;
+	if (dev) {
+		devlen = strnlen(dev, maxdev);
+		if (devlen >= maxdev)
+			return -1;
+	}
 
 	/* get kind */
 	if (strncmp(type, "none", 5) == 0) {
@@ -1233,57 +1261,60 @@ static int parse_newnet(char *params, size_t size)
 	case ESRTNL_KIND_IPVLAN:
 	case ESRTNL_KIND_MACVLAN:
 		/* read device string */
-		z = ++i;
-		for (; i < size; ++i)
-			if (params[i] == ' ')
-				break;
-		if (i >= size) {
-			printf("bad parameter(no device?)\n");
-			return -1;
-		}
-		devlen = i - z;
-		if (devlen == 0 || devlen >= sizeof(g_podnewnet->dev)) {
+		if (dev == NULL || devlen == 0 || devlen >= sizeof(g_podnewnet->dev)) {
 			printf("bad master devlen: %d\n", devlen);
 			return -1;
 		}
-		strncpy(g_podnewnet->dev, &params[z], devlen);
+		strncpy(g_podnewnet->dev, dev, devlen);
+		g_podnewnet->dev[devlen] = '\0';
+
+		addr = eslib_string_toke(line, linepos, len, &advance);
+		linepos += advance;
+		if (addr == NULL)
+			return -1;
+		addrlen = strnlen(addr, maxaddr);
+		if (addrlen >= maxaddr)
+			return -1;
 
 		/* read hwaddr string */
 		if (g_podnewnet->kind == ESRTNL_KIND_MACVLAN) {
 			int cnt = 0;
-			z = ++i;
-			for (; i < size; ++i) {
-				if (params[i] == ':')
-					++cnt;
-				else if (params[i] == ' ')
-					break;
-			}
-			if (cnt == 0) {
-				printf("macvlan needs mac address, ");
-				printf("use **:**:**:**:**:** for a random one. \n");
-				return -1;
-			}
-			if (i >= size)
-				return -1;
-			addrlen = i - z;
 			if (addrlen == 0 || addrlen >= sizeof(g_podnewnet->hwaddr)) {
 				printf("bad hwaddr: %d\n", addrlen);
 				return -1;
 			}
-			strncpy(g_podnewnet->hwaddr, &params[z], addrlen);
+			for (i = 0; i < addrlen; ++i) {
+				if (addr[i] == ':')
+					++cnt;
+				else if (!is_hex(addr[i]))
+					break;
+			}
+			if (cnt != 5) {
+				printf("macvlan needs mac address, ");
+				printf("use **:**:**:**:**:** for a random one. \n");
+				return -1;
+			}
+
+			strncpy(g_podnewnet->hwaddr, addr, addrlen);
+			g_podnewnet->hwaddr[addrlen] = '\0';
 		}
 
 		/* read ipaddr string */
-		z = ++i;
-		for (; i < size; ++i)
-			if (params[i] == ' ' || params[i] == '\0')
-				break;
-		addrlen = i - z;
+		addr = eslib_string_toke(line, linepos, len, &advance);
+		linepos += advance;
+		if (addr == NULL) {
+			return -1;
+		}
+		addrlen = strnlen(addr, maxaddr);
+		if (addrlen >= maxaddr)
+			return -1;
+
 		if (addrlen == 0 || addrlen >= sizeof(g_podnewnet->addr)) {
 			printf("bad addr: %d\n", addrlen);
 			return -1;
 		}
-		strncpy(g_podnewnet->addr, &params[z], addrlen);
+		strncpy(g_podnewnet->addr, addr, addrlen);
+		g_podnewnet->addr[addrlen] = '\0';
 
 		/* does addr have subnet mask? */
 		for (i = 0; i < addrlen; ++i) {
@@ -1343,7 +1374,9 @@ static int load_seccomp_blacklist(char *file)
 
 /* some things need action on first pass. like setting flags, paths need to be
  * enumerated for sorting, newnet is handled completely in main thread */
-static int pod_enact_option_pass1(unsigned int option, char *params, size_t size)
+static int pod_enact_option_pass1(unsigned int option,
+				  char *params,
+				  unsigned int params_len)
 {
 	if (option < OPTION_PODFLAG_CUTOFF) {
 		/* set flag if below cutoff */
@@ -1353,21 +1386,21 @@ static int pod_enact_option_pass1(unsigned int option, char *params, size_t size
 	{
 	/* file mount points need to be sorted after first pass */
 	case OPTION_FILE:
-		if (create_pathnode(params, size, 0)) {
+		if (create_pathnode(params, params_len, 0)) {
 			printf("file :%s\n", params);
 			return -1;
 		}
 		break;
 
 	case OPTION_HOME:
-		if (create_pathnode(params, size, 1)) {
+		if (create_pathnode(params, params_len, 1)) {
 			printf("home :%s\n", params);
 			return -1;
 		}
 		break;
 
 	case OPTION_NEWNET:
-		if (parse_newnet(params, size))
+		if (parse_newnet(params, params_len))
 			return -1;
 		break;
 
@@ -1385,7 +1418,10 @@ static int pod_enact_option_pass1(unsigned int option, char *params, size_t size
  *  1 when first pass chroot was found
  *
  *  */
-static int pod_enact_option(unsigned int option, char *params, size_t size, int pass)
+static int pod_enact_option(unsigned int option,
+			    char *params,
+			    unsigned int params_len,
+			    int pass)
 {
 
 	char src[MAX_SYSTEMPATH];
@@ -1399,10 +1435,9 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 #endif
 	if (option >= KWCOUNT)
 		return -1;
-
 	/* first pass happens before we clone */
 	if (pass == 1)
-		return pod_enact_option_pass1(option, params, size);
+		return pod_enact_option_pass1(option, params, params_len);
 	else if (pass != 2)
 		return -1;
 
@@ -1427,17 +1462,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 	case OPTION_SECCOMP_ALLOW:
 		if (g_useblacklist)
 			break;
-
-		if (params == NULL) {
-			printf("null parameter\n");
-			return -1;
-		}
-		if (size >= MAX_SYSCALL_NAME) {
+		if (params == NULL)
+			goto null_param;
+		if (params_len >= MAX_SYSCALL_NAME) {
 			printf("seccomp_allow syscall name too long.\n");
 			return -1;
 		}
-		memset(syscall_buf, 0, sizeof(syscall_buf));
-		strncpy(syscall_buf, params, MAX_SYSCALL_NAME);
+		snprintf(syscall_buf, MAX_SYSCALL_NAME, "%s", params);
 		if (syscall_list_addname(&g_podseccfilter->white, syscall_buf)) {
 			printf("add syscall white error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1449,17 +1480,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 	case OPTION_SECCOMP_BLOCK:
 		if (g_useblacklist)
 			break;
-
-		if (params == NULL) {
-			printf("null parameter\n");
-			return -1;
-		}
-		if (size >= MAX_SYSCALL_NAME) {
+		if (params == NULL)
+			goto null_param;
+		if (params_len >= MAX_SYSCALL_NAME) {
 			printf("seccomp_block syscall name too long.\n");
 			return -1;
 		}
-		memset(syscall_buf, 0, sizeof(syscall_buf));
-		strncpy(syscall_buf, params, MAX_SYSCALL_NAME);
+		snprintf(syscall_buf, MAX_SYSCALL_NAME, "%s", params);
 		if (syscall_list_addname(&g_podseccfilter->black, syscall_buf)) {
 			printf("add syscall block error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1475,16 +1502,13 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 	/* change to bounding set */
 	case OPTION_CAPABILITY:
 #ifdef USE_FILE_CAPS
-		if (params == NULL) {
-			printf("null parameter\n");
-			return -1;
-		}
-		if (size >= MAX_CAP_NAME) {
+		if (params == NULL)
+			goto null_param;
+		if (params_len >= MAX_CAP_NAME) {
 			printf("cap name too long\n");
 			return -1;
 		}
-		strncpy(cap_buf, params, MAX_CAP_NAME-1);
-		cap_buf[MAX_CAP_NAME-1] = '\0';
+		snprintf(cap_buf, MAX_CAP_NAME, "%s", params);
 
 		cap_nr = cap_getnum(cap_buf);
 		if (cap_nr < 0) {
@@ -1543,6 +1567,8 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 
 #ifdef POD_INIT_CMDR
 	case OPTION_CMDR:
+		if (params == NULL)
+			goto null_param;
 		if (g_init_cmdr[0] != '\0') {
 			printf("only one commander is allowed\n");
 			return -1;
@@ -1568,24 +1594,33 @@ static int pod_enact_option(unsigned int option, char *params, size_t size, int 
 	}
 
 	return 0;
+
+null_param:
+	printf("null parameter\n");
+	return -1;
 }
 
 /* final stage of pass 1, add things to config as needed */
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
+	unsigned int len;
 
 #ifndef PODROOT_HOME_OVERRIDE
 	/* whitelist jettison init program */
-	snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
-	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
+	len = snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
+	if (eslib_string_tokenize(pathbuf, len, " \t"))
+		return -1;
+	if (create_pathnode(pathbuf, len, 0)) {
 		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
 
 	/* whitelist jettison preload */
-	snprintf(pathbuf, sizeof(pathbuf), "rx %s", PRELOAD_PATH);
-	if (create_pathnode(pathbuf, sizeof(pathbuf), 0)) {
+	len = snprintf(pathbuf, sizeof(pathbuf), "rx %s", PRELOAD_PATH);
+	if (eslib_string_tokenize(pathbuf, len, " \t"))
+		return -1;
+	if (create_pathnode(pathbuf, len, 0)) {
 		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
@@ -1698,128 +1733,101 @@ static int get_keyword(char *kw)
 	}
 	return -1;
 }
-static int check_line(char *lnbuf, const size_t len)
-{
-	size_t i;
-	for (i = 0; i < len; ++i)
-	{
-		if (lnbuf[i] < 32 || lnbuf[i] > 126) {
-			if (lnbuf[i] != '\t' && lnbuf[i] != '\n') {
-				printf("invalid character(%d)\n", lnbuf[i]);
-				return -1;
-			}
-		}
-	}
-	return 0;
-}
 
 /* prepare keyword with parameters, return start of next line
  * len does not include newline */
-static char *cfg_parse_line(char *lnbuf, const size_t len, int pass)
+static int cfg_parse_line(char *line, const size_t linelen, int pass)
 {
-	char *eol = lnbuf + len;
-	char *kw_end;
-	char *param_start;
+	char *keyword;
 	int kw;
+	unsigned int linepos = 0;
+	unsigned int advance  = 0;
 
-	if (len == 0 || lnbuf[0] == '#')
-		return eol;
-
-	if (check_line(lnbuf, len))
-		return NULL;
-
-	/* find keyword end */
-	for (kw_end = lnbuf; kw_end < eol; ++kw_end)
-	{
-		char c = *kw_end;
-		if (is_whitespace(c)) {
-			*kw_end = '\0'; /* insert terminator */
-			break;
-		}
-	}
-	if (kw_end > eol) {
-		return NULL;
+	keyword = eslib_string_toke(line, linepos, linelen, &advance);
+	linepos += advance;
+	if (keyword == NULL) { /* only tabs/spaces on line */
+		return 0;
 	}
 
 	/* get keyword */
-	kw = get_keyword(lnbuf);
+	kw = get_keyword(line);
 	if (kw < 0) {
-		printf("unknown keyword %s\n", lnbuf);
-		return NULL;
+		printf("unknown keyword %s\n", line);
+		return -1;
 	}
 
-	/* no parameters */
-	if (kw_end == eol) {
-		if (pod_enact_option(kw, NULL, 0, pass))
-			return NULL;
-		return eol;
-	}
+	if (pod_enact_option(kw, &line[linepos], linelen - linepos, pass))
+		return -1;
 
-	/* find parameter start */
-	for (param_start = kw_end+1; param_start < eol; ++param_start)
-	{
-		char c = *param_start;
-		if (!is_whitespace(c)) {
-			break; /* start here */
-		}
-	}
-	if (param_start >= eol) {
-		printf("cannot find parameters\n");
-		return NULL;
-	}
-
-	if (pod_enact_option(kw, param_start, eol - param_start, pass))
-		return NULL;
-
-	return eol;
+	return 0;
 }
 
-static int cfg_parse_config(char *fbuf, const size_t fsize, int pass)
+static int cfg_parse_config(int pass)
 {
-	char buf[MAX_PODCFG];
-	const char *eof = buf + fsize;
-	char *scan;
-	unsigned int line_number = 1;
+	char *fbuf = g_podfile.fbuf;
+	size_t flen = g_podfile.flen;
+	size_t fpos = 0;
+	unsigned int line_num = 0;
 
-	if (fsize == 0 || fsize >= sizeof(buf)) {
+	if (fbuf == NULL || flen == 0 || flen >= MAX_PODCFG) {
 		printf("bad config file size\n");
 		return -1;
 	}
 
-	memset(buf, 0, sizeof(buf));
-	memcpy(buf, fbuf, fsize);
-
-	for (scan = buf; scan < eof; ++scan)
+	while (fpos < flen)
 	{
-		char *eol = scan;
-		char *start = scan;
-		size_t len = 0;
+		char lnbuf[MAX_PODCFG_LINE];
+		char *line = &fbuf[fpos];
+		unsigned int linelen;
 
-		while (*eol != '\n')
-		{
-			if (++len >= MAX_PODCFG) {
-				printf("config size exceeds %d\n", MAX_PODCFG-1);
-				return -1;
-			}
-			if (++eol >= eof) {
-				break;
-			}
-		}
-		/* inserts null terminator after keyword */
-		*eol = '\0';
-		scan = cfg_parse_line(start, len, pass);
-		if (scan == NULL) {
-			printf(">>> line number: %d\n", line_number);
+		++line_num;
+		linelen = eslib_string_linelen(line, flen - fpos);
+		if (linelen >= flen - fpos) {
 			return -1;
 		}
-		++line_number;
+		else if (linelen == 0) {
+			++fpos;
+			continue;
+		}
+		if (line[0] == '#') {
+			fpos += linelen + 1;
+			continue;
+		}
+
+		if (!eslib_string_is_sane(line, linelen)) {
+			printf("line contains strange characters\n");
+			return -1;
+		}
+		if (linelen >= MAX_PODCFG_LINE) {
+			printf("line too long (%d/%d)\n", linelen, MAX_PODCFG_LINE);
+			return -1;
+		}
+
+		/* copy line for tokenize to work again on second pass */
+		memset(lnbuf, 0, sizeof(lnbuf));
+		memcpy(lnbuf, line, linelen);
+		line = lnbuf;
+		if (eslib_string_tokenize(line, linelen, " \t")) {
+			printf("tokenize fail\n");
+			return -1;
+		}
+		if (cfg_parse_line(line, linelen, pass)) {
+			printf(">>> line number: %d\n", line_num);
+			return -1;
+		}
+
+		fpos += linelen + 1;
+		if (fpos > flen)
+			return -1;
+		else if (fpos == flen)
+			break;
 	}
 	return 0;
 }
 
-static int pod_load_config_pass1(char *data, size_t size)
+static int pod_load_config_pass1()
 {
-	if (cfg_parse_config(data, size, 1)) {
+	if (cfg_parse_config(1)) {
 		return -1;
 	}
 	if (do_chroot_setup()) {
@@ -1839,7 +1847,7 @@ static int pod_load_config_pass1(char *data, size_t size)
 	return 0;
 }
 
-static int pod_load_config_pass2(char *data, size_t size)
+static int pod_load_config_pass2()
 {  /* second pass finished, do binds and chroot */
 	int r;
 	struct path_node *n;
@@ -1850,7 +1858,7 @@ static int pod_load_config_pass2(char *data, size_t size)
 					| MS_RDONLY
 					| MS_UNBINDABLE;
 
-	if (cfg_parse_config(data, size, 2)) {
+	if (cfg_parse_config(2)) {
 		printf("parse_config_pass2\n");
 		return -1;
 	}
@@ -1953,7 +1961,7 @@ int pod_enter()
 	}
 
 	/* do the actual pod configuration now */
-	r = pod_load_config_pass2(g_filedata, g_filesize);
+	r = pod_load_config_pass2();
 	if (r < 0) {
 		printf("pod_load_config(2) error\n");
 		goto err_free;

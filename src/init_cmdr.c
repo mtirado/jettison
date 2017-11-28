@@ -230,7 +230,7 @@ int cmdr_launch(char *fbuf, const size_t flen, char *username, char *home)
 			continue;
 		}
 		if (line[0] == '#') {
-			fpos += linelen;
+			fpos += linelen + 1;
 			continue;
 		}
 

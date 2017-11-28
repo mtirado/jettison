@@ -43,6 +43,7 @@ extern int tracecalls(pid_t p, int ipc, char *fortpath); /* tracecalls.c */
 extern int netns_setup();
 
 /* pod.c globals */
+extern struct pod g_pod;
 extern int  g_fcaps[NUM_OF_CAPS];
 struct newnet_param g_newnet;
 struct seccomp_program g_seccomp_filter;

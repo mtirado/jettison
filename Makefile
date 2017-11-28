@@ -50,7 +50,7 @@ OPTIONAL_OBJS :=
 # support file capabilities (possibly dangerous, not advised for untrusted users)
 #CDEFINES += -DUSE_FILE_CAPS
 
-# only read pod config files from stock directoy /etc/jettison/pods
+# only read pod config files from stock directory /etc/jettison/pods
 #CDEFINES += -DSTOCK_PODS_ONLY
 
 #for X11 auth support
