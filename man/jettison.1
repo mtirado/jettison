@@ -113,7 +113,7 @@ Replace seccomp rules with the system-wide blacklist.
 --allow-ptrace
 .RS
 Usually ptrace is disabled unless this option is specified, or using
---blacklist and __NR_ptrace is missing from blacklist file.
+--blacklist and ptrace is missing from blacklist file.
 .RE
 .P
 
@@ -302,12 +302,16 @@ for best isolation, server should only provides x11 socket through /tmp.
 So something like `startx -- -nolisten local -nolisten tcp` is ideal.
 .RE
 
-.\" xephyr
+.\" cmdr
 .P
-.B xephyr
+.BR cmdr
+.RI [ cmdr_name ]
 .RS
-Use xephyr to run a sanboxed x11 server instead of giving pods direct
-access to the real x11 server socket.
+Execute command script in users cmdrs dir. these enumerated gizmos must be
+listed in users permission file, and located in gizmos dir. this is because
+some require capabilities, like iptables for setting up a firewall. admin is
+responsible for installing the files and setting user permission; do not let
+avg user write their own privileged cmdrs.
 .RE
 
 
@@ -315,13 +319,19 @@ access to the real x11 server socket.
 .SH FILES
 
 .B Pod Roots --
-.I /opt/pods/<username>
+.I /opt/pods/$USER
 .P
 .B User Permissions  --
-.I /etc/jettison/users/<username>
+.I /etc/jettison/users/$USER
 .P
 .B System-wide Blacklist  --
 .I /etc/jettison/blacklist
+.P
+.B Cmdrs --
+.I /etc/jettison/cmdrs/$USER
+.P
+.B Gizmos --
+.I /etc/jettison/gizmos
 
 
 .\" PERMISSIONS
@@ -340,12 +350,17 @@ access to the real x11 server socket.
 .P
 .B macaddr
 .RI [ address ]
-- user can occupy this mac address.
+- user can occupy this mac address, aka hwaddr.
 .P
 .B ipaddr
 .RI [ address ]
 - user can occupy this ip address.
-
+.P
+.B gizmo
+.RI [ name ]
+- gizmo located at
+.I /etc/jettison/gizmos/name
+is permitted for cmdr script
 
 .\" EXAMPLES
 .SH EXAMPLE FILES
@@ -354,6 +369,8 @@ access to the real x11 server socket.
 .B Pod Config
 .RS 8
 newnet macvlan eth0 **:**:**:**:**:** 192.168.0.21/24
+
+cmdr philter
 
 file  r   /usr
 
@@ -365,9 +382,9 @@ file  rwd /dev/null
 
 home  r   /.bashrc
 
-seccomp_allow __NR_read
+seccomp_allow read
 
-seccomp_allow __NR_write
+seccomp_allow write
 .RE
 .P
 .SH --------------------------------------------------------------------------
@@ -380,14 +397,16 @@ iplimit 1
 macaddr **:**:**:**:**:**
 
 ipaddr 192.168.0.21/24
+
+gizmo xtables-multi
 .RE
 .P
 .SH --------------------------------------------------------------------------
 .B Blacklist
 .RS 8
-__NR_ptrace
+ptrace
 
-__NR_reboot
+reboot
 
 etc, etc, etc...
 .RE
