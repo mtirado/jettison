@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <sched.h>
+#include "../eslib/eslib.h"
 #include "../eslib/eslib_fortify.h"
 extern uid_t g_ruid;
 extern gid_t g_rgid;
@@ -148,9 +149,11 @@ void print_stats(struct sc_info *info, unsigned int count, int podfile)
 		/* write line to file */
 		if (fstatus >= 0) {
 			char buf[256];
-			snprintf(buf, 256, "seccomp_allow %s\n",
-					syscall_getname(info[i].callnum));
-			if (write(podfile, buf, strnlen(buf,256)) == -1) {
+			unsigned int len;
+			if (es_sprintf(buf, sizeof(buf), &len, "seccomp_allow %s\n",
+						syscall_getname(info[i].callnum)))
+				continue;
+			if (write(podfile, buf, len) == -1) {
 				printf("write: %s\n", strerror(errno));
 				fstatus = -errno;
 			}

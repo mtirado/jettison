@@ -179,19 +179,14 @@ int main(int argc, char *argv[])
 
 	sigsetup();
 
-	strncpy(progpath, argv[1], MAX_SYSTEMPATH-1);
-	progpath[MAX_SYSTEMPATH-1] = '\0';
+	if (es_strcopy(progpath, argv[1], MAX_SYSTEMPATH), NULL)
+		return -1;
 
 	/* set process name */
 	procname = eslib_proc_getenv("JETTISON_PROCNAME");
 	if (procname != NULL) {
-		int len = strnlen(procname, MAX_PROCNAME);
-		if (len >= MAX_PROCNAME) {
-			printf("invalid procname\n");
+		if (es_strcopy(g_procname, procname, MAX_PROCNAME, NULL))
 			return -1;
-		}
-		strncpy(g_procname, procname, MAX_PROCNAME-1);
-		g_procname[MAX_PROCNAME-1] = '\0';
 		argv[1] = g_procname;
 	}
 

@@ -37,9 +37,9 @@ void load_gizmos()
 	struct gizmo *giz = g_gizmos;
 	memset(g_gizmos, 0, sizeof(struct gizmo) * NUM_GIZMOS);
 
-	snprintf(giz[0].name, sizeof(giz[0].name), "echo");
-	snprintf(giz[1].name, sizeof(giz[1].name), "sleep");
-	snprintf(giz[2].name, sizeof(giz[2].name), "xtables-multi");
+	es_sprintf(giz[0].name, sizeof(giz[0].name), NULL, "echo");
+	es_sprintf(giz[1].name, sizeof(giz[1].name), NULL, "sleep");
+	es_sprintf(giz[2].name, sizeof(giz[2].name), NULL, "xtables-multi");
 	giz[2].caps[CAP_NET_RAW]   = 1;
 	giz[2].caps[CAP_NET_ADMIN] = 1;
 }
@@ -106,17 +106,14 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 	/* setup program environ variables */
 	if (username == NULL || home == NULL)
 		return -1;
-	if (snprintf(env_home, sizeof(env_home),
-				"HOME=%s", home) >= (int)sizeof(env_home))
+	if (es_sprintf(env_home, sizeof(env_home), NULL, "HOME=%s", home))
 		return -1;
-	if (snprintf(env_username, sizeof(env_username),
-				"USER=%s", username) >= (int)sizeof(env_username))
+	if (es_sprintf(env_username, sizeof(env_username), NULL, "USER=%s", username))
 		return -1;
-	if (snprintf(env_logname, sizeof(env_logname),
-				"LOGNAME=%s", username) >= (int)sizeof(env_logname))
+	if (es_sprintf(env_logname, sizeof(env_logname), NULL, "LOGNAME=%s", username))
 		return -1;
-	if (snprintf(binpath, sizeof(binpath), "%s/%s", JETTISON_CMDR_GIZMOS,
-						giz->name) >= (int)sizeof(binpath))
+	if (es_sprintf(binpath, sizeof(binpath), NULL, "%s/%s",
+				JETTISON_CMDR_GIZMOS, giz->name))
 		return -1;
 
 	env[0] = env_username;
@@ -189,7 +186,9 @@ static int cmdr_command(char *line, const unsigned int linelen, char *username, 
 		return -1;
 	}
 
-	snprintf(name, sizeof(name), "gizmo-%s", cmd);
+	if (es_sprintf(name, sizeof(name), NULL, "gizmo-%s", cmd))
+		return -1;
+
 	argv[argc++] = name;
 	do {
 		token = eslib_string_toke(line, linepos, linelen, &advance);
@@ -274,32 +273,31 @@ int init_cmdr(char *name)
 		printf("could not open /etc/passwd for username\n");
 		return -1;
 	}
+
 	passwd_field = passwd_getfield(passwd, PASSWD_USER);
 	if (passwd_field == NULL) {
 		printf("bad passwd username\n");
 		return -1;
 	}
-	if (snprintf(username, sizeof(username),
-				"%s", passwd_field) >= (int)sizeof(username)) {
+	if (es_strcopy(username, passwd_field, sizeof(username), NULL))
 		return -1;
-	}
+
 	passwd_field = passwd_getfield(passwd, PASSWD_HOME);
 	if (passwd_field == NULL) {
 		printf("bad passwd home\n");
 		return -1;
 	}
-	if (snprintf(home, sizeof(home),
-				"%s", passwd_field) >= (int)sizeof(home)) {
+	if (es_strcopy(home, passwd_field, sizeof(home), NULL))
 		return -1;
-	}
+
 	if (strnlen(name, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
 		printf("cmdr name too long\n");
 		return -1;
 	}
-	if (snprintf(path, sizeof(path), "%s/%s/%s",
-				JETTISON_CMDRS, username, name) >= (int)sizeof(path)) {
+	if (es_sprintf(path, sizeof(path), NULL, "%s/%s/%s",
+				JETTISON_CMDRS, username, name))
 		return -1;
-	}
+
 
 	fbuf = malloc(4096);
 	if (fbuf == NULL)

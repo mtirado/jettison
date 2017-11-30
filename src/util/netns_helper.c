@@ -109,7 +109,10 @@ static int netns_enter_proc(char *pid)
 	char path[MAX_SYSTEMPATH];
 	int nsfd;
 	int retries = 15;
-	snprintf(path, sizeof(path), "/proc/%s/ns/net", pid);
+
+	if (es_sprintf(path, sizeof(path), NULL, "/proc/%s/ns/net", pid))
+		return -1;
+
 	while (1)
 	{
 		nsfd = open(path, O_RDONLY);
@@ -340,10 +343,8 @@ int netns_count_ipvlan_devices(int *lockfd)
 		}
 
 		/* open processes namespace */
-		r = snprintf(path, sizeof(path), "/proc/%s/ns/net", dent->d_name);
-		if ((unsigned int)r >= sizeof(path) || r <= 0) {
+		if (es_sprintf(path, sizeof(path),NULL,"/proc/%s/ns/net", dent->d_name))
 			goto free_err;
-		}
 		r = open(path, O_RDONLY);
 		if (r == -1 && errno == EACCES) {
 			close(r);
@@ -454,8 +455,10 @@ static int fortify_netlog(char *chroot_path, gid_t log_group, char *logdir)
 
 	/* bind log directory TODO helper function for this, warp_file? */
 	node.mntflags = MS_NOEXEC|MS_NODEV|MS_NOSUID;
-	snprintf(node.src,  MAX_SYSTEMPATH, "%s", logdir);
-	snprintf(node.dest, MAX_SYSTEMPATH, "%s/%s", chroot_path, "logdir");
+	if (es_strcopy(node.src, logdir, MAX_SYSTEMPATH, NULL))
+		goto fail;
+	if (es_sprintf(node.dest, MAX_SYSTEMPATH, NULL, "%s/%s", chroot_path, "logdir"))
+		goto fail;
 	eslib_file_mkdirpath(node.dest, 0770);
 	if (pathnode_bind(&node))
 		goto fail;
@@ -496,7 +499,8 @@ retry:
 		return -1;
 	hexstr[16] = '\0';
 
-	snprintf(buf, size, "%s/%s-%s.netlog", g_cwd, filename, hexstr);
+	if (es_sprintf(buf, size, NULL, "%s/%s-%s.netlog", g_cwd, filename, hexstr))
+		return -1;
 	if (eslib_file_path_check(buf)) {
 		printf("bad logdir: %s\n", buf);
 		return -1;
@@ -549,7 +553,8 @@ static pid_t do_netlog_exec(char *argv[])
 		return -1;
 	}
 
-	snprintf(chroot_path, sizeof(chroot_path), "%s/.netlog", POD_PATH);
+	if (es_sprintf(chroot_path, sizeof(chroot_path), NULL, "%s/.netlog", POD_PATH))
+		return -1;
 	if (eslib_file_path_check(chroot_path)) {
 		printf("bad chroot_path: %s\n", chroot_path);
 		return -1;
@@ -671,9 +676,12 @@ static pid_t setup_netlog()
 	if (g_newnet.kind != ESRTNL_KIND_IPVLAN && g_newnet.kind != ESRTNL_KIND_MACVLAN)
 		return -1;
 
-	snprintf(str_size, sizeof(str_size), "%d", g_newnet.log_filesize);
-	snprintf(str_count, sizeof(str_count), "%d", g_newnet.log_count);
-	snprintf(str_filename, sizeof(str_filename), "logdir/netlog.pcap");
+	if (es_sprintf(str_size, sizeof(str_size), NULL, "%d", g_newnet.log_filesize))
+		return -1;
+	if (es_sprintf(str_count, sizeof(str_count), NULL, "%d", g_newnet.log_count))
+		return -1;
+	if (es_strcopy(str_filename, "logdir/netlog.pcap", sizeof(str_filename), NULL))
+		return -1;
 
 	if (g_newnet.log_filesize < 0)
 		return -1;
@@ -721,7 +729,8 @@ int netns_setup()
 		return -1;
 
 	/* open root namespace fd */
-	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
+	if (es_sprintf(path, sizeof(path), NULL, "/proc/%d/ns/net", getpid()))
+		return -1;
 	g_newnet.root_ns = open(path, O_RDONLY|O_CLOEXEC);
 	if (g_newnet.root_ns == -1) {
 		printf("root netns fd open: %s\n", strerror(errno));
@@ -735,7 +744,8 @@ int netns_setup()
 		return -1;
 	}
 	/* open new namespace fd */
-	snprintf(path, sizeof(path), "/proc/%d/ns/net", getpid());
+	if (es_sprintf(path, sizeof(path), NULL, "/proc/%d/ns/net", getpid()))
+		return -1;
 	g_newnet.new_ns = open(path, O_RDONLY|O_CLOEXEC);
 	if (g_newnet.new_ns == -1) {
 		printf("new_ns fd open: %s\n", strerror(errno));
@@ -751,7 +761,8 @@ int netns_setup()
 	}
 
 	/* new name is t<pid>, renamed after namespace transit */
-	snprintf(ifname, sizeof(ifname), "t%d", getpid());
+	if (es_sprintf(ifname, sizeof(ifname), NULL, "t%d", getpid()))
+		return -1;
 
 	/* create new interface and move to new namespace */
 	switch (g_newnet.kind)
@@ -813,8 +824,8 @@ int netns_setup()
 			printf("couldn't get link gateway\n");
 			goto ipvlan_err;
 		}
-		memset(g_newnet.gateway, 0, sizeof(g_newnet.gateway));
-		strncpy(g_newnet.gateway, gateway, sizeof(g_newnet.gateway)-1);
+		if (es_strcopy(g_newnet.gateway, gateway, sizeof(g_newnet.gateway),NULL))
+			goto ipvlan_err;
 		close(lockfd);
 		break;
 

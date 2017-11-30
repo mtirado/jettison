@@ -114,7 +114,9 @@ int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 		printf("could not find your username in passwd file\n");
 		return -1;
 	}
-	snprintf(g_newroot, MAX_SYSTEMPATH, "%s/%s/%s", POD_PATH, pwuser, filename);
+	if (es_sprintf(g_newroot, MAX_SYSTEMPATH, NULL, "%s/%s/%s",
+				POD_PATH, pwuser, filename))
+		return -1;
 	if (eslib_file_path_check(g_newroot)) {
 		printf("bad chroot path\n");
 		return -1;
@@ -133,7 +135,8 @@ char *jettison_get_newroot()
 int create_nullspace()
 {
 	memset(g_nullspace, 0, sizeof(g_nullspace));
-	snprintf(g_nullspace, sizeof(g_nullspace), "%s/.nullspace", POD_PATH);
+	if (es_sprintf(g_nullspace, sizeof(g_nullspace),NULL, "%s/.nullspace", POD_PATH))
+		return -1;
 
 	if (eslib_file_exists(POD_PATH) != 1) {
 		printf("directory missing: %s\n", POD_PATH);
@@ -550,8 +553,10 @@ int process_arguments(int argc, char *argv[])
 	g_blacklist = 0;
 	g_clear_environ = 0;
 
-	strncpy(g_pid1name, "jettison_init", sizeof(g_pid1name)-1);
-	strncpy(g_procname, argv[1], sizeof(g_procname)-1);
+	if (es_strcopy(g_pid1name, "jettison_init", sizeof(g_pid1name), NULL))
+		return -1;
+	if (es_strcopy(g_procname, argv[1], sizeof(g_procname), NULL))
+		return -1;
 
 	for (i = 1; i < argc; ++i)
 	{
@@ -573,7 +578,9 @@ int process_arguments(int argc, char *argv[])
 			}
 			/* executable path argument */
 			if (i == 1) {
-				strncpy(g_executable_path, argv[i], MAX_SYSTEMPATH);
+				if (es_strcopy(g_executable_path, argv[i],
+							MAX_SYSTEMPATH, NULL))
+					return -1;
 				if (eslib_file_path_check(g_executable_path)) {
 					printf("bad exec path: %s\n", g_executable_path);
 					printf("must be full path to executable\n");
@@ -581,7 +588,9 @@ int process_arguments(int argc, char *argv[])
 				}
 			}
 			else if (i == 2) {
-				strncpy(g_podconfig_path, argv[i], MAX_SYSTEMPATH);
+				if (es_strcopy(g_podconfig_path, argv[i],
+							MAX_SYSTEMPATH, NULL))
+					return -1;
 			}
 			else {
 				return -1;
@@ -621,7 +630,8 @@ int process_arguments(int argc, char *argv[])
 					printf("max procname: %d\n", MAX_PROCNAME-1);
 					goto bad_opt;
 				}
-				strncpy(g_procname, argv[i], MAX_PROCNAME-1);
+				if (es_strcopy(g_procname, argv[i], MAX_PROCNAME, NULL))
+					goto bad_opt;
 				g_procname[MAX_PROCNAME-1] = '\0';
 				argidx += 2;
 			}
@@ -705,7 +715,8 @@ int process_arguments(int argc, char *argv[])
 			}
 			else if (strncmp(argv[i], "--init", len) == 0) {
 				++i;
-				strncpy(g_initscript, argv[i], MAX_SYSTEMPATH);
+				if (es_strcopy(g_initscript,argv[i],MAX_SYSTEMPATH,NULL))
+					return -1;
 				if (eslib_file_path_check(g_initscript)) {
 					printf("init script must be an asbolute ");
 					printf("pod-local path, eg: /podhome/init.sh\n");
@@ -1358,13 +1369,14 @@ static int create_logfile()
 	sec  = t->tm_sec;
 	dlst = t->tm_isdst;
 	if (dlst > 0)
-		snprintf(dst_str, sizeof(dst_str), "[dst]");
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dst]");
 	else if (dlst == 0)
-		snprintf(dst_str, sizeof(dst_str), "[nodst]");
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[nodst]");
 	else
-		snprintf(dst_str, sizeof(dst_str), "[dsterr]");
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dsterr]");
 	/* create file path */
-	snprintf(logpath, sizeof(logpath), "./log.%s.%04d-%02d-%02dT%02d:%02d:%02d%s",
+	es_sprintf(logpath, sizeof(logpath), NULL,
+				"./log.%s.%04d-%02d-%02dT%02d:%02d:%02d%s",
 				fname, year, mon, day, hour, min, sec, dst_str);
 	r = eslib_file_exists(logpath);
 	if (r == -1 ) {
@@ -1502,7 +1514,8 @@ static int trace_fork(char **argv)
 		umask(origmask);
 		setuid(0);
 
-		snprintf(buf, sizeof(buf), "%d", g_traceipc[1]);
+		if (es_sprintf(buf, sizeof(buf), NULL, "%d", g_traceipc[1]))
+			return -1;
 		if (eslib_proc_setenv("JETTISON_TRACEFD", buf)) {
 			printf("setenv error\n");
 			return -1;
@@ -1621,8 +1634,12 @@ int process_user_permissions()
 	if (g_newnet.kind==ESRTNL_KIND_IPVLAN || g_newnet.kind==ESRTNL_KIND_MACVLAN) {
 		ipvlan_check = 1;
 	}
-	snprintf(netaddr, sizeof(netaddr), "%s/%s", g_newnet.addr, g_newnet.prefix);
-	snprintf(fpath, sizeof(fpath), "%s/%s", JETTISON_USERCFG, pwuser);
+	if (es_sprintf(netaddr, sizeof(netaddr), NULL, "%s/%s",
+				g_newnet.addr, g_newnet.prefix))
+		return -1;
+	if (es_sprintf(fpath, sizeof(fpath), NULL, "%s/%s",
+				JETTISON_USERCFG, pwuser))
+		return -1;
 
 	fbuf = malloc(4096);
 	if (fbuf == NULL)

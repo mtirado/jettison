@@ -43,9 +43,7 @@
 #ifndef DEFAULT_NETMASK_PREFIX
 	#define DEFAULT_NETMASK_PREFIX 24
 #endif
-#ifndef FIREWALL_MAXFILTER
-	#define FIREWALL_MAXFILTER (1024 * 16)
-#endif
+
 /* user config directory */
 #ifndef JETTISON_USERCFG
 	#define JETTISON_USERCFG "/etc/jettison/users"
@@ -59,6 +57,7 @@
 #define JETTISON_CMDR_LIMIT (1024 * 1024 * 4)
 #define JETTISON_CMDR_MAXARGS 100
 #define JETTISON_CMDR_MAXNAME 64
+
 /* system-wide --blacklist */
 #ifndef JETTISON_BLACKLIST
 	#define JETTISON_BLACKLIST "/etc/jettison/blacklist"
@@ -79,24 +78,6 @@
 
 #ifndef NEWNET_LINK_NAME
 	#define NEWNET_LINK_NAME "eth0"
-#endif
-
-
-/* 3'rd party programs for network setup/logging*/
-#ifndef FIREWALL_SAVE
-	#define FIREWALL_SAVE "iptables-save"
-#endif
-#ifndef FIREWALL_RESTORE
-	#define FIREWALL_RESTORE "iptables-restore"
-#endif
-#ifndef FIREWALL6_SAVE
-	#define FIREWALL6_SAVE "ip6tables-save"
-#endif
-#ifndef FIREWALL6_RESTORE
-	#define FIREWALL6_RESTORE "ip6tables-restore"
-#endif
-#ifndef FIREWALL_PROG
-	#define FIREWALL_PROG "/usr/sbin/xtables-multi"
 #endif
 
 

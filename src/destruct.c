@@ -69,7 +69,8 @@ static int locate_podpath(char *file)
 		return -1;
 	}
 
-	snprintf(g_path, sizeof(g_path), "%s/%s/%s", POD_PATH, pwuser, file);
+	if (es_sprintf(g_path, sizeof(g_path), NULL, "%s/%s/%s", POD_PATH, pwuser, file))
+		return -1;
 	memset(&st, 0, sizeof(st));
 	r = stat(g_path, &st);
 	if (r == -1) {
@@ -388,8 +389,8 @@ int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 			}
 		}
 
-		if (snprintf(next_path, PLIM, "%s/%s", path, dent->d_name) >= PLIM) {
-			printf("truncation error, max is %d: %s\n", PLIM , next_path);
+		if (es_sprintf(next_path, PLIM, NULL, "%s/%s", path, dent->d_name)) {
+			printf("truncation error, max is %d: %s\n", PLIM, next_path);
 			closedir(dir);
 			return -1;
 		}

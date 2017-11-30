@@ -209,8 +209,8 @@ static char *gethome()
 		printf("$HOME permission denied: %s\n", path);
 		return NULL;
 	}
-	strncpy(static_home, path, MAX_SYSTEMPATH-1);
-	static_home[MAX_SYSTEMPATH-1] = '\0';
+	if (es_strcopy(static_home, path, MAX_SYSTEMPATH, NULL))
+		return NULL;
 	once = 1;
 	return static_home;
 
@@ -238,8 +238,8 @@ int load_config_file(char *filepath)
 
 #ifdef STOCK_PODS_ONLY
 	/* try stockpods dir */
-	if (snprintf(fallback, sizeof(fallback), "%s/%s",
-				JETTISON_STOCKPODS, filename) >= (int)sizeof(fallback)) {
+	if (es_sprintf(fallback, sizeof(fallback), NULL, "%s/%s",
+				JETTISON_STOCKPODS, filename)) {
 		goto err_ret;
 	}
 	printf("trying: %s\n", fallback);
@@ -261,16 +261,15 @@ int load_config_file(char *filepath)
 			goto err_ret;
 
 		/* try $HOME/.pods/ */
-		if (snprintf(fallback, sizeof(fallback), "%s/.pods/%s",
-					home, filename) >= (int)sizeof(fallback))
+		if (es_sprintf(fallback, sizeof(fallback), NULL, "%s/.pods/%s",
+					home, filename))
 			goto err_ret;
 
 		printf("trying: %s\n", fallback);
 		if (eslib_file_isfile(fallback) != 1) {
 			/* try stockpods dir */
-			if (snprintf(fallback, sizeof(fallback), "%s/%s",
-						JETTISON_STOCKPODS,
-						filename) >= (int)sizeof(fallback))
+			if (es_sprintf(fallback, sizeof(fallback), NULL, "%s/%s",
+						JETTISON_STOCKPODS, filename))
 				goto err_ret;
 
 			printf("trying: %s\n", fallback);
@@ -383,7 +382,8 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	}
 
 	printf("chroot path: %s\r\n", chroot_path);
-	snprintf(g_chroot_path, MAX_SYSTEMPATH, "%s", chroot_path);
+	if (es_strcopy(g_chroot_path, chroot_path, MAX_SYSTEMPATH, NULL))
+		return -1;
 
 	/* first pass, copy out podflags */
 	r = pod_load_config_pass1();
@@ -429,7 +429,8 @@ static int do_chroot_setup()
 		else if (r == -1)
 			return -1;
 	}
-	snprintf(podhome, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
+	if (es_sprintf(podhome, MAX_SYSTEMPATH, NULL, "%s/podhome", g_chroot_path))
+		return -1;
 	mkdir(podhome, 0770);
 	setuid(0);
 	setgid(0);
@@ -465,8 +466,8 @@ static int check_pathperms(char *path)
 		}
 	}
 	else {
-		strncpy(updir, path, MAX_SYSTEMPATH-1);
-		updir[MAX_SYSTEMPATH-1] = '\0';
+		if (es_strcopy(updir, path, MAX_SYSTEMPATH, NULL))
+			return -1;
 	}
 	while(1)
 	{
@@ -480,8 +481,8 @@ static int check_pathperms(char *path)
 				break;
 			}
 		}
-		strncpy(tmpath, updir, MAX_SYSTEMPATH-1);
-		tmpath[MAX_SYSTEMPATH-1] = '\0';
+		if (es_strcopy(tmpath, updir, MAX_SYSTEMPATH, NULL))
+			return -1;
 		if (eslib_file_getparent(tmpath, updir)) {
 			break;
 		}
@@ -533,7 +534,7 @@ static int prep_bind(struct path_node *node)
 		if (isdir == 1) {
 			r = eslib_file_isdir(dest);
 			if (r == 0) {
-				snprintf(g_errbuf, sizeof(g_errbuf),
+				es_sprintf(g_errbuf, sizeof(g_errbuf), NULL,
 					"prep_bind dest is not a directory: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
 				return -1;
@@ -546,7 +547,7 @@ static int prep_bind(struct path_node *node)
 	else { /* did not exist */
 		if (isdir == 1) {
 			if (eslib_file_mkdirpath(dest, 0775)  == -1) {
-				snprintf(g_errbuf, sizeof(g_errbuf),
+				es_sprintf(g_errbuf, sizeof(g_errbuf), NULL,
 					"prep_bind mkdir failed: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
 				return -1;
@@ -554,7 +555,7 @@ static int prep_bind(struct path_node *node)
 		}
 		else {
 			if (eslib_file_mkfile(dest, 0775) == -1) {
-				snprintf(g_errbuf, sizeof(g_errbuf),
+				es_sprintf(g_errbuf, sizeof(g_errbuf), NULL,
 					"prep_bind mkfile failed: %s", dest);
 				eslib_logerror("jettison", g_errbuf);
 				return -1;
@@ -593,14 +594,18 @@ static int create_homeroot(unsigned long mntflags, unsigned long nodetype)
 		return -1;
 
 	memset(node, 0, sizeof(*node));
-	snprintf(node->src, MAX_SYSTEMPATH, "%s", homepath);
-	snprintf(node->dest, MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
-	node->srclen = strnlen(node->src, MAX_SYSTEMPATH-1);
-	node->destlen = strnlen(node->dest, MAX_SYSTEMPATH-1);
+	if (es_strcopy(node->src, homepath, MAX_SYSTEMPATH, &node->srclen))
+		goto fail;
+	if (es_sprintf(node->dest, MAX_SYSTEMPATH, &node->destlen,
+				"%s/podhome", g_chroot_path))
+		goto fail;
 	node->mntflags = mntflags;
 	node->nodetype = nodetype;
 	g_homeroot = node;
 	return 0;
+fail:
+	free(node);
+	return -1;
 }
 
 /* note: expects params to be eslib_string_tokenize'd */
@@ -612,7 +617,7 @@ int create_pathnode(char *params, unsigned int params_len, int home)
 	char *path;
 	char *homepath;
 	struct path_node *node;
-	unsigned int i, len;
+	unsigned int i;
 	unsigned long remountflags;
 	unsigned long nodetype = 0;
 	unsigned int advance = 0;
@@ -721,22 +726,32 @@ int create_pathnode(char *params, unsigned int params_len, int home)
 			return -1;
 
 		if (nodetype != NODE_PODROOT_HOME_OVERRIDE) {
-			snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
-			snprintf(dest, MAX_SYSTEMPATH-1, "%s/podhome%s",
-					g_chroot_path, path);
+			if (es_sprintf(src, MAX_SYSTEMPATH, NULL,
+						"%s%s",	homepath, path))
+				return -1;
+			if (es_sprintf(dest, MAX_SYSTEMPATH, NULL,
+						"%s/podhome%s",	g_chroot_path, path))
+				return -1;
 		}
 		else {
 #ifdef PODROOT_HOME_OVERRIDE
-			snprintf(src,  MAX_SYSTEMPATH-1, "%s%s", homepath, path);
-			snprintf(dest, MAX_SYSTEMPATH-1, "%s%s", g_chroot_path, path);
+			if (es_sprintf(src, MAX_SYSTEMPATH, NULL,
+						"%s%s", homepath, path))
+				return -1;
+			if (es_sprintf(dest, MAX_SYSTEMPATH, NULL,
+						"%s%s", g_chroot_path, path))
+				return -1;
+
 #else
 			return -1;
 #endif
 		}
 	}
 	else { /* setup mount normally */
-		strncpy(src , path, MAX_SYSTEMPATH-1);
-		snprintf(dest, MAX_SYSTEMPATH-1, "%s%s", g_chroot_path, src);
+		if (es_strcopy(src , path, MAX_SYSTEMPATH, NULL))
+			return -1;
+		if (es_sprintf(dest, MAX_SYSTEMPATH, NULL, "%s%s", g_chroot_path, src))
+			return -1;
 	}
 	src[MAX_SYSTEMPATH-1]  = '\0';
 	dest[MAX_SYSTEMPATH-1] = '\0';
@@ -750,24 +765,12 @@ int create_pathnode(char *params, unsigned int params_len, int home)
 	node = malloc(sizeof(*node));
 	if (node == NULL)
 		return -1;
+
 	memset(node, 0, sizeof(*node));
-
-	/* setup source */
-	len = strnlen(src, MAX_SYSTEMPATH);
-	if (len >= MAX_SYSTEMPATH)
+	if (es_strcopy(node->src, src, MAX_SYSTEMPATH, &node->srclen))
 		return -1;
-	strncpy(node->src, src, len);
-	node->src[len] = '\0';
-	node->srclen = len;
-
-	/* dest */
-	len = strnlen(dest, MAX_SYSTEMPATH);
-	if (len >= MAX_SYSTEMPATH)
+	if (es_strcopy(node->dest, dest, MAX_SYSTEMPATH, &node->destlen))
 		return -1;
-	strncpy(node->dest, dest, len);
-	node->dest[len] = '\0';
-	node->destlen = len;
-
 	node->nodetype = nodetype;
 	node->mntflags = remountflags;
 	node->next = g_mountpoints;
@@ -942,7 +945,8 @@ static int prepare_mountpoints()
 		}
 
 		/* did not exist, we must create it before sorting */
-		len = snprintf(opt, sizeof(opt), "r %s", g_rdonly_dirs[i]);
+		if (es_sprintf(opt, sizeof(opt), &len, "r %s", g_rdonly_dirs[i]))
+			return -1;
 		if (eslib_string_tokenize(opt, len, " \t"))
 			return -1;
 		if (create_pathnode(opt, len, 0)) {
@@ -1022,10 +1026,10 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 		return -1;
 
 	/* bind mount X11 socket into pod */
-	strncpy(xsock.src,  socket_src, sizeof(xsock.src));
-	strncpy(xsock.dest, socket_dest, sizeof(xsock.dest));
-	xsock.src[sizeof(xsock.src)-1] = '\0';
-	xsock.dest[sizeof(xsock.dest)-1] = '\0';
+	if (es_strcopy(xsock.src, socket_src, sizeof(xsock.src), NULL))
+		return -1;
+	if (es_strcopy(xsock.dest, socket_dest, sizeof(xsock.dest), NULL))
+		return -1;
 
 	xsock.mntflags = MS_UNBINDABLE;
 	if (prep_bind(&xsock)) {
@@ -1036,7 +1040,8 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 		printf("error setting x11 socket group\n");
 		return -1;
 	}
-	snprintf(destdir, MAX_SYSTEMPATH, "%s/tmp/.X11-unix", g_chroot_path);
+	if (es_sprintf(destdir, MAX_SYSTEMPATH, NULL, "%s/tmp/.X11-unix", g_chroot_path))
+		return -1;
 	if (chown(destdir, 0, 0)) {
 		printf("chown: %s\n", strerror(errno));
 		return -1;
@@ -1056,40 +1061,23 @@ static int do_x11_socketbind(char *socket_src, char *socket_dest)
 char x11display_number[32];
 char *x11get_displaynum(char *display, unsigned int *outlen)
 {
-	char *start = NULL;
-	char *cur = NULL;
-	unsigned int len = 0;
+	char *token = NULL;
+	unsigned int dlen = 0;
+	unsigned int adv;
 
 	if (!display || !outlen)
-		return NULL;
-
-	memset(x11display_number, 0, sizeof(x11display_number));
-	*outlen = 0;
-
-
-	/* extract xauth display number from env var */
-	start = display;
-	if (*start != ':')
-		goto disp_err;
-	cur = ++start;
-	while(1)
-	{
-		if (*cur == '.' || *cur == '\0')
-			break;
-		else if (*cur < '0' || *cur > '9')
-			goto disp_err;
-		++cur;
-	}
-	len = cur - start;
-	if (len == 0)
-		goto disp_err;
-	else if (len >= sizeof(x11display_number) - 1)
 		goto disp_err;
 
-	strncpy(x11display_number, start, len);
-	x11display_number[len] = '\0';
-	*outlen = len;
-	return x11display_number;
+	if (es_strcopy(x11display_number, display, sizeof(x11display_number), &dlen))
+		goto disp_err;
+	if (eslib_string_tokenize(x11display_number, dlen, ":."))
+		goto disp_err;
+	token = eslib_string_toke(x11display_number, 0, dlen, &adv);
+	if (token == NULL)
+		goto disp_err;
+
+	*outlen = dlen;
+	return token;
 
 disp_err:
 	printf("problem with display environment variable\n");
@@ -1120,9 +1108,12 @@ static int X11_hookup()
 	}
 	setuid(g_ruid);
 
-	snprintf(sock_src, MAX_SYSTEMPATH, "/tmp/.X11-unix/X%s", displaynum);
-	snprintf(sock_dest,MAX_SYSTEMPATH, "%s/tmp/.X11-unix/X%s",
-			g_chroot_path, displaynum);
+	if (es_sprintf(sock_src, MAX_SYSTEMPATH, NULL,
+				"/tmp/.X11-unix/X%s", displaynum))
+		return -1;
+	if (es_sprintf(sock_dest,MAX_SYSTEMPATH, NULL,
+				"%s/tmp/.X11-unix/X%s", g_chroot_path, displaynum))
+		return -1;
 
 
 	/* don't bother trying to copy auth file if mounting entire dir */
@@ -1142,7 +1133,9 @@ static int X11_hookup()
 		return do_x11_socketbind(sock_src, sock_dest);
 	}
 
-	snprintf(newpath, sizeof(newpath), "%s/podhome/.Xauthority", g_chroot_path);
+	if (es_sprintf(newpath, sizeof(newpath), NULL,
+				"%s/podhome/.Xauthority", g_chroot_path))
+			return -1;
 
 	if (xauth_file != NULL) {
 		if (eslib_file_path_check(xauth_file)) {
@@ -1203,7 +1196,6 @@ fail_close:
 static int parse_newnet(char *line, unsigned int len)
 {
 	const unsigned int maxtype = 24;
-	const unsigned int maxdev = 64;
 	const unsigned int maxaddr = 64;
 	char *type, *dev, *addr;
 	unsigned int typelen = 0;
@@ -1230,11 +1222,6 @@ static int parse_newnet(char *line, unsigned int len)
 
 	dev = eslib_string_toke(line, linepos, len, &advance);
 	linepos += advance;
-	if (dev) {
-		devlen = strnlen(dev, maxdev);
-		if (devlen >= maxdev)
-			return -1;
-	}
 
 	/* get kind */
 	if (strncmp(type, "none", 5) == 0) {
@@ -1261,12 +1248,12 @@ static int parse_newnet(char *line, unsigned int len)
 	case ESRTNL_KIND_IPVLAN:
 	case ESRTNL_KIND_MACVLAN:
 		/* read device string */
-		if (dev == NULL || devlen == 0 || devlen >= sizeof(g_podnewnet->dev)) {
+		if (dev == NULL) {
 			printf("bad master devlen: %d\n", devlen);
 			return -1;
 		}
-		strncpy(g_podnewnet->dev, dev, devlen);
-		g_podnewnet->dev[devlen] = '\0';
+		if (es_strcopy(g_podnewnet->dev, dev, sizeof(g_podnewnet->dev), NULL))
+			return -1;
 
 		addr = eslib_string_toke(line, linepos, len, &advance);
 		linepos += advance;
@@ -1295,8 +1282,8 @@ static int parse_newnet(char *line, unsigned int len)
 				return -1;
 			}
 
-			strncpy(g_podnewnet->hwaddr, addr, addrlen);
-			g_podnewnet->hwaddr[addrlen] = '\0';
+			if (es_strcopy(g_podnewnet->hwaddr, addr, addrlen+1, NULL))
+				return -1;
 		}
 
 		/* read ipaddr string */
@@ -1305,16 +1292,9 @@ static int parse_newnet(char *line, unsigned int len)
 		if (addr == NULL) {
 			return -1;
 		}
-		addrlen = strnlen(addr, maxaddr);
-		if (addrlen >= maxaddr)
-			return -1;
 
-		if (addrlen == 0 || addrlen >= sizeof(g_podnewnet->addr)) {
-			printf("bad addr: %d\n", addrlen);
+		if (es_strcopy(g_podnewnet->addr,addr,sizeof(g_podnewnet->addr),&addrlen))
 			return -1;
-		}
-		strncpy(g_podnewnet->addr, addr, addrlen);
-		g_podnewnet->addr[addrlen] = '\0';
 
 		/* does addr have subnet mask? */
 		for (i = 0; i < addrlen; ++i) {
@@ -1337,13 +1317,17 @@ static int parse_newnet(char *line, unsigned int len)
 					return -1;
 				}
 				g_podnewnet->netmask = netmask;
-				strncpy(g_podnewnet->prefix, &g_podnewnet->addr[i], 2);
-				g_podnewnet->prefix[2] = '\0';
+				if (es_strcopy(g_podnewnet->prefix,
+							&g_podnewnet->addr[i], 3, NULL))
+					return -1;
 				break;
 			}
 		}
 		if (i >= addrlen) {
-			snprintf(g_podnewnet->prefix, 3, "%d", DEFAULT_NETMASK_PREFIX);
+			if (es_sprintf(g_podnewnet->prefix, sizeof(g_podnewnet->prefix),
+						NULL, "%d", DEFAULT_NETMASK_PREFIX)) {
+				return -1;
+			}
 			g_podnewnet->netmask = DEFAULT_NETMASK_PREFIX;
 		}
 		break;
@@ -1468,7 +1452,8 @@ static int pod_enact_option(unsigned int option,
 			printf("seccomp_allow syscall name too long.\n");
 			return -1;
 		}
-		snprintf(syscall_buf, MAX_SYSCALL_NAME, "%s", params);
+		if (es_strcopy(syscall_buf, params, MAX_SYSCALL_NAME, NULL))
+			return -1;
 		if (syscall_list_addname(&g_podseccfilter->white, syscall_buf)) {
 			printf("add syscall white error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1486,7 +1471,8 @@ static int pod_enact_option(unsigned int option,
 			printf("seccomp_block syscall name too long.\n");
 			return -1;
 		}
-		snprintf(syscall_buf, MAX_SYSCALL_NAME, "%s", params);
+		if (es_strcopy(syscall_buf, params, MAX_SYSCALL_NAME, NULL))
+			return -1;
 		if (syscall_list_addname(&g_podseccfilter->black, syscall_buf)) {
 			printf("add syscall block error: %s\n", syscall_buf);
 			printf("not found or reached max syscalls(%d)\n", MAX_SYSCALLS);
@@ -1508,7 +1494,7 @@ static int pod_enact_option(unsigned int option,
 			printf("cap name too long\n");
 			return -1;
 		}
-		snprintf(cap_buf, MAX_CAP_NAME, "%s", params);
+		es_strcopy(cap_buf, params, MAX_CAP_NAME, NULL);
 
 		cap_nr = cap_getnum(cap_buf);
 		if (cap_nr < 0) {
@@ -1532,7 +1518,9 @@ static int pod_enact_option(unsigned int option,
 #endif
 
 	case OPTION_MACHINEID:
-		snprintf(path, sizeof(path), "%s/etc/machine-id", g_chroot_path);
+		if (es_sprintf(path, sizeof(path), NULL,
+					"%s/etc/machine-id", g_chroot_path))
+			return -1;
 		r = eslib_file_exists(path);
 		if (r == -1) {
 			printf("path error\n");
@@ -1577,7 +1565,8 @@ static int pod_enact_option(unsigned int option,
 			printf("cmdr name too long: %s\n", params);
 			return -1;
 		}
-		snprintf(g_init_cmdr, sizeof(g_init_cmdr), "%s", params);
+		if (es_strcopy(g_init_cmdr, params, sizeof(g_init_cmdr), NULL))
+			return -1;
 
 		if (init_cmdr(g_init_cmdr)) {
 			printf("init_cmdr(%s) failed\n", g_init_cmdr);
@@ -1608,7 +1597,8 @@ static int pass1_finalize()
 
 #ifndef PODROOT_HOME_OVERRIDE
 	/* whitelist jettison init program */
-	len = snprintf(pathbuf, sizeof(pathbuf), "rx %s", INIT_PATH);
+	if (es_sprintf(pathbuf, sizeof(pathbuf), &len, "rx %s", INIT_PATH))
+		return -1;
 	if (eslib_string_tokenize(pathbuf, len, " \t"))
 		return -1;
 	if (create_pathnode(pathbuf, len, 0)) {
@@ -1617,7 +1607,8 @@ static int pass1_finalize()
 	}
 
 	/* whitelist jettison preload */
-	len = snprintf(pathbuf, sizeof(pathbuf), "rx %s", PRELOAD_PATH);
+	if (es_sprintf(pathbuf, sizeof(pathbuf), &len, "rx %s", PRELOAD_PATH))
+		return -1;
 	if (eslib_string_tokenize(pathbuf, len, " \t"))
 		return -1;
 	if (create_pathnode(pathbuf, len, 0)) {
@@ -1641,7 +1632,8 @@ static int pass1_finalize()
 	g_homeroot->next = g_mountpoints;
 	g_mountpoints = g_homeroot;
 	/* make tmp dir */
-	snprintf(pathbuf, sizeof(pathbuf), "%s/tmp", g_chroot_path);
+	if (es_sprintf(pathbuf, sizeof(pathbuf), NULL, "%s/tmp", g_chroot_path))
+		return -1;
 	mkdir(pathbuf, 0770);
 
 	return 0;
@@ -1655,7 +1647,8 @@ static int pass2_finalize()
 
 	/* remount /tmp as an "empty" node */
 	memset(&tnode, 0, sizeof(tnode));
-	snprintf(tnode.dest, MAX_SYSTEMPATH, "%s/tmp", g_chroot_path);
+	if (es_sprintf(tnode.dest, MAX_SYSTEMPATH, NULL, "%s/tmp", g_chroot_path))
+		return -1;
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
 	tnode.nodetype = NODE_EMPTY;
 	if (g_podflags & (1 << OPTION_TMP_EXEC)) {
@@ -1674,10 +1667,12 @@ static int pass2_finalize()
 			return -1;
 		}
 
-		snprintf(dest, MAX_SYSTEMPATH, "%s/dev", g_chroot_path);
+		if (es_sprintf(dest, MAX_SYSTEMPATH, NULL, "%s/dev", g_chroot_path))
+			return -1;
 		mkdir(dest, 0755);
 		chmod(dest, 0755);
-		snprintf(dest, MAX_SYSTEMPATH, "%s/dev/pts", g_chroot_path);
+		if (es_sprintf(dest, MAX_SYSTEMPATH, NULL, "%s/dev/pts", g_chroot_path))
+			return -1;
 		if (mkdir(dest, 0755) && errno != EEXIST) {
 			printf("mkdir(%s): %s\n", dest, strerror(errno));
 			return -1;
@@ -1688,10 +1683,12 @@ static int pass2_finalize()
 		}
 		if (mount(0, dest, "devpts", 0, "newinstance") < 0)
 			return -1;
-		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/pts/ptmx", g_chroot_path);
+		if (es_sprintf(src,  MAX_SYSTEMPATH,NULL,"%s/dev/pts/ptmx",g_chroot_path))
+			return -1;
 		if (chmod(src, 0666))
 			return -1;
-		snprintf(src,  MAX_SYSTEMPATH, "%s/dev/ptmx", g_chroot_path);
+		if (es_sprintf(src,  MAX_SYSTEMPATH, NULL, "%s/dev/ptmx", g_chroot_path))
+			return -1;
 		if (symlink("pts/ptmx", src) && errno != EEXIST)
 			return -1;
 	}
@@ -1707,7 +1704,8 @@ static int pass2_finalize()
 #endif
 
 	/* protect podhome from non-root group */
-	snprintf(dest,  MAX_SYSTEMPATH, "%s/podhome", g_chroot_path);
+	if (es_sprintf(dest, MAX_SYSTEMPATH, NULL, "%s/podhome", g_chroot_path))
+		return -1;
 	if (chown(dest, g_ruid, 0)) {
 		printf("podhome chown: %s\n", strerror(errno));
 		return -1;
@@ -1939,7 +1937,8 @@ int pod_enter()
 			    | MS_NODEV
 			    | MS_RDONLY;
 
-	snprintf(pathbuf, sizeof(pathbuf), "%s/proc", g_chroot_path);
+	if (es_sprintf(pathbuf, sizeof(pathbuf), NULL, "%s/proc", g_chroot_path))
+		return -1;
 	if ((g_podflags & (1 << OPTION_NOPROC)) == 0) {
 		mkdir(pathbuf, 0775);
 		if (mount(0, pathbuf, "proc", flags, 0) < 0) {
@@ -1974,6 +1973,7 @@ int pod_enter()
 		printf("chown(/tmp): %s\n", strerror(errno));
 		return -1;
 	}
+
 	/* we're done here */
 	pod_free();
 	return 0;
