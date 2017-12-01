@@ -1656,7 +1656,7 @@ int process_user_permissions()
 		unsigned int advance;
 		char *keyword = NULL;
 		char *param = NULL;
-		int lim;
+		int32_t lim;
 
 		line = &fbuf[fpos];
 		++line_num;
@@ -1709,7 +1709,7 @@ int process_user_permissions()
 				printf("duplicate limit entries\n");
 				goto err_free;
 			}
-			if (eslib_string_to_int(param, &lim) || lim <= 0) {
+			if (eslib_string_to_s32(param, &lim) || lim <= 0) {
 				printf("bad limit value\n");
 				goto err_free;
 			}

@@ -94,7 +94,7 @@ enum {
 };
 
 /* return the first passwd entry that matches uid, points to static array */
-char *passwd_fetchline_byid(int id, char *filename);
+char *passwd_fetchline_byid(uint32_t id, char *filename);
 char *passwd_fetchline_byname(char *username, char *filename);
 /* get specific passwd field, destroys line by inserting null terminator */
 char *passwd_getfield(char *line, unsigned int field);

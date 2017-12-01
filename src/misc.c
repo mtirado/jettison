@@ -334,13 +334,13 @@ err_free:
 }
 
 
-char *passwd_fetchline_byid(int uid, char *filename)
+char *passwd_fetchline_byid(uint32_t uid, char *filename)
 {
 	char *fbuf;
 	size_t flen;
 	char *line;
 	unsigned int pos = 0;
-	int check_uid;
+	uint32_t check_uid;
 
 	if (filename == NULL || strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
 		return NULL;
@@ -368,7 +368,7 @@ char *passwd_fetchline_byid(int uid, char *filename)
 		if (field == NULL)
 			goto err_free;
 
-		if (eslib_string_to_int(field, &check_uid))
+		if (eslib_string_to_u32(field, &check_uid))
 			goto err_free;
 		if (uid == check_uid) {
 			es_strcopy(g_storeline, line, FMAXLINE, NULL);

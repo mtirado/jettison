@@ -15,7 +15,7 @@
  *
  *  TODO there are possibly more
  */
-
+#include <stdint.h>
 
 #ifndef MIN_STACKSIZE
 	#define MIN_STACKSIZE (64 * 1024) /* 64 KB */
