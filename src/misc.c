@@ -368,7 +368,7 @@ char *passwd_fetchline_byid(uint32_t uid, char *filename)
 		if (field == NULL)
 			goto err_free;
 
-		if (eslib_string_to_u32(field, &check_uid))
+		if (eslib_string_to_u32(field, &check_uid, 10))
 			goto err_free;
 		if (uid == check_uid) {
 			es_strcopy(g_storeline, line, FMAXLINE, NULL);
