@@ -99,12 +99,13 @@ int jettison_readconfig(char *cfg_path, unsigned int *outflags)
 	char *filename;
 	char *pwline;
 	char *pwuser;
+
 	filename = eslib_file_getname(cfg_path);
 	if (filename == NULL) {
 		printf("bad filename\n");
 		return -1;
 	}
-	pwline = passwd_fetchline(g_ruid);
+	pwline = passwd_fetchline_byid(g_ruid, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
 		return -1;
@@ -1620,7 +1621,7 @@ int process_user_permissions()
 	memset(&g_privs, 0, sizeof(g_privs));
 
 	/* get username for file path */
-	pwline = passwd_fetchline(g_ruid);
+	pwline = passwd_fetchline_byid(g_ruid, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
 		return -1;
@@ -1641,7 +1642,7 @@ int process_user_permissions()
 				JETTISON_USERCFG, pwuser))
 		return -1;
 
-	fbuf = malloc(4096);
+	fbuf = calloc(1, 4096);
 	if (fbuf == NULL)
 		return -1;
 	if (eslib_file_read_full(fpath, fbuf, 4096 - 1, &flen)) {

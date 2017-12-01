@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
 
 	sigsetup();
 
-	if (es_strcopy(progpath, argv[1], MAX_SYSTEMPATH), NULL)
+	if (es_strcopy(progpath, argv[1], MAX_SYSTEMPATH, NULL))
 		return -1;
 
 	/* set process name */

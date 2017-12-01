@@ -112,6 +112,7 @@ DESTRUCT_OBJS := $(DESTRUCT_SRCS:.c=.o)
 
 INIT_SRCS :=	./src/jettison_init.c			\
 		./src/eslib/eslib_file.c		\
+		./src/eslib/eslib_string.c		\
 		./src/eslib/eslib_proc.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 

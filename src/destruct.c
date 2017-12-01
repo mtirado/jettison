@@ -58,7 +58,7 @@ static int locate_podpath(char *file)
 	char *pwline, *pwuser;
 	int r;
 
-	pwline = passwd_fetchline(g_ruid);
+	pwline = passwd_fetchline_byid(g_ruid, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("passwd file error\n");
 		return -1;

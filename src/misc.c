@@ -19,7 +19,10 @@
 #include <sys/prctl.h>
 #include "eslib/eslib.h"
 #include "misc.h"
+
+#define PASSWD_MAX (1024*1024*100)
 #define FMAXLINE 1023
+
 static char g_storeline[FMAXLINE+1];
 static char g_storefield[FMAXLINE+1];
 
@@ -193,154 +196,54 @@ int chop_trailing(char *string, unsigned int size, const char match)
 	return -1;
 }
 
-
-/*
- *  return pointer to static memory containing passwd line for the given uid,
- *  or NULL on error. memory is overwritten each call.
+/* read text file and makes sure it's null terminated, outlen does not include '\0'
+ * caller is responsible for freeing allocated buffer
  */
-char *passwd_fetchline_byname(char *username, const char *filename)
+char *load_text_file(char *filepath, const size_t maxsize, size_t *outlen)
 {
-	char rdline[FMAXLINE+1];
-	FILE *file;
-
-	if (username == NULL || filename == NULL)
-		return NULL;
-	if (strnlen(username, FMAXLINE) >= FMAXLINE)
-		return NULL;
-	if (strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+	char *fbuf = NULL;
+	size_t flen = 0;
+	if (filepath == NULL || outlen == NULL || maxsize <= 1)
 		return NULL;
 
-	file = fopen(filename, "r");
-	if (file == NULL)
+	fbuf = calloc(1, 4096);
+	if (fbuf == NULL)
 		return NULL;
 
-	do
-	{
-		unsigned int len = 0;
-
-		if (fgets(rdline, FMAXLINE, file) == NULL) {
-			printf("user %s not found in %s?\n", username, filename);
-			goto err_return;
+	if (eslib_file_read_full(filepath, fbuf, 4096 - 1, &flen)) {
+		if (errno == EOVERFLOW) {
+			char *re_fbuf = NULL;
+			if (flen + 1 >= maxsize)
+				goto failed;
+			re_fbuf = realloc(fbuf, flen + 1);
+			if (re_fbuf == NULL)
+				goto failed;
+			fbuf = re_fbuf;
+			if (eslib_file_read_full(filepath, fbuf, flen + 1, &flen))
+				goto failed;
 		}
-		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
-			printf("line too long.\n");
-			goto err_return;
-		}
-
-		/* find name stringlen */
-		while(len < FMAXLINE)
-		{
-			if (rdline[len] == ':')
-				break;
-			++len;
-		}
-		if (len >= FMAXLINE || len == 0) {
-			printf("username string error\n");
-			goto err_return;
-		}
-
-		if (strncmp(username, rdline, len) == 0) {
-			if (rdline[len] == ':') {
-				strncpy(g_storeline, rdline, FMAXLINE);
-				g_storeline[FMAXLINE] = '\0';
-				fclose(file);
-				return g_storeline;
-			}
+		else {
+			goto failed;
 		}
 	}
-	while(1);
-
-
-err_return:
-	fclose(file);
-	return NULL;
-}
-
-char *passwd_fetchline(uid_t uid)
-{
-	char rdline[FMAXLINE+1];
-	FILE *file;
-
-	file = fopen(PASSWD_FILE, "r");
-	if (file == NULL)
-		return NULL;
-
-	do
-	{
-		char uidstr[32];
-		char *err = NULL;
-		unsigned int count = 0;
-		unsigned int i = 0;
-		unsigned int z;
-		unsigned int len;
-		uid_t checkuid;
-
-		if (fgets(rdline, FMAXLINE, file) == NULL) {
-			printf("uid(%d) not found in %s?\n", uid, PASSWD_FILE);
-			goto err_return;
-		}
-		if (strnlen(rdline, FMAXLINE) >= FMAXLINE) {
-			printf("line too long.\n");
-			goto err_return;
-		}
-
-		/* skip to uid column */
-		while(i < FMAXLINE) {
-			if (rdline[i] == ':') {
-				++count;
-			}
-			if (count == 2)
-				break;
-			++i;
-		}
-		if (count != 2)
-			goto err_return;
-
-		z = i+1;
-		/*find uid stringlen*/
-		while(++i < FMAXLINE)
-		{
-			if (rdline[i] == ':')
-				break;
-		}
-		if (i >= FMAXLINE)
-			goto err_return;
-
-		len = i - z;
-		if (len == 0 || len >= sizeof(uidstr)) {
-			printf("uid string error\n");
-			goto err_return;
-		}
-
-		strncpy(uidstr, &rdline[z], len);
-		uidstr[len] = '\0';
-		errno = 0;
-		checkuid = strtol(uidstr, &err, 10);
-		if (errno || err == NULL || *err) {
-			printf("error converting string to long int\n");
-			goto err_return;
-		}
-		if (uid == checkuid) {
-			strncpy(g_storeline, rdline, FMAXLINE);
-			g_storeline[FMAXLINE] = '\0';
-			fclose(file);
-			return g_storeline;
-		}
+	fbuf[flen] = '\0';
+	*outlen = flen;
+	if (flen == 0) {
+		errno = ECANCELED;
+		goto failed;
 	}
-	while(1);
+	return fbuf;
 
-
-err_return:
-	fclose(file);
+failed:
+	free(fbuf);
 	return NULL;
 }
-
 
 char *passwd_getfield(char *line, unsigned int field)
 {
 	unsigned int i;
-	int prev = -1;
 	unsigned int count = 0;
+	unsigned int start = 0;
 
 	if (!line || field >= PASSWD_FIELDS)
 		return NULL;
@@ -350,15 +253,136 @@ char *passwd_getfield(char *line, unsigned int field)
 	{
 		if (line[i] == ':' || line[i] == '\0') {
 			if (count == field) {
-				strncpy(g_storefield, &line[prev+1], i-(prev+1));
+				unsigned int len = i - start;
+				if (es_strcopy(g_storefield, &line[start], len+1, NULL)) {
+					if (errno != EOVERFLOW)
+						return NULL;
+				}
 				return g_storefield;
 			}
 			if (++count >= PASSWD_FIELDS) {
-				return NULL;
+				break;
 			}
-			prev = i;
+			start = i+1;
 		}
 	}
+	return NULL;
+}
+
+/*
+ *  return pointer to static memory containing passwd line for the given uid,
+ *  or NULL on error. memory is overwritten each call.
+ *
+ */
+char *passwd_fetchline_byname(char *username, char *filename)
+{
+	char *fbuf;
+	size_t flen;
+	size_t usrname_len;
+	char *line;
+	unsigned int pos = 0;
+
+	if (username == NULL || filename == NULL)
+		return NULL;
+	if (strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+		return NULL;
+
+	fbuf = load_text_file(filename, PASSWD_MAX, &flen);
+	if (fbuf == NULL) {
+		printf("couldn't load passwd file: %s\n", filename);
+		return NULL;
+	}
+	usrname_len = strnlen(username, FMAXLINE);
+	if (usrname_len >= FMAXLINE/2 || usrname_len == 0)
+		goto err_free;
+	if (!eslib_string_is_sane(fbuf, flen))
+		goto err_free;
+	if (eslib_string_tokenize(fbuf, flen, "\n"))
+		goto err_free;
+	memset(g_storeline, 0, FMAXLINE);
+	line = fbuf;
+	do {
+		char *field;
+		unsigned int adv;
+
+		line = eslib_string_toke(fbuf, pos, flen, &adv);
+		pos += adv;
+		if (line == NULL)
+			break;
+		field = passwd_getfield(line, PASSWD_USER);
+		if (field == NULL)
+			goto err_free;
+		if (strncmp(username, field, usrname_len) == 0) {
+			if (field[usrname_len] == '\0') {
+				if (es_strcopy(g_storeline, line, FMAXLINE, NULL))
+					goto err_free;
+				free(fbuf);
+				g_storeline[FMAXLINE] = '\0';
+				return g_storeline;
+			}
+		}
+	} while (line);
+
+	errno = ENOENT;
+	free(fbuf);
+	return NULL;
+
+err_free:
+	printf("problem reading passwd file: %s\n", filename);
+	free(fbuf);
+	return NULL;
+}
+
+
+char *passwd_fetchline_byid(int uid, char *filename)
+{
+	char *fbuf;
+	size_t flen;
+	char *line;
+	unsigned int pos = 0;
+	int check_uid;
+
+	if (filename == NULL || strnlen(filename, MAX_SYSTEMPATH) >= MAX_SYSTEMPATH)
+		return NULL;
+
+	fbuf = load_text_file(filename, PASSWD_MAX, &flen);
+	if (fbuf == NULL) {
+		printf("couldn't load passwd file: %s\n", filename);
+		return NULL;
+	}
+	if (!eslib_string_is_sane(fbuf, flen))
+		goto err_free;
+	if (eslib_string_tokenize(fbuf, flen, "\n"))
+		goto err_free;
+
+	memset(g_storeline, 0, sizeof(g_storeline));
+	do {
+		char *field;
+		unsigned int adv;
+
+		line = eslib_string_toke(fbuf, pos, flen, &adv);
+		pos += adv;
+		if (line == NULL)
+			break;
+		field = passwd_getfield(line, PASSWD_UID);
+		if (field == NULL)
+			goto err_free;
+
+		if (eslib_string_to_int(field, &check_uid))
+			goto err_free;
+		if (uid == check_uid) {
+			es_strcopy(g_storeline, line, FMAXLINE, NULL);
+			g_storeline[FMAXLINE] = '\0';
+			return g_storeline;
+		}
+	} while (line);
+
+	errno = ENOENT;
+	free(fbuf);
+	return NULL;
+err_free:
+	printf("problem reading passwd file: %s\n", filename);
+	free(fbuf);
 	return NULL;
 }
 
@@ -591,7 +615,7 @@ uid_t get_user_id(char *username)
 		printf("error converting string to ulong\n");
 		return -1;
 	}
-	if (uid == 0 || (long)uid == -1) {
+	if ((long)uid == -1) {
 		printf("absurd uid value\n");
 		return -1;
 	}

@@ -268,7 +268,7 @@ int init_cmdr(char *name)
 
 	memset(username, 0, sizeof(username));
 	memset(home, 0, sizeof(home));
-	passwd = passwd_fetchline(g_ruid);
+	passwd = passwd_fetchline_byid(g_ruid, PASSWD_FILE);
 	if (passwd == NULL) {
 		printf("could not open /etc/passwd for username\n");
 		return -1;
@@ -308,7 +308,9 @@ int init_cmdr(char *name)
 			if (fbuf == NULL)
 				return -1;
 		}
-		free(fbuf);
+		else {
+			free(fbuf);
+		}
 		return -1;
 	}
 	fbuf[flen] = '\0';
