@@ -30,6 +30,7 @@
 
 extern gid_t g_rgid;
 extern uid_t g_ruid;
+extern struct newnet_param g_newnet;
 
 struct gizmo g_gizmos[NUM_GIZMOS];
 void load_gizmos()
@@ -37,9 +38,10 @@ void load_gizmos()
 	struct gizmo *giz = g_gizmos;
 	memset(g_gizmos, 0, sizeof(struct gizmo) * NUM_GIZMOS);
 
-	es_sprintf(giz[0].name, sizeof(giz[0].name), NULL, "echo");
-	es_sprintf(giz[1].name, sizeof(giz[1].name), NULL, "sleep");
-	es_sprintf(giz[2].name, sizeof(giz[2].name), NULL, "xtables-multi");
+	es_strcopy(giz[0].name, "echo", sizeof(giz[0].name), NULL);
+	es_strcopy(giz[1].name, "sleep", sizeof(giz[1].name), NULL);
+	es_strcopy(giz[2].name, "xtables-multi", sizeof(giz[2].name), NULL);
+	giz[2].flags |= CMDR_FLAG_NO_ROOT_NETNS;
 	giz[2].caps[CAP_NET_RAW]   = 1;
 	giz[2].caps[CAP_NET_ADMIN] = 1;
 }
@@ -155,8 +157,17 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 
 	return 0;
 }
-
-static int cmdr_command(char *line, const unsigned int linelen, char *username, char *home)
+static int cmdr_checkflags(struct gizmo *giz)
+{
+	if (giz->flags & CMDR_FLAG_NO_ROOT_NETNS) {
+		if (!g_newnet.active) {
+			printf("cannot use gizmo(%s) in root net namespace\n", giz->name);
+			return -1;
+		}
+	}
+	return 0;
+}
+static int cmdr_command(char *line, const unsigned int linelen,char *username,char *home)
 {
 	char name[32];
 	char *argv[JETTISON_CMDR_MAXARGS+1];
@@ -185,6 +196,8 @@ static int cmdr_command(char *line, const unsigned int linelen, char *username, 
 		printf("missing permission for gizmo: %s\n", cmd);
 		return -1;
 	}
+	if (cmdr_checkflags(giz))
+		return -1;
 
 	if (es_sprintf(name, sizeof(name), NULL, "gizmo-%s", cmd))
 		return -1;

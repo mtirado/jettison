@@ -19,11 +19,15 @@
 #include "defines.h"
 
 #define NUM_GIZMOS 3
+
+#define CMDR_FLAG_NO_ROOT_NETNS 1 /* do not run in root net namespace */
+
 struct gizmo
 {
 	char name[JETTISON_CMDR_MAXNAME];
 	int  caps[NUM_OF_CAPS];
 	unsigned int executable;
+	unsigned int flags;
 };
 
 struct init_cmdr
