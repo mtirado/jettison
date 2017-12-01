@@ -298,22 +298,11 @@ int init_cmdr(char *name)
 				JETTISON_CMDRS, username, name))
 		return -1;
 
-
-	fbuf = malloc(4096);
-	if (fbuf == NULL)
-		return -1;
-	if (eslib_file_read_full(path, fbuf, 4096 - 1, &flen)) {
-		if (errno == EOVERFLOW) {
-			fbuf = realloc(fbuf, flen + 1);
-			if (fbuf == NULL)
-				return -1;
-		}
-		else {
-			free(fbuf);
-		}
+	fbuf = load_text_file(path, JETTISON_CMDR_LIMIT, &flen);
+	if (fbuf == NULL) {
+		printf("couldn't open file: %s\n", path);
 		return -1;
 	}
-	fbuf[flen] = '\0';
 
 	r = cmdr_launch(fbuf, flen, username, home);
 	free(fbuf);

@@ -103,6 +103,7 @@ char *passwd_getfield(char *line, unsigned int field);
 uid_t get_user_id(char *username);
 gid_t get_group_id(char *username);
 
+char *load_text_file(char *filepath, const size_t maxsize, size_t *outlen);
 
 /* ------------------------------------------------------------ */
 

@@ -45,6 +45,7 @@
 #endif
 
 /* user config directory */
+#define JETTISON_CFG_LIMIT (1024 * 1024 * 4)
 #ifndef JETTISON_USERCFG
 	#define JETTISON_USERCFG "/etc/jettison/users"
 #endif
@@ -54,7 +55,7 @@
 #ifndef JETTISON_CMDR_GIZMOS
 	#define JETTISON_CMDR_GIZMOS "/etc/jettison/gizmos"
 #endif
-#define JETTISON_CMDR_LIMIT (1024 * 1024 * 4)
+#define JETTISON_CMDR_LIMIT JETTISON_CFG_LIMIT
 #define JETTISON_CMDR_MAXARGS 100
 #define JETTISON_CMDR_MAXNAME 64
 

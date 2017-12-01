@@ -1642,26 +1642,11 @@ int process_user_permissions()
 				JETTISON_USERCFG, pwuser))
 		return -1;
 
-	fbuf = calloc(1, 4096);
-	if (fbuf == NULL)
+	fbuf = load_text_file(fpath, JETTISON_CFG_LIMIT, &flen);
+	if (fbuf == NULL) {
+		printf("couldn't open file: %s\n", fpath);
 		return -1;
-	if (eslib_file_read_full(fpath, fbuf, 4096 - 1, &flen)) {
-		if (errno == EOVERFLOW && flen > 0) {
-			fbuf = realloc(fbuf, flen + 1);
-			if (fbuf == NULL)
-				return -1;
-			if (eslib_file_read_full(fpath, fbuf, flen, &flen)) {
-				printf("could not read file\n");
-				free(fbuf);
-				return -1;
-			}
-		}
-		else {
-			printf("problem reading file(%s): %s\n", fpath, strerror(errno));
-			goto err_free;
-		}
 	}
-	fbuf[flen] = '\0';
 
 	while (fpos < flen)
 	{
