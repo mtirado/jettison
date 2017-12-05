@@ -17,6 +17,7 @@
 #include <linux/capability.h>
 #include <linux/securebits.h>
 #include <sys/prctl.h>
+#include <time.h>
 #include "eslib/eslib.h"
 #include "misc.h"
 
@@ -667,7 +668,7 @@ int close_descriptors(int *exemptions, int exemptcount)
 	}
 
 	fdcount = eslib_proc_alloc_fdlist(getpid(), &fdlist);
-	if (fdcount == -1) { /* there was problem reading /proc/PID */
+	if (fdcount < 1) { /* there was problem reading /proc/PID */
 		struct rlimit rlim;
 		int fdcount = FAILSAFE_FLIMIT;
 
@@ -692,33 +693,30 @@ int close_descriptors(int *exemptions, int exemptcount)
 				if (z == -1) {
 					continue;
 				}
-				close(i);
 			}
-			else {
-				close(i);
-			}
+			close(i);
 		}
-		return 0;
 	}
-
-	for (i = 0; i < fdcount; ++i)
-	{
-		if (exemptions) {
-			int z;
-			for (z = 0; z < exemptcount; ++z)
-			{
-				if(fdlist[i] == exemptions[z]) {
-					z = -1;
-					break;
+	else {
+		for (i = 0; i < fdcount; ++i)
+		{
+			if (exemptions) {
+				int z;
+				for (z = 0; z < exemptcount; ++z)
+				{
+					if(fdlist[i] == exemptions[z]) {
+						z = -1;
+						break;
+					}
+				}
+				if (z == -1) {
+					continue;
 				}
 			}
-			if (z == -1) {
-				continue;
-			}
+			close(fdlist[i]);
 		}
-		close(fdlist[i]);
+		free(fdlist);
 	}
-	free(fdlist);
 	return 0;
 }
 
@@ -890,3 +888,34 @@ int capbset_drop(int fcaps[NUM_OF_CAPS])
 	}
 	return 0;
 }
+
+char *get_timestamp()
+{
+	static char str[128];
+	char dst_str[16];
+	struct tm *t;
+	time_t stamp;
+	int year, mon, day, hour, min, sec, dlst;
+
+	/* create timestamp */
+	time(&stamp);
+	t = localtime(&stamp);
+	year = t ? t->tm_year + 1900 :  0;
+	mon  = t ? t->tm_mon + 1     :  0;
+	day  = t ? t->tm_mday        :  0;
+	hour = t ? t->tm_hour        :  0;
+	min  = t ? t->tm_min         :  0;
+	sec  = t ? t->tm_sec         :  0;
+	dlst = t ? t->tm_isdst       : -1;
+	if (dlst > 0)
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dst]");
+	else if (dlst == 0)
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[nodst]");
+	else
+		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dsterr]");
+	/* create file path */
+	es_sprintf(str, sizeof(str), NULL, "%04d-%02d-%02dT%02d:%02d:%02d%s",
+				year, mon, day, hour, min, sec, dst_str);
+	return str;
+}
+

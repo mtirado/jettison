@@ -18,9 +18,13 @@
 
 #include "defines.h"
 
-#define NUM_GIZMOS 3
+#define NUM_GIZMOS 4
 
-#define CMDR_FLAG_NO_ROOT_NETNS 1 /* do not run in root net namespace */
+#define CMDR_FLAG_NON_CRITICAL     (1 << 0) /* if something goes wrong, don't freak out */
+#define CMDR_FLAG_NO_ROOT_NETNS    (1 << 1) /* do not run in root net namespace */
+#define CMDR_FLAG_BACKGROUND       (1 << 2) /* run in background, no error check */
+#define CMDR_FLAG_HOMEFORT         (1 << 3) /* TODO fortified with access to /home/user */
+#define CMDR_FLAG_UNFORTIFIED      (1 << 4) /* don't be a fool, fortify your gizmos */
 
 struct gizmo
 {
@@ -28,6 +32,13 @@ struct gizmo
 	int  caps[NUM_OF_CAPS];
 	unsigned int executable;
 	unsigned int flags;
+};
+
+struct bg_gizmo
+{
+	struct bg_gizmo *next;
+	struct gizmo *giz;
+	pid_t pid;
 };
 
 struct init_cmdr
@@ -40,5 +51,7 @@ struct init_cmdr
 void load_gizmos();
 struct gizmo *cmdr_find_gizmo(char *name, unsigned int len);
 int init_cmdr(char *name);
+struct bg_gizmo *cmdr_remove_background_gizmo(pid_t pid);
+struct bg_gizmo *cmdr_get_bg_gizmos();
 
 #endif

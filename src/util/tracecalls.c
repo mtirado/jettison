@@ -239,7 +239,7 @@ static int downgrade_tracer(char *fortpath)
 		printf("seccomp_build failure\n");
 		return -1;
 	}
-	if (eslib_fortify_prepare(fortpath, 0)) {
+	if (eslib_fortify_prepare(fortpath, 0, 0)) {
 		printf("fortify failed\n");
 		return -1;
 	}

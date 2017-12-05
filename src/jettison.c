@@ -57,10 +57,10 @@ char *g_progpath;
 char g_procname[MAX_PROCNAME]; /* --procname */
 char g_pid1name[MAX_PROCNAME];
 char g_initscript[MAX_SYSTEMPATH];
+char g_init_cmdr[JETTISON_CMDR_MAXNAME];
 
 int g_daemon; /* --daemon */
 int g_logoutput; /* --logoutput */
-int g_lognet; /* --lognet */
 int g_clear_environ; /* --clear-environ */
 int g_stdout_logfd;
 int g_daemon_pipe[2]; /* daemon ipc for log fd proxy */
@@ -92,6 +92,7 @@ char g_executable_path[MAX_SYSTEMPATH];
 char g_podconfig_path[MAX_SYSTEMPATH];
 char g_cwd[MAX_SYSTEMPATH]; /* directory jettison was called from */
 size_t g_stacksize;
+
 
 /* read and load config, pass1 */
 int jettison_readconfig(char *cfg_path, unsigned int *outflags)
@@ -192,7 +193,7 @@ static int downgrade_relay()
 		return -1;
 	}
 
-	if (eslib_fortify_prepare(g_nullspace, 0)) {
+	if (eslib_fortify_prepare(g_nullspace, 0, 0)) {
 		printf("fortify failed\n");
 		return -1;
 	}
@@ -668,40 +669,6 @@ int process_arguments(int argc, char *argv[])
 				g_logoutput = 1;
 				argidx  += 1;
 			}
-			else if (strncmp(argv[i], "--lognet", len) == 0) {
-				/*
-				 * arg 1 - log filesize
-				 *         0 count is ignored, single huge file.
-				 *       >=1 file is limited
-				 * arg 2 - number of log rotation files
-				 *       >=2 log is rotated (truncated)
-				 */
-				if (argc < i+2 || argv[i+1] == '\0' || argv[i+2] == 0) {
-					printf("--lognet requires size & count args\n");
-					goto missing_opt;
-				}
-				/* read log file size */
-				errno = 0;
-				++i;
-				g_newnet.log_filesize = strtol(argv[i], &err, 10);
-				if (err == NULL || *err || errno)
-					goto bad_opt;
-				if (g_newnet.log_filesize < 0) {
-					goto bad_opt;
-				}
-				/* read rotation count */
-				errno = 0;
-				++i;
-				g_newnet.log_count = strtol(argv[i], &err, 10);
-				if (err == NULL || *err || errno)
-					goto bad_opt;
-				if (g_newnet.log_count != 0 && g_newnet.log_filesize > 0
-						&& g_newnet.log_count < 2)
-					goto bad_opt;
-
-				g_lognet = 1;
-				argidx  += 3;
-			}
 			else if (strncmp(argv[i], "--blacklist", len) == 0) {
 				g_blacklist = 1;
 				argidx  += 1;
@@ -810,13 +777,6 @@ err_usage:
 	printf("--logoutput\n");
 	printf("        write stdout/stderr to a timestamped log file in cwd\n");
 	printf("\n");
-	printf("--lognet <size> <count>\n");
-	printf("        dump .pcap file(s) for ipvlan / macvlan traffic\n");
-	printf("        <size> is individual log file size in megabytes, if 0\n");
-	printf("        the log file will not be limited.\n");
-	printf("        <count> >= 2 means log will be rotated and numbered\n");
-	printf("        with up to <count> files backlog.\n");
-	printf("\n");
 	printf("--blacklist\n");
 	printf("        use system blacklist instead of pod config file\n");
 	printf("\n");
@@ -843,30 +803,49 @@ struct termios g_origterm;
 void exit_func()
 {
 	pid_t ppid;
+	struct bg_gizmo *bg_gizmos;
+
 	if (g_initpid > 0)
 		kill(g_initpid, SIGTERM);
-	if (g_newnet.log_pid > 0)
-		kill(g_newnet.log_pid, SIGTERM);
-	usleep(500000);
-	/* net logger needs some time to write data */
-	if (g_newnet.log_pid > 0) {
+
+	bg_gizmos = cmdr_get_bg_gizmos();
+	if (bg_gizmos) {
 		int i = 0;
 		int status;
-		/* this is sitting in a new net namespace,
-		 * make sure it's killed if it hangs > 5 seconds */
+		while (bg_gizmos)
+		{
+			kill(bg_gizmos->pid, SIGTERM);
+			bg_gizmos = bg_gizmos->next;
+		}
+		printf("waiting for gizmos to shut down\n");
+		usleep(500000);
+
+
+		/* gizmos may need some time to shut down */
 		while (1)
 		{
-			pid_t p = waitpid(g_newnet.log_pid, &status, WNOHANG);
-			if (p == g_newnet.log_pid)
+			struct bg_gizmo *bg = NULL;
+			pid_t p = waitpid(-1, &status, WNOHANG);
+			if (p > 0) {
+				bg = cmdr_remove_background_gizmo(p);
+				if (bg)
+					printf("gizmo exited: %s\n", bg->giz->name);
+				continue; /* don't sleep */
+			}
+			else if (p == -1 && errno == ECHILD) {
 				break;
-			else if (p == -1 && errno == ECHILD)
-				break;
-			else if (p != 0 || ++i >= 50) {
-				kill(g_newnet.log_pid, SIGKILL);
+			}
+			else if (p != 0 || ++i >= 100) {
+				bg_gizmos = cmdr_get_bg_gizmos();
+				while (bg_gizmos)
+				{
+					printf("killing gizmo: %s\n", bg->giz->name);
+					kill(bg_gizmos->pid, SIGKILL);
+					bg_gizmos = bg_gizmos->next;
+				}
 				break;
 			}
 			usleep(100000);
-			printf("waiting for netlog(%d) to shutdown\n", g_newnet.log_pid);
 		}
 	}
 
@@ -877,7 +856,6 @@ void exit_func()
 		printf("getppid(): %s\n", strerror(errno));
 	else if (kill(ppid, SIGWINCH))
 		printf("kill(%d, SIGWINCH): %s\n", getppid(), strerror(errno));
-
 	printf("jettison_exit\n");
 }
 
@@ -1055,6 +1033,26 @@ static int logwrite(int fd, char *buf, int bytes)
 	return 0;
 }
 
+static int process_exited(pid_t p)
+{
+	struct bg_gizmo *bg = cmdr_remove_background_gizmo(p);
+	if (bg) {
+		/* kill pod if critical background gizmo exits */
+		if (!(bg->giz->flags & CMDR_FLAG_NON_CRITICAL)) {
+			if (g_initpid > 0 && kill(g_initpid, SIGTERM)) {
+				printf("kill %d %s\n", bg->pid, strerror(errno));
+			}
+			/* TODO wait and sigkill ??? */
+			printf("critical gizmo exited: %s\n", bg->giz->name);
+			return -1;
+		}
+		else {
+			printf("non-critical gizmo exited: %s\n", bg->giz->name);
+		}
+		free(bg);
+	}
+	return 0;
+}
 /*
  * relay input from ours to theirs,
  * relay output from theirs to ours
@@ -1118,9 +1116,12 @@ static int relay_io(int stdout_logfd)
 			printf("failed to downgrade relay\n");
 			return -1;
 		}
+
 		/* daemon update loop */
 		while (1)
 		{
+			pid_t p;
+
 			tmr.tv_usec = 0;
 			tmr.tv_sec = 10;
 			FD_ZERO(&rds);
@@ -1147,11 +1148,27 @@ static int relay_io(int stdout_logfd)
 					return -1;
 				}
 			}
-			if (waitpid(-1, &status, WNOHANG) == -1) {
-				close(stdout_logfd);
-				return 0;
+			do {
+				p = waitpid(-1, &status, WNOHANG);
+				if (p == -1) {
+					close(stdout_logfd);
+					return -1;
+				}
+				else if (p) {
+					if (p == g_initpid) {
+						g_initpid = 0;
+						close(stdout_logfd);
+						return 0;
+					}
+					if (process_exited(p)) {
+						close(stdout_logfd);
+						return -1;
+					}
+				}
 			}
+			while (p > 0);
 		}
+		return -1;
 	}
 
 	/* non-daemon, route tty normally */
@@ -1182,6 +1199,7 @@ static int relay_io(int stdout_logfd)
 		p = waitpid(-1, &status, WNOHANG);
 		if (p > 1) {
 			if (p == g_initpid) {
+				g_initpid = 0;
 				wbytes = 0;
 				canwrite = 0;
 				if (WIFEXITED(status)) {
@@ -1198,21 +1216,12 @@ static int relay_io(int stdout_logfd)
 					printf("init shut down abnormally\n");
 					estatus = -1;
 				}
-				g_initpid = 0;
 			}
-			else if (p == g_newnet.log_pid) {
-				if (g_initpid > 0) {
-					/* netlogger was interrupted,  TODO:
-					 * make an option for this kill behavior
-					 * and use in strict mode, otherwise huge
-					 * warning message should be displayed. */
-					if (kill(g_initpid, SIGTERM)) {
-						printf("kill %d %s\n",g_initpid,
-								strerror(errno));
-						return -1;
-					}
-					g_newnet.log_pid = 0;
-				}
+			else {
+				if (process_exited(p))
+					goto fatal;
+				else
+					continue;
 			}
 		}
 		/* waiting on them to consume wbuf */
@@ -1320,6 +1329,7 @@ re_sleep:
 			if (p == g_initpid) {
 				if (WIFEXITED(status)) {
 					estatus = WEXITSTATUS(status);
+					g_initpid = 0;
 				}
 				else {
 					estatus = -1;
@@ -1339,11 +1349,8 @@ re_sleep:
 static int create_logfile()
 {
 	char logpath[MAX_SYSTEMPATH];
-	char dst_str[16];
+	char *timestamp;
 	char *fname;
-	struct tm *t;
-	time_t stamp;
-	int year, mon, day, hour, min, sec, dlst;
 	int fd;
 	int r;
 
@@ -1353,32 +1360,8 @@ static int create_logfile()
 	}
 
 	/* create timestamp */
-	if (time(&stamp) == -1) {
-		printf("time: %s\n", strerror(errno));
-		return -1;
-	}
-	t = localtime(&stamp);
-	if (t == NULL) {
-		printf("localtime: %s\n", strerror(errno));
-		return -1;
-	}
-	year = t->tm_year + 1900;
-	mon  = t->tm_mon + 1;
-	day  = t->tm_mday;
-	hour = t->tm_hour;
-	min  = t->tm_min;
-	sec  = t->tm_sec;
-	dlst = t->tm_isdst;
-	if (dlst > 0)
-		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dst]");
-	else if (dlst == 0)
-		es_sprintf(dst_str, sizeof(dst_str), NULL, "[nodst]");
-	else
-		es_sprintf(dst_str, sizeof(dst_str), NULL, "[dsterr]");
-	/* create file path */
-	es_sprintf(logpath, sizeof(logpath), NULL,
-				"./log.%s.%04d-%02d-%02dT%02d:%02d:%02d%s",
-				fname, year, mon, day, hour, min, sec, dst_str);
+	timestamp = get_timestamp();
+	es_sprintf(logpath, sizeof(logpath), NULL, "./log.%s.%s", fname, timestamp);
 	r = eslib_file_exists(logpath);
 	if (r == -1 ) {
 		printf("logfile error\n");
@@ -1825,6 +1808,7 @@ int main(int argc, char *argv[])
 	memset(g_procname, 0, sizeof(g_procname));
 	memset(g_pid1name, 0, sizeof(g_pid1name));
 	memset(g_nullspace, 0, sizeof(g_nullspace));
+	memset(g_init_cmdr, 0, sizeof(g_init_cmdr));
 	memset(g_initscript, 0, sizeof(g_initscript));
 	memset(g_pty_slavepath, 0, sizeof(g_pty_slavepath));
 	memset(g_podconfig_path, 0, sizeof(g_podconfig_path));
@@ -1876,14 +1860,6 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	setuid(0);
-
-	if (g_lognet) {
-		if (g_newnet.kind != ESRTNL_KIND_IPVLAN
-				&& g_newnet.kind != ESRTNL_KIND_MACVLAN) {
-			printf("--lognet requires use of newnet ipvlan or macvlan\n");
-			return -1;
-		}
-	}
 
 	/* backup original termios */
 	tcgetattr(STDIN_FILENO, &g_origterm);
@@ -1980,6 +1956,13 @@ int main(int argc, char *argv[])
 	/* setup network namespace */
 	if(g_newnet.active) {
 		if (netns_setup()) {
+			return -1;
+		}
+	}
+
+	if (g_init_cmdr[0] != '\0') {
+		if (init_cmdr(g_init_cmdr)) {
+			printf("init_cmdr(%s) failed\n", g_init_cmdr);
 			return -1;
 		}
 	}

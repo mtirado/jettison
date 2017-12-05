@@ -91,7 +91,7 @@ unsigned int g_podflags;
 int g_fcaps[NUM_OF_CAPS];
 char g_chroot_path[MAX_SYSTEMPATH];
 char g_errbuf[ESLIB_LOG_MAXMSG];
-char g_init_cmdr[JETTISON_CMDR_MAXNAME];
+extern char g_init_cmdr[JETTISON_CMDR_MAXNAME];
 
 struct newnet_param *g_podnewnet;
 struct user_privs *g_podprivs;
@@ -113,9 +113,7 @@ const char keywords[KWCOUNT][KWLEN] = {
 	"noproc",        /* do not mount /proc */
 	"home_exec",     /* mount empty home dir with exec flag */
 	"tmp_exec",      /* mount /tmp dir with exec flag */
-#ifdef X11OPT
 	"x11",           /* bind mount X11 socket and generate auth file */
-#endif
 
 	"- - - - - - -", /* cutoff for podflags, disregard */
 
@@ -333,7 +331,6 @@ int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
 	memset(g_fcaps, 0, sizeof(g_fcaps));
 	memset(&g_podfile, 0, sizeof(g_podfile));
 	memset(g_filedata, 0, sizeof(g_filedata));
-	memset(g_init_cmdr, 0, sizeof(g_init_cmdr));
 	memset(g_chroot_path, 0, sizeof(g_chroot_path));
 	g_podnewnet = newnet;
 	g_podseccfilter = seccfilter;
@@ -1388,14 +1385,38 @@ static int pod_enact_option_pass1(unsigned int option,
 			return -1;
 		break;
 
-#ifdef X11OPT
-	case OPTION_X11:
+#ifdef POD_INIT_CMDR
+	case OPTION_CMDR:
+		if (params == NULL) {
+			printf("null parameter\n");
+			return -1;
+		}
+		if (g_init_cmdr[0] != '\0') {
+			printf("only one commander is allowed\n");
+			return -1;
+		}
+		if (strnlen(params, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
+			printf("cmdr name too long: %s\n", params);
+			return -1;
+		}
+		if (es_strcopy(g_init_cmdr, params, sizeof(g_init_cmdr), NULL))
+			return -1;
+
 		break;
+#else
+		printf("cmdr option is disabled\n");
+		return -1;
 #endif
+
+	case OPTION_X11:
+#ifndef X11OPT
+		printf("x11 option is disabled\n");
+		return -1;
+#endif
+		break;
 	}
 	return 0;
 }
-
 
 /* returns negative on error,
  *  0 if ok,
@@ -1512,10 +1533,16 @@ static int pod_enact_option(unsigned int option,
 		printf("file capabilities are disabled\n");
 		return -1;
 #endif
-#ifdef X11OPT
-	case OPTION_X11:
-		break;
+	case OPTION_CMDR:
+#ifndef POD_INIT_CMDR
+		return -1;
 #endif
+		break;
+	case OPTION_X11:
+#ifndef X11OPT
+		return -1;
+#endif
+		break;
 
 	case OPTION_MACHINEID:
 		if (es_sprintf(path, sizeof(path), NULL,
@@ -1553,30 +1580,6 @@ static int pod_enact_option(unsigned int option,
 		}
 		break;
 
-#ifdef POD_INIT_CMDR
-	case OPTION_CMDR:
-		if (params == NULL)
-			goto null_param;
-		if (g_init_cmdr[0] != '\0') {
-			printf("only one commander is allowed\n");
-			return -1;
-		}
-		if (strnlen(params, JETTISON_CMDR_MAXNAME) >= JETTISON_CMDR_MAXNAME) {
-			printf("cmdr name too long: %s\n", params);
-			return -1;
-		}
-		if (es_strcopy(g_init_cmdr, params, sizeof(g_init_cmdr), NULL))
-			return -1;
-
-		if (init_cmdr(g_init_cmdr)) {
-			printf("init_cmdr(%s) failed\n", g_init_cmdr);
-			return -1;
-		}
-		break;
-#else
-		printf("cmdr option is disabled\n");
-		return -1;
-#endif
 	default:
 		printf("unknown option\n");
 		return -1;

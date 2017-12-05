@@ -22,9 +22,6 @@ struct newnet_param {
 	char prefix[3];        /* netmask prefix */
 	unsigned char netmask; /* subnet mask, prefix bits */
 	unsigned int  kind;    /* RTNL_KIND_ in eslib_rtnetlink.h */
-	pid_t log_pid;         /* logger process */
-	int log_filesize;      /* maximum individual file size */
-	int log_count;         /* number of rotation files */
 	int root_ns;           /* initial net namespace */
 	int new_ns;            /* new net namespace */
 };
@@ -121,6 +118,8 @@ int create_machineid(char *path, char *newid, unsigned int entropy);
 
 int downgrade_caps();
 int capbset_drop(int fcaps[NUM_OF_CAPS]);
+
+char *get_timestamp();
 #endif
 
 

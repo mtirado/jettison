@@ -20,9 +20,7 @@ enum
 	/*OPTION_SLOG,*/
 	OPTION_HOME_EXEC,
 	OPTION_TMP_EXEC,
-#ifdef X11OPT
 	OPTION_X11,
-#endif
 	/*
 	 * anything above here is a pod flag that caller
 	 * may need to know about, and handle externally.
