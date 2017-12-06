@@ -46,13 +46,6 @@ struct bg_gizmo
 	pid_t pid;
 };
 
-struct init_cmdr
-{
-	int fd_gadgets;
-	int fd_rootfs;
-	int fd_podfs;
-};
-
 void load_gizmos();
 struct gizmo *cmdr_find_gizmo(char *name, unsigned int len);
 int init_cmdr(char *name);
