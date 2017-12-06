@@ -413,8 +413,7 @@ static int close_fds(int in, int out, int err)
 		return -1;
 	return 0;
 }
-#include <stdlib.h>
-#include <dirent.h>
+
 static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 {
 	char binpath[MAX_SYSTEMPATH];
