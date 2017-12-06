@@ -179,6 +179,8 @@ static int ipvlan_wrlock()
 	struct flock fl;
 	int r;
 	int fd;
+
+	errno = 0;
 	memset(&fl, 0, sizeof(fl));
 	fl.l_type   = F_WRLCK;
 	fl.l_whence = SEEK_SET;
@@ -279,7 +281,6 @@ int rtnetlink_countipvlan()
  * we will consult a config file to determine a particular users net resource limits.
  *
  * notes: caller is responsible for unlocking lockfd when done.
- * XXX only counts ipvlan at the moment, but should count macvlan when implemented.
  */
 int netns_count_ipvlan_devices(int *lockfd)
 {
@@ -294,10 +295,8 @@ int netns_count_ipvlan_devices(int *lockfd)
 	nsnode_list = NULL;
 	*lockfd = -1;
 
-	/* handle race condition using file lock */
 	while (1)
 	{
-		errno = 0;
 		fd = ipvlan_wrlock();
 		if (fd == -1 && errno != EINTR)
 			return -1;

@@ -150,73 +150,6 @@ int pod_free()
 	return 0;
 }
 
-/*
- * get $HOME string from environment, could make this optional to read
- * from /etc/passwd instead of letting user set it from environment.
- */
-static char *gethome()
-{
-	static char static_home[MAX_SYSTEMPATH];
-	static int once = 0;
-	char *path = NULL;
-	int r;
-	ino_t root_ino;
-	ino_t file_ino;
-	unsigned int len;
-	uid_t fuid;
-
-	if (once) {
-		return static_home;
-	}
-
-	path = eslib_proc_getenv("HOME");
-	if (path == NULL) {
-		printf("could not find $HOME environment variable\n");
-		return NULL;
-	}
-
-	len = strnlen(path, MAX_SYSTEMPATH);
-	if (len >= MAX_SYSTEMPATH || len == 0)
-		goto bad_path;
-	if (chop_trailing(path, MAX_SYSTEMPATH, '/') < 0)
-		goto bad_path;
-	if (eslib_file_path_check(path))
-		goto bad_path;
-	r = eslib_file_exists(path);
-	if (r == -1 || r == 0)
-		goto bad_path;
-
-	root_ino = eslib_file_getino("/");
-	file_ino = eslib_file_getino(path);
-	if (root_ino == 0 || file_ino == 0) {
-		printf("inode error\n");
-		return NULL;
-	}
-	if (root_ino == file_ino) {
-		printf("home(%s) cannot be a root inode\n", path);
-		return NULL;
-	}
-	if (eslib_file_isdir(path) != 1) {
-		printf("$HOME is not a directory: %s\n", path);
-		return NULL;
-	}
-	fuid = eslib_file_getuid(path);
-	if (fuid == (uid_t)-1)
-		return NULL;
-	if (fuid != g_ruid) {
-		printf("$HOME permission denied: %s\n", path);
-		return NULL;
-	}
-	if (es_strcopy(static_home, path, MAX_SYSTEMPATH, NULL))
-		return NULL;
-	once = 1;
-	return static_home;
-
-bad_path:
-	printf("bad $HOME environment variable: %s\n", path);
-	return NULL;
-}
-
 /* looks in ~/.pods then /etc/jettison/pods as fallback path */
 int load_config_file(char *filepath)
 {
@@ -254,7 +187,7 @@ int load_config_file(char *filepath)
 			printf("pod file is not a regular file\n");
 			goto err_ret;
 		}
-		home = gethome();
+		home = gethome(g_ruid);
 		if (home == NULL)
 			goto err_ret;
 
@@ -583,7 +516,7 @@ static int create_homeroot(unsigned long mntflags, unsigned long nodetype)
 		printf("duplicate home root\n");
 		return -1;
 	}
-	homepath = gethome();
+	homepath = gethome(g_ruid);
 	if (homepath == NULL)
 		return -1;
 	node = malloc(sizeof(*node));
@@ -718,7 +651,7 @@ int create_pathnode(char *params, unsigned int params_len, int home)
 	 * e.g. /.bashrc translates to POD_PATH/$USER/filename.pod/podhome/.bashrc
 	 */
 	if (home) {
-		homepath = gethome();
+		homepath = gethome(g_ruid);
 		if (homepath == NULL)
 			return -1;
 

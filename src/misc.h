@@ -120,6 +120,7 @@ int downgrade_caps();
 int capbset_drop(int fcaps[NUM_OF_CAPS]);
 
 char *get_timestamp();
+char *gethome(uid_t real_uid);
 #endif
 
 

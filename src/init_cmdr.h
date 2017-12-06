@@ -18,12 +18,16 @@
 
 #include "defines.h"
 
-#define NUM_GIZMOS 4
+#define NUM_GIZMOS 5
 
+/*
+ * notes: all fortified gizmos have a shared /gizmo home directory
+ *
+ */
 #define CMDR_FLAG_NON_CRITICAL     (1 << 0) /* if something goes wrong, don't freak out */
 #define CMDR_FLAG_NO_ROOT_NETNS    (1 << 1) /* do not run in root net namespace */
 #define CMDR_FLAG_BACKGROUND       (1 << 2) /* run in background, no error check */
-#define CMDR_FLAG_HOMEFORT         (1 << 3) /* TODO fortified with access to /home/user */
+#define CMDR_FLAG_HOMEFORT         (1 << 3) /* fortified with access to home & podhome */
 #define CMDR_FLAG_UNFORTIFIED      (1 << 4) /* don't be a fool, fortify your gizmos */
 
 struct gizmo
