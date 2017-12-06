@@ -82,6 +82,7 @@ void load_gizmos()
 	es_strcopy(giz[3].name, "tcpdump", JETTISON_CMDR_MAXNAME, NULL);
 	giz[3].flags |= CMDR_FLAG_NO_ROOT_NETNS;
 	giz[3].flags |= CMDR_FLAG_BACKGROUND;
+	giz[3].flags |= CMDR_FLAG_GIZMODIR;
 	giz[3].caps[CAP_NET_RAW]   = 1;
 
 	es_strcopy(giz[4].name, "ls", JETTISON_CMDR_MAXNAME, NULL);
@@ -200,7 +201,7 @@ retry:
 	return giz_dir;
 }
 
-static int create_subdir(struct gizmo *giz, char *outbuf, size_t bufsize, gid_t log_gid)
+static int create_gizmodir(struct gizmo *giz, char *outbuf, size_t bufsize)
 {
 	char *giz_dir;
 
@@ -226,7 +227,7 @@ static int create_subdir(struct gizmo *giz, char *outbuf, size_t bufsize, gid_t 
 		printf("chmod: %s\n", strerror(errno));
 		return -1;
 	}
-	if (chown(outbuf, g_ruid, log_gid)) {
+	if (chown(outbuf, g_ruid, g_rgid)) {
 		printf("chown: %s\n", strerror(errno));
 		return -1;
 	}
@@ -238,17 +239,14 @@ static int create_subdir(struct gizmo *giz, char *outbuf, size_t bufsize, gid_t 
 }
 
 
-static int cmdr_fortify_subdir(struct gizmo *giz)
+static int cmdr_fortify_gizroot(struct gizmo *giz)
 {
-	char dirpath[MAX_SYSTEMPATH];
 	char gizroot[MAX_SYSTEMPATH];
+	char gizmodir[MAX_SYSTEMPATH];
 	char binpath[MAX_SYSTEMPATH];
 	struct path_node node;
 	unsigned int fortflags =  ESLIB_FORTIFY_SHARE_NET
 				| ESLIB_FORTIFY_IGNORE_CAP_BLACKLIST;
-
-	if (create_subdir(giz, dirpath, sizeof(dirpath), g_rgid))
-		return -1;
 
 	if (es_sprintf(gizroot, sizeof(gizroot), NULL, "%s/.gizmo", POD_PATH))
 		return -1;
@@ -257,7 +255,10 @@ static int cmdr_fortify_subdir(struct gizmo *giz)
 				JETTISON_CMDR_GIZMOS, giz->name))
 		return -1;
 
-
+	if (giz->flags & CMDR_FLAG_GIZMODIR) {
+		if (create_gizmodir(giz, gizmodir, sizeof(gizmodir)))
+			return -1;
+	}
 	memset(&node, 0, sizeof(node));
 	node.mntflags = MS_RDONLY|MS_NODEV|MS_UNBINDABLE|MS_NOSUID;
 
@@ -282,17 +283,20 @@ static int cmdr_fortify_subdir(struct gizmo *giz)
 				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
 		return -1;
 
-	/* /gizmo */
-	node.mntflags = MS_NOEXEC|MS_NODEV|MS_NOSUID;
-	if (es_strcopy(node.src, dirpath, MAX_SYSTEMPATH, NULL))
-		return -1;
-	if (es_sprintf(node.dest, MAX_SYSTEMPATH, NULL, "%s/%s", gizroot, "gizmo"))
-		return -1;
-	eslib_file_mkdirpath(node.dest, 0755);
-	if (setreuid(0, g_ruid))
-		return -1;
-	if (pathnode_bind(&node))
-		return -1;
+	if (giz->flags & CMDR_FLAG_GIZMODIR) {
+		/* /gizmo */
+		node.mntflags = MS_NOEXEC|MS_NODEV|MS_NOSUID;
+		if (es_strcopy(node.src, gizmodir, MAX_SYSTEMPATH, NULL))
+			return -1;
+		if (es_sprintf(node.dest,MAX_SYSTEMPATH,NULL,"%s/%s", gizroot, "gizmo"))
+			return -1;
+		eslib_file_mkdirpath(node.dest, 0755);
+		if (setreuid(0, g_ruid))
+			return -1;
+		if (pathnode_bind(&node))
+			return -1;
+	}
+
 	if (setreuid(g_ruid, 0))
 		return -1;
 
@@ -320,26 +324,38 @@ static int cmdr_fortify_subdir(struct gizmo *giz)
 		printf("fortify failed\n");
 		return -1;
 	}
+
 	if (setreuid(0, g_ruid))
 		return -1;
-	if (chdir("/gizmo")) {
-		printf("chdir(/gizmo): %s\n", strerror(errno));
-		return -1;
-	}
 
+	if (giz->flags & CMDR_FLAG_GIZMODIR) {
+		if (chdir("/gizmo")) {
+			printf("chdir(/gizmo): %s\n", strerror(errno));
+			return -1;
+		}
+	}
 	return 0;
 }
 
 /* handle flags before forking new process */
 static int cmdr_flags_prefork(struct gizmo *giz)
 {
-	if (!(giz->flags & CMDR_FLAG_UNFORTIFIED)) {
-		get_gizmo_dir();
-	}
 	if (giz->flags & CMDR_FLAG_NO_ROOT_NETNS) {
 		if (!g_newnet.active) {
 			printf("cannot use gizmo(%s) in root net namespace\n", giz->name);
 			return -1;
+		}
+	}
+
+	if (giz->flags & CMDR_FLAG_UNFORTIFIED) {
+		if (giz->flags & (CMDR_FLAG_HOMEFORT | CMDR_FLAG_GIZMODIR)) {
+			printf("gizmo cannot be unfortified with homefort or gizmodir\n");
+			return -1;
+		}
+	}
+	else {
+		if (giz->flags & CMDR_FLAG_GIZMODIR) {
+			get_gizmo_dir(); /* get path once before forking */
 		}
 	}
 	return 0;
@@ -350,10 +366,6 @@ static int cmdr_flags_postfork(struct gizmo *giz)
 {
 
 	if (giz->flags & CMDR_FLAG_UNFORTIFIED) {
-		if (giz->flags & CMDR_FLAG_HOMEFORT) {
-			printf("gizmo cannot be unfortified with homefort...\n");
-			return -1;
-		}
 	        if (setresuid(g_ruid, 0, g_ruid)) {
 			printf("error setting uid(%d): %s\n", g_ruid, strerror(errno));
 			return -1;
@@ -372,8 +384,8 @@ static int cmdr_flags_postfork(struct gizmo *giz)
 		}
 	}
 	else {
-		if (cmdr_fortify_subdir(giz)) {
-			printf("fortify_subdir failed\n");
+		if (cmdr_fortify_gizroot(giz)) {
+			printf("fortify_gizroot failed\n");
 			return -1;
 		}
 		if (setresuid(g_ruid, 0, g_ruid)) {

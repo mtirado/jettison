@@ -29,7 +29,7 @@
 #define CMDR_FLAG_BACKGROUND       (1 << 2) /* run in background, no error check */
 #define CMDR_FLAG_HOMEFORT         (1 << 3) /* fortified with access to home & podhome */
 #define CMDR_FLAG_UNFORTIFIED      (1 << 4) /* don't be a fool, fortify your gizmos */
-
+#define CMDR_FLAG_GIZMODIR         (1 << 5) /* gizmo  */
 struct gizmo
 {
 	char name[JETTISON_CMDR_MAXNAME];
