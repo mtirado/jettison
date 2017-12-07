@@ -272,14 +272,14 @@ static int cmdr_fortify_gizroot(struct gizmo *giz)
 	if (setreuid(g_ruid, 0))
 		return -1;
 
-	/* TODO add define for setting specific gizmo runtime paths */
+	/* DSO1 and DSO2 default to /lib and /usr/lib */
 	if (eslib_fortify_install_file(gizroot, binpath, node.mntflags,
 				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
 		return -1;
-	if (eslib_fortify_install_file(gizroot, "/lib", node.mntflags,
+	if (eslib_fortify_install_file(gizroot, JETTISON_CMDR_GIZMO_DSO1, node.mntflags,
 				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
 		return -1;
-	if (eslib_fortify_install_file(gizroot, "/usr/lib", node.mntflags,
+	if (eslib_fortify_install_file(gizroot, JETTISON_CMDR_GIZMO_DSO2, node.mntflags,
 				ESLIB_BIND_CREATE | ESLIB_BIND_PRIVATE))
 		return -1;
 

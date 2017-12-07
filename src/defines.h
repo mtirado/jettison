@@ -52,6 +52,12 @@
 #ifndef JETTISON_CMDRS
 	#define JETTISON_CMDRS "/etc/jettison/cmdrs"
 #endif
+#ifndef JETTISON_CMDR_GIZMO_DSO1
+	#define JETTISON_CMDR_GIZMO_DSO1 "/lib"
+#endif
+#ifndef JETTISON_CMDR_GIZMO_DSO2
+	#define JETTISON_CMDR_GIZMO_DSO2 "/usr/lib"
+#endif
 #ifndef JETTISON_CMDR_GIZMOS
 	#define JETTISON_CMDR_GIZMOS "/etc/jettison/gizmos"
 #endif
