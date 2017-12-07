@@ -481,10 +481,6 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 	}
 	else {
 		close(STDIN_FILENO);
-		if (giz->flags & CMDR_FLAG_NO_STDOUT)
-			close(STDOUT_FILENO);
-		if (giz->flags & CMDR_FLAG_NO_STDOUT)
-			close(STDERR_FILENO);
 	}
 	if (close_fds(fd_stdin, fd_stdout, fd_stderr))
 		return -1;
