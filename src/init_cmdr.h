@@ -29,7 +29,9 @@
 #define CMDR_FLAG_BACKGROUND       (1 << 2) /* run in background, no error check */
 #define CMDR_FLAG_HOMEFORT         (1 << 3) /* fortified with access to home & podhome */
 #define CMDR_FLAG_UNFORTIFIED      (1 << 4) /* don't be a fool, fortify your gizmos */
-#define CMDR_FLAG_GIZMODIR         (1 << 5) /* exec from /gizmo, for file io.
+#define CMDR_FLAG_NO_STDOUT        (1 << 5) /* set stdout to /dev/null */
+#define CMDR_FLAG_NO_STDERR        (1 << 6) /* set stderr to /dev/null */
+#define CMDR_FLAG_GIZMODIR         (1 << 7) /* exec from /gizmo, for file io.
 					       mounts to cwd/podname+time/gizmo->name */
 struct gizmo
 {

@@ -423,6 +423,9 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 	char *env[4] = { NULL, NULL, NULL, NULL };
 	pid_t p;
 	int devnull;
+	int fd_stdin  = -1;
+	int fd_stdout = -1;
+	int fd_stderr = -1;
 
 	/* setup program environ variables */
 	if (username == NULL || home == NULL)
@@ -468,11 +471,22 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 	}
 
 
-	/* TODO stdio flags */
 	devnull = open("/dev/null", O_RDONLY, 0);
-	if (devnull < 0)
-		close(0);
-	if (close_fds(devnull, -1, -1))
+	fd_stdin = devnull;
+	if (devnull >= 0) {
+		if (giz->flags & CMDR_FLAG_NO_STDOUT)
+			fd_stdout = devnull;
+		if (giz->flags & CMDR_FLAG_NO_STDERR)
+			fd_stderr = devnull;
+	}
+	else {
+		close(STDIN_FILENO);
+		if (giz->flags & CMDR_FLAG_NO_STDOUT)
+			close(STDOUT_FILENO);
+		if (giz->flags & CMDR_FLAG_NO_STDOUT)
+			close(STDERR_FILENO);
+	}
+	if (close_fds(fd_stdin, fd_stdout, fd_stderr))
 		return -1;
 	if (cmdr_flags_postfork(giz))
 		return -1;
