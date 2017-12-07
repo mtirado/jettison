@@ -471,7 +471,7 @@ static int execute(struct gizmo *giz, char *argv[], char *username, char *home)
 	}
 
 
-	devnull = open("/dev/null", O_RDONLY, 0);
+	devnull = open("/dev/null", O_RDWR, 0);
 	fd_stdin = devnull;
 	if (devnull >= 0) {
 		if (giz->flags & CMDR_FLAG_NO_STDOUT)
