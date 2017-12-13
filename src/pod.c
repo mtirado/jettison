@@ -1373,6 +1373,10 @@ static int pod_enact_option(unsigned int option,
 #endif
 	if (option >= KWCOUNT)
 		return -1;
+	if (params_len == 0 || params == NULL) {
+		params_len = 0;
+		params = NULL;
+	}
 	/* first pass happens before we clone */
 	if (pass == 1)
 		return pod_enact_option_pass1(option, params, params_len);
@@ -1529,9 +1533,10 @@ null_param:
 static int pass1_finalize()
 {
 	char pathbuf[MAX_SYSTEMPATH];
-	unsigned int len;
 
 #ifndef PODROOT_HOME_OVERRIDE
+{
+	unsigned int len;
 	/* whitelist jettison init program */
 	if (es_sprintf(pathbuf, sizeof(pathbuf), &len, "rx %s", INIT_PATH))
 		return -1;
@@ -1551,6 +1556,7 @@ static int pass1_finalize()
 		printf("couldn't create rdonly path(%s)\n", pathbuf);
 		return -1;
 	}
+}
 #endif
 
 	/* remount /podhome as empty node unless $HOME is already whitelisted */
@@ -1679,6 +1685,8 @@ static int cfg_parse_line(char *line, const size_t linelen, int pass)
 
 	keyword = eslib_string_toke(line, linepos, linelen, &advance);
 	linepos += advance;
+	if (eslib_string_toke(line, linepos, linelen, &advance) == NULL)
+		linepos = linelen;
 	if (keyword == NULL) { /* only tabs/spaces on line */
 		return 0;
 	}
