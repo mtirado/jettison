@@ -1679,13 +1679,15 @@ static int get_keyword(char *kw)
 static int cfg_parse_line(char *line, const size_t linelen, int pass)
 {
 	char *keyword;
+	char *params;
 	int kw;
 	unsigned int linepos = 0;
 	unsigned int advance  = 0;
 
 	keyword = eslib_string_toke(line, linepos, linelen, &advance);
 	linepos += advance;
-	if (eslib_string_toke(line, linepos, linelen, &advance) == NULL)
+	params = eslib_string_toke(line, linepos, linelen, &advance);
+	if (params == NULL)
 		linepos = linelen;
 	if (keyword == NULL) { /* only tabs/spaces on line */
 		return 0;
@@ -1698,7 +1700,7 @@ static int cfg_parse_line(char *line, const size_t linelen, int pass)
 		return -1;
 	}
 
-	if (pod_enact_option(kw, &line[linepos], linelen - linepos, pass))
+	if (pod_enact_option(kw, params, linelen - linepos, pass))
 		return -1;
 
 	return 0;
