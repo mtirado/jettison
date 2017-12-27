@@ -364,6 +364,10 @@ static int do_chroot_setup()
 	mkdir(podhome, 0770);
 	setuid(0);
 	setgid(0);
+	if (chown(podhome, g_ruid, 0)) {
+		printf("chown %s failed: %s\n", podhome, strerror(errno));
+		return -1;
+	}
 	if (chown(g_chroot_path, 0, 0)) {
 		printf("chown %s failed: %s\n", g_chroot_path, strerror(errno));
 		return -1;
