@@ -12,7 +12,6 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
-#include "capability.h"
 #include <unistd.h>
 #include <string.h>
 #include <dirent.h>

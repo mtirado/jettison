@@ -150,8 +150,8 @@ install:
 	@install -DCvm 0644  etc/jettison/blacklist "$(DESTDIR)/etc/jettison/blacklist"
 	@install -Dvm  0644   man/jettison.1 \
 				"$(DESTDIR)/$(MANDIR)/man1/jettison.1"
-	@install -Dvm 0644   man/jettison_destruct.8 \
-				"$(DESTDIR)/$(MANDIR)/man8/jettison_destruct.8"
+	@install -Dvm 0644   man/jettison_destruct.1 \
+				"$(DESTDIR)/$(MANDIR)/man8/jettison_destruct.1"
 #	@chown   -v 0:0 $(DESTDIR)/$(POD_PATH)
 #	@chown   -v$(DEF_UID):0 $(DESTDIR)/$(POD_PATH)/user
 clean:

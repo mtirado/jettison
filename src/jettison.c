@@ -607,7 +607,7 @@ int process_arguments(int argc, char *argv[])
 				goto err_usage;
 
 			if (strncmp(argv[i], "--stacksize", len) == 0) {
-				if (argc < i+1 || argv[i+1] == '\0')
+				if (argc < i+1 || argv[i+1] == 0)
 					goto missing_opt;
 				errno = 0;
 				++i;
@@ -624,7 +624,7 @@ int process_arguments(int argc, char *argv[])
 			}
 			else if (strncmp(argv[i], "--procname", len) == 0
 					|| strncmp(argv[i], "-p", len) == 0) {
-				if (argc < i+1 || argv[i+1] == '\0')
+				if (argc < i+1 || argv[i+1] == 0)
 					goto missing_opt;
 				++i;
 				len = strnlen(argv[i], MAX_PROCNAME);
@@ -917,7 +917,7 @@ static void relayio_sigsetup()
 	signal(SIGXFSZ,   relayio_sighand);
 	signal(SIGIOT,    relayio_sighand);
 	signal(SIGSTKFLT, relayio_sighand);
-	signal(SIGUNUSED, relayio_sighand);
+	signal(SIGSYS,    relayio_sighand);
 	signal(SIGTRAP,   relayio_sighand);
 
 	/* forward these */
