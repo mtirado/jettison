@@ -20,6 +20,7 @@
 #include <linux/if_link.h>
 #include <stdlib.h>
 #include <time.h>
+#include <limits.h>
 #include "../eslib/eslib.h"
 #include "../eslib/eslib_rtnetlink.h"
 #include "../eslib/eslib_fortify.h"
@@ -303,6 +304,8 @@ int netns_count_ipvlan_devices(int *lockfd)
 			break;
 	}
 
+	setuid(g_ruid);
+	setgid(g_rgid);
 	dir = opendir("/proc");
 	if (dir == NULL) {
 		printf("error opening /proc: %s\n", strerror(errno));
@@ -374,7 +377,9 @@ int netns_count_ipvlan_devices(int *lockfd)
 		if (r < 0) {
 			goto free_err;
 		}
-
+		if (count_ret + (unsigned int)r >= INT_MAX
+				|| count_ret + (unsigned int) r < count_ret)
+			goto free_err;
 		/* mark as counted */
 		n = malloc(sizeof(struct netns_node));
 		if (n == NULL) {
@@ -384,9 +389,10 @@ int netns_count_ipvlan_devices(int *lockfd)
 		n->next = nsnode_list;
 		nsnode_list = n;
 
-		count_ret += r;
+		count_ret += (unsigned int)r;
 	}
-
+	setuid(0);
+	setgid(0);
 	/* return to original netns */
 	if (setns(g_newnet.root_ns, CLONE_NEWNET)) {
 		printf("setns(root_ns): %s\n", strerror(errno));
@@ -399,10 +405,8 @@ int netns_count_ipvlan_devices(int *lockfd)
 		nsnode_list = n;
 	}
 	closedir(dir);
-	setuid(0);
-	setgid(0);
 	*lockfd = fd;
-	return count_ret;
+	return (int)count_ret;
 
 free_err:
 	closedir(dir);
@@ -511,7 +515,7 @@ int netns_setup()
 				goto ipvlan_err;
 			}
 		}
-		r = eslib_rtnetlink_linksetns(ifname, g_newnet.new_ns, 0);
+		r = eslib_rtnetlink_linksetns(ifname, (uint32_t)g_newnet.new_ns, 0);
 		if (r) {
 			printf("temp link(%s) setns failed\n", ifname);
 			(r > 0) ? printf("nack: %s\n",strerror(r)):printf("error\n");

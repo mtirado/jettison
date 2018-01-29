@@ -53,13 +53,13 @@ struct sc_info
 {
 	unsigned long counter[2]; /* enters / exits */
 	unsigned long sigsys[2];  /* seccomp_ret_trap's * 2 */
-	long callnum;
+	short callnum;
 };
 
-static void sc_init(struct sc_info *sc, unsigned int count)
+static void sc_init(struct sc_info *sc, short count)
 {
-	unsigned int i;
-	memset(sc, 0, sizeof(*sc) * count);
+	short i;
+	memset(sc, 0, sizeof(*sc) * (size_t)count);
 	for (i = 0; i < count; ++i) {
 		sc[i].callnum = i;
 	}
@@ -89,9 +89,9 @@ static int sc_cmplt(struct sc_info *lhs, struct sc_info *rhs)
  * prints systemcall stats sorted by frequency
  * also generates a configuration file ./podtemplate.pod
  */
-void print_stats(struct sc_info *info, unsigned int count, int podfile)
+void print_stats(struct sc_info *info, short count, int podfile)
 {
-	unsigned int i, z;
+	int i, z;
 	struct sc_info tmp;
 	int fstatus = 0;
 
@@ -265,7 +265,7 @@ int tracecalls(pid_t p, int ipc, char *fortpath)
     int ret;
     pid_t curpid;
     long sigsend;
-    long possible_syscalls;
+    short possible_syscalls;
     struct sc_info *info = NULL;
     unsigned long unknown[2];
 
@@ -274,11 +274,13 @@ int tracecalls(pid_t p, int ipc, char *fortpath)
 
     sigsetup();
     /* +1 to get count of 0 based syscall numbers */
-    possible_syscalls = syscall_gethighest() + 1;
-    info = malloc(possible_syscalls * sizeof(struct sc_info));
-    if (info == NULL || possible_syscalls == 0)
+    possible_syscalls = (short)(syscall_gethighest() + 1);
+    if (possible_syscalls <= 1)
+	    return -1;
+    info = malloc((size_t)possible_syscalls * sizeof(struct sc_info));
+    if (info == NULL || possible_syscalls <= 1)
 	    _exit(-1);
-    memset(info, 0, possible_syscalls * sizeof(struct sc_info));
+    memset(info, 0, (size_t)possible_syscalls * sizeof(struct sc_info));
     unknown[0] = 0;
     unknown[1] = 0;
     sc_init(info, possible_syscalls);
@@ -381,7 +383,7 @@ int tracecalls(pid_t p, int ipc, char *fortpath)
 					printf("[%d] unknown seccomp trap data %d -",
 							curpid, sig.si_errno);
 				}
-				name = syscall_getname(sig.si_syscall);
+				name = syscall_getname((short)sig.si_syscall);
 				if (name) {
 					printf("%s\r\n", name);
 					/* increment twice to count as enter/exit

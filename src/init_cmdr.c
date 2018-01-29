@@ -148,7 +148,8 @@ static char *get_gizmo_dir()
 	struct timespec t;
 	char *filename;
 	char *timestamp;
-	int i, r;
+	unsigned int i;
+	int r;
 
 	if (once)
 		return giz_dir;
@@ -160,7 +161,9 @@ retry:
 	if (filename == NULL)
 		return NULL;
 
-	if (randhex(hexstr,sizeof(hexstr)-1, ++i + 0x1f2e3d4c + t.tv_nsec+t.tv_sec, 999))
+	if (randhex(hexstr,sizeof(hexstr)-1,
+				(++i + 0x1f2e3d4c)
+				+ (unsigned int)t.tv_nsec + (unsigned int)t.tv_sec, 999))
 		return NULL;
 	hexstr[sizeof(hexstr)-1] = '\0';
 	if (es_sprintf(giz_dir,sizeof(giz_dir),NULL, "%s/%s-%s-%s",

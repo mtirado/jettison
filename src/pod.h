@@ -51,7 +51,7 @@ int pod_prepare(char *filepath,
 		char *outpath,
 		struct newnet_param *newnet,
 		struct seccomp_program *seccfilter,
-		unsigned int blacklist,
+		int blacklist,
 		struct user_privs *privs,
 		unsigned int *outflags);
 

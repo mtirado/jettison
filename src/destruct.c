@@ -158,7 +158,7 @@ static int proc_checkmounts(char *path)
 	unsigned int pathlen;
 
 	errno = 0;
-	fsize = eslib_procfs_readfile("/proc/mounts", &fbuf);
+	fsize = (size_t)eslib_procfs_readfile("/proc/mounts", &fbuf);
 	if (fsize == (size_t)-1 || fsize == 0) {
 		printf("error reading /proc/mounts\n");
 		errno = EIO;
@@ -245,10 +245,10 @@ static int overwrite(char *path, unsigned int leaf_action)
 	struct stat st;
 	struct timespec t;
 	static unsigned int block_counter = 0;
-	unsigned int e1 = 0;
+	unsigned char e1 = 0;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-	e1 = t.tv_nsec;
+	e1 = (unsigned char)(t.tv_nsec+t.tv_sec);
 	memset(&st, 0, sizeof(st));
 	r = stat(path, &st);
 	if (r == -1) {
@@ -299,8 +299,8 @@ static int overwrite(char *path, unsigned int leaf_action)
 			for (z = 0; z < sizeof(wbuf); ++z)
 			{
 				++block_counter;
-				e1 += block_counter;
-				wbuf[z] += e1;
+				e1 = (unsigned char)(e1 + block_counter);
+				wbuf[z] = (unsigned char)(wbuf[z] + e1);
 				shuffle_bits(wbuf, sizeof(wbuf), wbuf[z], z, e1);
 			}
 		}
@@ -426,9 +426,9 @@ int recurse(char *path, unsigned int leaf_action, unsigned int *depth)
 
 int main(int argc, char *argv[])
 {
-	unsigned int i;
 	struct timespec t;
 	char ch;
+	size_t cnt;
 
 	if (getuid() == 0 || geteuid() == 0) {
 		printf("WARNING you have uid 0, this is *potentially* disasterous.\n");
@@ -470,20 +470,24 @@ int main(int argc, char *argv[])
 
 	/* note: rng assumes overflows are not saturated! */
 	if (g_opts == ACTION_NUKE) {
-		unsigned int z;
+		long i, z;
 		unsigned char init[]={'v','2','g','i','B','D','e','h','X','W','3','U'};
-		unsigned int p = getpid();
-		for (z = 0; z < sizeof(init); ++z)
+		long p = (long)getpid();
+		for (z = 0; z < (long)sizeof(init); ++z)
 		{
 			clock_gettime(CLOCK_MONOTONIC_RAW, &t);
-			for (i = 0; i < sizeof(wbuf); ++i)
+			for (i = 0; i < (long)sizeof(wbuf); ++i)
 			{
-				wbuf[i] += z+((p+t.tv_nsec)%32);
-				wbuf[i] += i+init[(i+z)%(sizeof(init)-1)];
+				wbuf[i] = (unsigned char)(wbuf[i]
+							+ z+((p+t.tv_nsec)%32));
+				wbuf[i] = (unsigned char)(wbuf[i] + i+init[
+							(i+z)%((long)sizeof(init)-1)
+							]);
 			}
 		}
 	}
 	else { /* zero */
+		size_t i;
 		memset(wbuf, 0, sizeof(wbuf));
 		for (i = 0; i < sizeof(wbuf); ++i)
 		{
@@ -501,10 +505,10 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	for (i = 1; i <= g_iter; ++i)
+	for (cnt = 1; cnt <= g_iter; ++cnt)
 	{
 		unsigned int depth = 0;
-		printf("----------------- pass %d -----------------\n", i);
+		printf("----------------- pass %d -----------------\n", cnt);
 		if (recurse(g_path, g_opts, &depth)) {
 			/* TODO: restart with a non-recursive fallback */
 			printf("recurse error, try manual cleanup\n");

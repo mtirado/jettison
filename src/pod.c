@@ -243,7 +243,7 @@ err_ret:
  * copies out chroot path, and pod flags
  * */
 int pod_prepare(char *filepath, char *chroot_path, struct newnet_param *newnet,
-		struct seccomp_program *seccfilter, unsigned int blacklist,
+		struct seccomp_program *seccfilter, int blacklist,
 		struct user_privs *privs, unsigned int *outflags)
 {
 	int r;
@@ -330,7 +330,7 @@ static int do_chroot_setup()
 {
 	char podhome[MAX_SYSTEMPATH];
 	int r;
-	int l = strnlen(POD_PATH, MAX_SYSTEMPATH);
+	size_t l = strnlen(POD_PATH, MAX_SYSTEMPATH);
 
 	if (l >= MAX_SYSTEMPATH / 2 || l <= 1)
 		return -1;
@@ -603,20 +603,20 @@ int create_pathnode(char *params, unsigned int params_len, int home)
 			case 'r':
 				break;
 			case 'w':
-				remountflags &= ~MS_RDONLY;
+				remountflags &= (unsigned int)~MS_RDONLY;
 				break;
 			case 'x':
-				remountflags &= ~MS_NOEXEC;
+				remountflags &= (unsigned int)~MS_NOEXEC;
 				break;
 			case 's':
 #ifdef USE_FILE_CAPS
-				remountflags &= ~MS_NOSUID;
+				remountflags &= (unsigned int)~MS_NOSUID;
 #else
 				printf("NOTE: mount option \"s\" is disabled\n");
 #endif
 				break;
 			case 'd':
-				remountflags &= ~MS_NODEV;
+				remountflags &= (unsigned int)~MS_NODEV;
 				break;
 #ifdef PODROOT_HOME_OVERRIDE
 			case 'R':
@@ -1250,7 +1250,7 @@ static int parse_newnet(char *line, unsigned int len)
 					printf("invalid netmask\n");
 					return -1;
 				}
-				g_podnewnet->netmask = netmask;
+				g_podnewnet->netmask = (unsigned char)netmask;
 				if (es_strcopy(g_podnewnet->prefix,
 							&g_podnewnet->addr[i], 3, NULL))
 					return -1;
@@ -1298,7 +1298,7 @@ static int pod_enact_option_pass1(unsigned int option,
 {
 	if (option < OPTION_PODFLAG_CUTOFF) {
 		/* set flag if below cutoff */
-		g_podflags |= (1 << option);
+		g_podflags |= (unsigned int)(1 << option);
 	}
 	switch (option)
 	{
@@ -1567,7 +1567,7 @@ static int pass1_finalize()
 	if (g_homeroot == NULL) {
 		unsigned long mntflags = MS_NOEXEC|MS_NOSUID|MS_NODEV|MS_UNBINDABLE;
 		if (g_podflags & (1 << OPTION_HOME_EXEC)) {
-			mntflags &= ~MS_NOEXEC;
+			mntflags &= (unsigned int)~MS_NOEXEC;
 		}
 		if (create_homeroot(mntflags, NODE_EMPTY)) {
 			return -1;
@@ -1598,7 +1598,7 @@ static int pass2_finalize()
 	tnode.mntflags = MS_UNBINDABLE|MS_NOEXEC|MS_NOSUID|MS_NODEV;
 	tnode.nodetype = NODE_EMPTY;
 	if (g_podflags & (1 << OPTION_TMP_EXEC)) {
-		tnode.mntflags &= ~MS_NOEXEC;
+		tnode.mntflags &= (unsigned int)~MS_NOEXEC;
 	}
 	if (pathnode_bind(&tnode)) {
 		printf("pathnode_bind(%s, %s) failed\n", tnode.src, tnode.dest);
@@ -1668,8 +1668,7 @@ static int pass2_finalize()
 
 static int get_keyword(char *kw)
 {
-	unsigned int i = 0;
-
+	int i = 0;
 	for (; i < KWCOUNT; ++i)
 	{
 		if (strncmp(keywords[i], kw, KWLEN) == 0)
@@ -1704,7 +1703,7 @@ static int cfg_parse_line(char *line, const size_t linelen, int pass)
 		return -1;
 	}
 
-	if (pod_enact_option(kw, params, linelen - linepos, pass))
+	if (pod_enact_option((unsigned int)kw, params, linelen - linepos, pass))
 		return -1;
 
 	return 0;

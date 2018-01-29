@@ -18,6 +18,7 @@
 #include <linux/securebits.h>
 #include <sys/prctl.h>
 #include <time.h>
+#include <limits.h>
 #include "eslib/eslib.h"
 #include "misc.h"
 
@@ -407,16 +408,16 @@ int shuffle_bits(unsigned char *data, size_t size, size_t idx,
 	idx %= size;
 	dest = (idx + amount) % size;
 	tmp = data[dest];
-	data[dest] = (data[dest] & ~bitmask) | (data[idx] & bitmask);
-	data[idx]  = (data[idx]  & ~bitmask) | (tmp & bitmask);
+	data[dest] = (unsigned char)(data[dest] & ~bitmask) | (data[idx] & bitmask);
+	data[idx]  = (unsigned char)(data[idx]  & ~bitmask) | (tmp & bitmask);
 	return 0;
 }
 
 /* assumes overflows are not saturated, does not null terminate output */
 int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cycles)
 {
-	const char hecks[16] = {'0','1','2','3','4','5','6','7',
-			  '8','9','a','b','c','d','e','f'};
+	const unsigned char hecks[16] = {'0','1','2','3','4','5','6','7',
+					 '8','9','a','b','c','d','e','f'};
 	unsigned int i, z;
 	unsigned int iterations;
 	unsigned char h1;
@@ -437,23 +438,23 @@ int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cyc
 		return -1;
 
 	entropy += 99;
-	h1 = entropy+hecks[entropy%16];
+	h1 = (unsigned char)(entropy+hecks[entropy%16]);
 	for (i = 0; i < size; i += 4)
 	{
 		memcpy(&out[i], &entropy, sizeof(entropy));
-		out[i+1] += out[i] + h1;
-		out[i+2] += out[i+1] + out[i];
-		out[i+3] += out[i+2] + out[i+1];
-		h1 += out[i+3]+entropy;
+		out[i+1] = (char)(out[i+1] + out[i]   + h1);
+		out[i+2] = (char)(out[i+2] + out[i+1] + out[i]);
+		out[i+3] = (char)(out[i+3] + out[i+2] + out[i+1]);
+		h1 = (unsigned char)(h1 + out[i+3] + (char)entropy);
 	}
 	for (z = 0; z < 15; ++z)
 	{
 		for (i = 0; i < size; i += 4)
 		{
-			out[i+1] += out[i] + h1;
-			out[i+2] += out[i+1] + out[i];
-			out[i+3] += out[i+2] + out[i+1];
-			h1 += out[i+3]+entropy;
+			out[i+1] = (char)(out[i+1] + out[i]   + h1);
+			out[i+2] = (char)(out[i+2] + out[i+1] + out[i]);
+			out[i+3] = (char)(out[i+3] + out[i+2] + out[i+1]);
+			h1 = (unsigned char)(h1 + out[i+3] + (char)entropy);
 			++entropy;
 		}
 	}
@@ -461,8 +462,8 @@ int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cyc
 	for (i = 0; i < iterations ; ++i)
 	{
 		unsigned int  e  = entropy+i;
-		unsigned char e2 = out[e%size]+i;
-		out[i%size] += e+e2;
+		unsigned char e2 = (unsigned char)((unsigned int)out[e%size]+i);
+		out[i%size] = (char)((unsigned int)out[i%size] + e + e2);
 		if (shuffle_bits((unsigned char *)out, size, entropy, e, e2)) {
 			return -1;
 		}
@@ -470,8 +471,8 @@ int randhex(char *out, unsigned int size, unsigned int entropy, unsigned int cyc
 	/* generate hex string */
 	for (i = 0; i < size; ++i)
 	{
-		unsigned char c = out[i];
-		out[i] = hecks[c%16];
+		unsigned char c = (unsigned char)out[i];
+		out[i] = (char)hecks[c%16];
 	}
 	return 0;
 }
@@ -544,7 +545,7 @@ int getch(char *c)
 	if (tcgetattr(STDIN_FILENO, &orig))
 		return -1;
 	memcpy(&tmp, &orig, sizeof(tmp));
-	tmp.c_lflag &= ~(ICANON|ECHO);
+	tmp.c_lflag &= (unsigned int)~(ICANON|ECHO);
 
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &tmp))
 		return -1;
@@ -598,27 +599,27 @@ uid_t get_user_id(char *username)
 	unsigned long uid;
 
 	if (username == NULL)
-		return -1;
+		return (uid_t)-1;
 
 	pwline = passwd_fetchline_byname(username, PASSWD_FILE);
 	if (pwline == NULL) {
 		printf("could not find user: %s\n", username);
-		return -1;
+		return (uid_t)-1;
 	}
 	pwuid = passwd_getfield(pwline, PASSWD_UID);
 	if (pwuid == NULL) {
 		printf("could not find uid in passwd file\n");
-		return -1;
+		return (uid_t)-1;
 	}
 	errno = 0;
 	uid = strtoul(pwuid, &err, 10);
 	if (errno || err == NULL || *err) {
 		printf("error converting string to ulong\n");
-		return -1;
+		return (uid_t)-1;
 	}
 	if ((long)uid == -1) {
 		printf("absurd uid value\n");
-		return -1;
+		return (uid_t)-1;
 	}
 	return uid;
 }
@@ -631,27 +632,27 @@ gid_t get_group_id(char *groupname)
 	unsigned long gid;
 
 	if (groupname == NULL)
-		return -1;
+		return (gid_t)-1;
 
 	grline = passwd_fetchline_byname(groupname, GROUP_FILE);
 	if (grline == NULL) {
 		printf("could not find user: %s\n", groupname);
-		return -1;
+		return (gid_t)-1;
 	}
 	grgid = passwd_getfield(grline, GROUP_GID);
 	if (grgid == NULL) {
 		printf("could not find gid in group file\n");
-		return -1;
+		return (gid_t)-1;
 	}
 	errno = 0;
 	gid = strtoul(grgid, &err, 10);
 	if (errno || err == NULL || *err) {
 		printf("error converting string to ulong\n");
-		return -1;
+		return (gid_t)-1;
 	}
 	if (gid == 0 || (long)gid == -1) {
 		printf("absurd gid value\n");
-		return -1;
+		return (gid_t)-1;
 	}
 	return gid;
 }
@@ -670,14 +671,16 @@ int close_descriptors(int *exemptions, int exemptcount)
 	fdcount = eslib_proc_alloc_fdlist(getpid(), &fdlist);
 	if (fdcount < 1) { /* there was problem reading /proc/PID */
 		struct rlimit rlim;
-		int fdcount = FAILSAFE_FLIMIT;
+		fdcount = FAILSAFE_FLIMIT;
 
 		memset(&rlim, 0, sizeof(rlim));
 		if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
 			if (rlim.rlim_cur < 128) {
 				rlim.rlim_cur = 128;
 			}
-			fdcount = rlim.rlim_cur;
+			if (rlim.rlim_cur > INT_MAX)
+				return -1;
+			fdcount = (int)rlim.rlim_cur;
 		}
 		for (i = 0; i < fdcount; ++i)
 		{
@@ -743,10 +746,11 @@ int downgrade_caps()
 				|| i == CAP_SETGID
 				|| i == CAP_SETUID
 				|| i == CAP_SETPCAP) {
-			data[CAP_TO_INDEX(i)].permitted |= CAP_TO_MASK(i);
+			data[CAP_TO_INDEX(i)].permitted |= (uint32_t)CAP_TO_MASK(i);
 			/* these dont need to be in effective set */
 			if (i != CAP_NET_RAW && i != CAP_SETUID) {
-				data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+				data[CAP_TO_INDEX(i)].effective
+					|= (uint32_t)CAP_TO_MASK(i);
 			}
 		}
 	}

@@ -77,7 +77,7 @@ CDEFINES += -DNEWNET_MACVLAN
 # CC arguments
 ##############################################################################
 CLANG   := -ansi
-CFLAGS  := -pedantic -Wall -Wextra -Werror $(CLANG) $(CDEFINES)
+CFLAGS  := -pedantic -Wall -Wextra -Wconversion -Werror $(CLANG) $(CDEFINES)
 LDFLAGS := $(JETTISON_LIBS)
 
 #TODO strip debugging info from binaries

@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <time.h>
+#include <limits.h>
 #include "pod.h"
 #include "misc.h"
 #include "eslib/eslib.h"
@@ -283,7 +284,7 @@ int print_options()
 	for (i = 0; i < NUM_OF_CAPS; ++i)
 	{
 		if (g_fcaps[i]) {
-			char *name = cap_getname(i);
+			char *name = cap_getname((int)i);
 			printf("can gain %s\n", name);
 		}
 	}
@@ -484,7 +485,7 @@ int jettison_clone_func(void *data)
  * */
 int jettison_clone(char *progpath, void *data, size_t stacksize, unsigned int podflags)
 {
-	unsigned int cloneflags;
+	int cloneflags;
 	char *newstack;
 	void *topstack;
 	pid_t p;
@@ -611,7 +612,7 @@ int process_arguments(int argc, char *argv[])
 					goto missing_opt;
 				errno = 0;
 				++i;
-				g_stacksize = strtol(argv[i], &err, 10);
+				g_stacksize = (size_t)strtoul(argv[i], &err, 10);
 				if (err == NULL || *err || errno)
 					goto bad_opt;
 				g_stacksize *= 1024; /* kilobytes to bytes */
@@ -945,16 +946,17 @@ static void relayio_sigsetup()
 static int pushbuf(int fd, char *buf, unsigned int size)
 {
 	int r;
-	unsigned int count = 0;
-
+	int count = 0;
+	if (size >= INT_MAX)
+		return -1;
 	while (1)
 	{
-		r = write(fd, &buf[count], size - count);
+		r = write(fd, &buf[count], size - (size_t)count);
 		if (r > 0) {
 			count += r;
-			if (count == size)
+			if (count == (int)size)
 				break;
-			else if (count > size)
+			else if (count > (int)size)
 				return -1;
 		}
 		else if (r == 0 || (r < 0 && (errno == EINTR || errno == EAGAIN))) {
@@ -1002,7 +1004,7 @@ static int logwrite(int fd, char *buf, int bytes)
 {
 	while(bytes > 0)
 	{
-		int r = write(fd, buf, bytes);
+		int r = write(fd, buf, (size_t)bytes);
 		if (r == bytes) {
 			break;
 		}
@@ -1077,7 +1079,7 @@ static int relay_io(int stdout_logfd)
 	int ours, theirs;
 	int status;
 	int canwrite = 1;
-	unsigned char estatus = -1;
+	int estatus = -1;
 
 	ours = STDIN_FILENO;
 	theirs = g_ptym;
@@ -1241,12 +1243,12 @@ static int relay_io(int stdout_logfd)
 			}
 			if (FD_ISSET(theirs, &wrs)) {
 				r = pushbuf(theirs, &wbuf[wpos], wbytes - wpos);
-				if (r == -1) {
+				if (r < 0) {
 					goto fatal;
 				}
 				else {
 					/* update pos */
-					wpos += r;
+					wpos += (unsigned int)r;
 					if (wpos == wbytes) {
 						wpos = 0;
 						wbytes = 0;
@@ -1281,7 +1283,8 @@ static int relay_io(int stdout_logfd)
 					goto fatal;
 				}
 				else if (r > 0) {
-					if (pushbuf(STDOUT_FILENO, rbuf, r) == -1) {
+					if (pushbuf(STDOUT_FILENO, rbuf,
+								(unsigned int)r) == -1) {
 						goto fatal;
 					}
 					if (stdout_logfd != -1) {
@@ -1297,7 +1300,7 @@ static int relay_io(int stdout_logfd)
 				if (r == -1 || r == 0) {
 					goto fatal;
 				}
-				wbytes = r;
+				wbytes = (unsigned int)r;
 				wpos = 0;
 			}
 		}
