@@ -1828,8 +1828,19 @@ static int pod_load_config_pass2()
 	while(n)
 	{
 		if (pathnode_bind(n)) {
-			printf("pathnode_bind()\n");
-			return -1;
+			if (errno == EACCES) {
+				/* try as ruid because we don't hold CAP_DAC_OVERRIDE */
+				setuid(g_ruid);
+				if (pathnode_bind(n)) {
+					printf("pathnode_bind(): %s\n", strerror(errno));
+					return -1;
+				}
+				setuid(0);
+			}
+			else {
+				printf("pathnode_bind(): %s\n", strerror(errno));
+				return -1;
+			}
 		}
 		n = n->next;
 	}

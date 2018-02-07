@@ -568,14 +568,12 @@ int pathnode_bind(struct path_node *node)
 	if (node->nodetype == NODE_EMPTY) {
 		printf("do_empty(%s, %s)\n", node->src, node->dest);
 		if (mount(node->dest, node->dest, NULL, MS_BIND, NULL)) {
-			printf("home or empty mount failed: %s\n", strerror(errno));
 			return -1;
 		}
 	}
 	else {
 		printf("pathnode_bind(%s, %s)\n", node->src, node->dest);
 		if (mount(node->src, node->dest, NULL, MS_BIND, NULL)) {
-			printf("mount failed: %s\n", strerror(errno));
 			return -1;
 		}
 	}
